@@ -1,14 +1,14 @@
 #include <Arduino.h>
 #include <DNSServer.h>
 #ifdef ESP32
-  #include <AsyncTCP.h>
-  #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <WiFi.h>
 #elif defined(ESP8266)
-  #include <ESP8266WiFi.h>
-  #include <ESPAsyncTCP.h>
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
 #elif defined(TARGET_RP2040)
-  #include <WebServer.h>
-  #include <WiFi.h>
+#include <WebServer.h>
+#include <WiFi.h>
 #endif
 
 #include <StreamString.h>
@@ -44,7 +44,7 @@ void setup() {
   file3.print("</body></html>");
   file3.close();
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     File header = LittleFS.open("/header.html", "r");
     File body = LittleFS.open("/body.html", "r");
     StreamConcat stream1(&header, &body);
@@ -66,7 +66,7 @@ void setup() {
     footer.close();
   });
 
-  server.onNotFound([](AsyncWebServerRequest* request) {
+  server.onNotFound([](AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found");
   });
 

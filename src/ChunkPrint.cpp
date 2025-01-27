@@ -1,7 +1,6 @@
 #include <ChunkPrint.h>
 
-ChunkPrint::ChunkPrint(uint8_t* destination, size_t from, size_t len)
-    : _destination(destination), _to_skip(from), _to_write(len), _pos{0} {}
+ChunkPrint::ChunkPrint(uint8_t *destination, size_t from, size_t len) : _destination(destination), _to_skip(from), _to_write(len), _pos{0} {}
 
 size_t ChunkPrint::write(uint8_t c) {
   if (_to_skip > 0) {

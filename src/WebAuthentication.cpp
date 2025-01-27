@@ -21,9 +21,9 @@
 #include "WebAuthentication.h"
 #include <libb64/cencode.h>
 #if defined(ESP32) || defined(TARGET_RP2040)
-  #include <MD5Builder.h>
+#include <MD5Builder.h>
 #else
-  #include "md5.h"
+#include "md5.h"
 #endif
 #include "literals.h"
 
@@ -31,23 +31,25 @@ using namespace asyncsrv;
 
 // Basic Auth hash = base64("username:password")
 
-bool checkBasicAuthentication(const char* hash, const char* username, const char* password) {
-  if (username == NULL || password == NULL || hash == NULL)
+bool checkBasicAuthentication(const char *hash, const char *username, const char *password) {
+  if (username == NULL || password == NULL || hash == NULL) {
     return false;
+  }
   return generateBasicHash(username, password).equalsIgnoreCase(hash);
 }
 
-String generateBasicHash(const char* username, const char* password) {
-  if (username == NULL || password == NULL)
+String generateBasicHash(const char *username, const char *password) {
+  if (username == NULL || password == NULL) {
     return emptyString;
+  }
 
   size_t toencodeLen = strlen(username) + strlen(password) + 1;
 
-  char* toencode = new char[toencodeLen + 1];
+  char *toencode = new char[toencodeLen + 1];
   if (toencode == NULL) {
     return emptyString;
   }
-  char* encoded = new char[base64_encode_expected_len(toencodeLen) + 1];
+  char *encoded = new char[base64_encode_expected_len(toencodeLen) + 1];
   if (encoded == NULL) {
     delete[] toencode;
     return emptyString;
@@ -64,7 +66,7 @@ String generateBasicHash(const char* username, const char* password) {
   return emptyString;
 }
 
-static bool getMD5(uint8_t* data, uint16_t len, char* output) { // 33 bytes or more
+static bool getMD5(uint8_t *data, uint16_t len, char *output) {  // 33 bytes or more
 #if defined(ESP32) || defined(TARGET_RP2040)
   MD5Builder md5;
   md5.begin();
@@ -74,9 +76,10 @@ static bool getMD5(uint8_t* data, uint16_t len, char* output) { // 33 bytes or m
 #else
   md5_context_t _ctx;
 
-  uint8_t* _buf = (uint8_t*)malloc(16);
-  if (_buf == NULL)
+  uint8_t *_buf = (uint8_t *)malloc(16);
+  if (_buf == NULL) {
     return false;
+  }
   memset(_buf, 0x00, 16);
 
   MD5Init(&_ctx);
@@ -98,28 +101,30 @@ String genRandomMD5() {
 #else
   uint32_t r = rand();
 #endif
-  char* out = (char*)malloc(33);
-  if (out == NULL || !getMD5((uint8_t*)(&r), 4, out))
+  char *out = (char *)malloc(33);
+  if (out == NULL || !getMD5((uint8_t *)(&r), 4, out)) {
     return emptyString;
+  }
   String res = String(out);
   free(out);
   return res;
 }
 
-static String stringMD5(const String& in) {
-  char* out = (char*)malloc(33);
-  if (out == NULL || !getMD5((uint8_t*)(in.c_str()), in.length(), out))
+static String stringMD5(const String &in) {
+  char *out = (char *)malloc(33);
+  if (out == NULL || !getMD5((uint8_t *)(in.c_str()), in.length(), out)) {
     return emptyString;
+  }
   String res = String(out);
   free(out);
   return res;
 }
 
-String generateDigestHash(const char* username, const char* password, const char* realm) {
+String generateDigestHash(const char *username, const char *password, const char *realm) {
   if (username == NULL || password == NULL || realm == NULL) {
     return emptyString;
   }
-  char* out = (char*)malloc(33);
+  char *out = (char *)malloc(33);
 
   String in;
   in.reserve(strlen(username) + strlen(realm) + strlen(password) + 2);
@@ -129,16 +134,19 @@ String generateDigestHash(const char* username, const char* password, const char
   in.concat(':');
   in.concat(password);
 
-  if (out == NULL || !getMD5((uint8_t*)(in.c_str()), in.length(), out))
+  if (out == NULL || !getMD5((uint8_t *)(in.c_str()), in.length(), out)) {
     return emptyString;
+  }
 
   in = String(out);
   free(out);
   return in;
 }
 
-bool checkDigestAuthentication(const char* header, const char* method, const char* username, const char* password, const char* realm, bool passwordIsHash, const char* nonce, const char* opaque, const char* uri)
-{
+bool checkDigestAuthentication(
+  const char *header, const char *method, const char *username, const char *password, const char *realm, bool passwordIsHash, const char *nonce,
+  const char *opaque, const char *uri
+) {
   if (username == NULL || password == NULL || header == NULL || method == NULL) {
     // os_printf("AUTH FAIL: missing requred fields\n");
     return false;
@@ -160,8 +168,8 @@ bool checkDigestAuthentication(const char* header, const char* method, const cha
   String myNc;
   String myCnonce;
 
-  myHeader += (char)0x2c; // ','
-  myHeader += (char)0x20; // ' '
+  myHeader += (char)0x2c;  // ','
+  myHeader += (char)0x20;  // ' '
   do {
     String avLine(myHeader.substring(0, nextBreak));
     avLine.trim();

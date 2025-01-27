@@ -78,7 +78,7 @@ We plan on creating a next major 4.x version that will:
 3. Drop support for ArduinoJson 5.x and 6.x. The library will be compatible with latest ArduinoJson
 
 So if you need one of these feature, you will have to stick with the current 3.x.
-All releases we do will not cease to exist: all 3.x releases will stay in the release page. 
+All releases we do will not cease to exist: all 3.x releases will stay in the release page.
 That is why we have tags and a release cycle.
 
 Maintaining a library for ESP8266 and RP2040 has a real cost and clearly what we see is that most users helping are on ESP32.
@@ -196,7 +196,7 @@ server might affect other network activities, you might consider to bind it to t
 `CONFIG_ASYNC_TCP_STACK_SIZE` - stack size for the thread that runs sever events and callbacks. Default is 16k that is a way too much waste for well-defined short async code or  simple static file handling. You might want to cosider reducing it to 4-8k to same RAM usage. If you do not know what this is or not sure about your callback code demands - leave it as default, should be enough even for very hungry callbacks in most cases.
 
 > [!NOTE]
-> This relates to ESP32 only, ESP8266 uses different ESPAsyncTCP lib that does not has this build options              
+> This relates to ESP32 only, ESP8266 uses different ESPAsyncTCP lib that does not has this build options  
 
 I personally use the following configuration in my projects:
 

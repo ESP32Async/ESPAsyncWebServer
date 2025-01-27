@@ -7,10 +7,10 @@
  */
 #include <Arduino.h>
 #ifdef ESP8266
-  #include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>
 #endif
 #ifdef ESP32
-  #include <WiFi.h>
+#include <WiFi.h>
 #endif
 #include <ESPAsyncWebServer.h>
 
@@ -18,7 +18,7 @@
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
   if (type == WS_EVT_CONNECT) {
     Serial.printf("Client #%" PRIu32 " connected.\n", client->id());
   } else if (type == WS_EVT_DISCONNECT) {
@@ -43,18 +43,18 @@ void setup() {
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
 
-  server.on("/close_all_ws_clients", HTTP_GET | HTTP_POST, [](AsyncWebServerRequest* request) {
+  server.on("/close_all_ws_clients", HTTP_GET | HTTP_POST, [](AsyncWebServerRequest *request) {
     Serial.println("Closing all WebSocket clients...");
     ws.closeAll();
     request->send(200, "application/json", "{\"status\":\"all clients closed\"}");
   });
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/html", R"rawliteral(
     <!DOCTYPE html>
         <html>
         <head></head>
-        <script> 
+        <script>
             let ws = new WebSocket("ws://" + window.location.host + "/ws");
 
             ws.addEventListener("open", (e) => {
@@ -72,7 +72,7 @@ void setup() {
             ws.addEventListener("message", (e) => {
                 console.log("WebSocket message", e);
             });
-                    
+
             function closeAllWsClients() {
               fetch("/close_all_ws_clients", {
                   method : "POST",
@@ -80,7 +80,7 @@ void setup() {
             };
         </script>
         <body>
-            <button onclick = "closeAllWsClients()" style = "width: 200px"> ws close all</button><p></p>  
+            <button onclick = "closeAllWsClients()" style = "width: 200px"> ws close all</button><p></p>
           </body>
         </html>
   )rawliteral");

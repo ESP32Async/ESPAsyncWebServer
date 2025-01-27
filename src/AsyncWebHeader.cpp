@@ -1,11 +1,13 @@
 #include <ESPAsyncWebServer.h>
 
-AsyncWebHeader::AsyncWebHeader(const String& data) {
-  if (!data)
+AsyncWebHeader::AsyncWebHeader(const String &data) {
+  if (!data) {
     return;
+  }
   int index = data.indexOf(':');
-  if (index < 0)
+  if (index < 0) {
     return;
+  }
   _name = data.substring(0, index);
   _value = data.substring(index + 2);
 }

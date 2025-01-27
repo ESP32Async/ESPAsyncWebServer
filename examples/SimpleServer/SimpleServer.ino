@@ -7,27 +7,27 @@
 
 #include <Arduino.h>
 #ifdef ESP32
-  #include <AsyncTCP.h>
-  #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <WiFi.h>
 #elif defined(ESP8266)
-  #include <ESP8266WiFi.h>
-  #include <ESPAsyncTCP.h>
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
 #elif defined(TARGET_RP2040)
-  #include <WebServer.h>
-  #include <WiFi.h>
+#include <WebServer.h>
+#include <WiFi.h>
 #endif
 
 #include <ESPAsyncWebServer.h>
 
 #if __has_include("ArduinoJson.h")
-  #include <ArduinoJson.h>
-  #include <AsyncJson.h>
-  #include <AsyncMessagePack.h>
+#include <ArduinoJson.h>
+#include <AsyncJson.h>
+#include <AsyncMessagePack.h>
 #endif
 
 #include <LittleFS.h>
 
-const char* htmlContent PROGMEM = R"(
+const char *htmlContent PROGMEM = R"(
 <!DOCTYPE html>
 <html>
 <head>
@@ -89,7 +89,7 @@ const char* htmlContent PROGMEM = R"(
 
 const size_t htmlContentLength = strlen_P(htmlContent);
 
-const char* staticContent PROGMEM = R"(
+const char *staticContent PROGMEM = R"(
 <!DOCTYPE html>
 <html>
 <head>
@@ -133,7 +133,7 @@ AsyncAuthenticationMiddleware digestAuth;
 AsyncAuthenticationMiddleware digestAuthHash;
 
 // complex authentication which adds request attributes for the next middlewares and handler
-AsyncMiddlewareFunction complexAuth([](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+AsyncMiddlewareFunction complexAuth([](AsyncWebServerRequest *request, ArMiddlewareNext next) {
   if (!request->authenticate("user", "password")) {
     return request->requestAuthentication();
   }
@@ -145,14 +145,16 @@ AsyncMiddlewareFunction complexAuth([](AsyncWebServerRequest* request, ArMiddlew
   request->getResponse()->addHeader("X-Rate-Limit", "200");
 });
 
-AsyncAuthorizationMiddleware authz([](AsyncWebServerRequest* request) { return request->getAttribute("role") == "staff"; });
+AsyncAuthorizationMiddleware authz([](AsyncWebServerRequest *request) {
+  return request->getAttribute("role") == "staff";
+});
 
 int wsClients = 0;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const char* PARAM_MESSAGE PROGMEM = "message";
-const char* SSE_HTLM PROGMEM = R"(
+const char *PARAM_MESSAGE PROGMEM = "message";
+const char *SSE_HTLM PROGMEM = R"(
 <!DOCTYPE html>
 <html>
 <head>
@@ -184,8 +186,8 @@ const char* SSE_HTLM PROGMEM = R"(
 )";
 
 #if __has_include("ArduinoJson.h")
-AsyncCallbackJsonWebHandler* jsonHandler = new AsyncCallbackJsonWebHandler("/json2");
-AsyncCallbackMessagePackWebHandler* msgPackHandler = new AsyncCallbackMessagePackWebHandler("/msgpack2");
+AsyncCallbackJsonWebHandler *jsonHandler = new AsyncCallbackJsonWebHandler("/json2");
+AsyncCallbackMessagePackWebHandler *msgPackHandler = new AsyncCallbackMessagePackWebHandler("/msgpack2");
 #endif
 
 static const char characters[] = "0123456789ABCDEF";
@@ -236,7 +238,7 @@ void setup() {
   }
 
   // curl -v -X GET http://192.168.4.1/handler-not-sending-response
-  server.on("/handler-not-sending-response", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/handler-not-sending-response", HTTP_GET, [](AsyncWebServerRequest *request) {
     // handler forgot to send a response to the client => 501 Not Implemented
   });
 
@@ -244,7 +246,7 @@ void setup() {
   // the previous one will be deleted.
   // response sending happens when the handler returns.
   // curl -v -X GET http://192.168.4.1/replace
-  server.on("/replace", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/replace", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Hello, world");
     // oups! finally we want to send a different response
     request->send(400, "text/plain", "validation error");
@@ -258,21 +260,24 @@ void setup() {
   ///////////////////////////////////////////////////////////////////////
 
   // curl -v -X GET -H "x-remove-me: value" http://192.168.4.1/headers
-  server.on("/headers", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/headers", HTTP_GET, [](AsyncWebServerRequest *request) {
     Serial.printf("Request Headers:\n");
-    for (auto& h : request->getHeaders())
+    for (auto &h : request->getHeaders()) {
       Serial.printf("Request Header: %s = %s\n", h.name().c_str(), h.value().c_str());
+    }
 
     // remove x-remove-me header
     request->removeHeader("x-remove-me");
     Serial.printf("Request Headers:\n");
-    for (auto& h : request->getHeaders())
+    for (auto &h : request->getHeaders()) {
       Serial.printf("Request Header: %s = %s\n", h.name().c_str(), h.value().c_str());
+    }
 
-    std::vector<const char*> headers;
+    std::vector<const char *> headers;
     request->getHeaderNames(headers);
-    for (auto& h : headers)
+    for (auto &h : headers) {
       Serial.printf("Request Header Name: %s\n", h);
+    }
 
     request->send(200);
   });
@@ -291,7 +296,7 @@ void setup() {
   basicAuth.generateHash();
 
   basicAuthHash.setUsername("admin");
-  basicAuthHash.setPasswordHash("YWRtaW46YWRtaW4="); // BASE64(admin:admin)
+  basicAuthHash.setPasswordHash("YWRtaW46YWRtaW4=");  // BASE64(admin:admin)
   basicAuthHash.setRealm("MyApp");
   basicAuthHash.setAuthFailureMessage("Authentication failed");
   basicAuthHash.setAuthType(AsyncAuthType::AUTH_BASIC);
@@ -304,7 +309,7 @@ void setup() {
   digestAuth.generateHash();
 
   digestAuthHash.setUsername("admin");
-  digestAuthHash.setPasswordHash("f499b71f9a36d838b79268e145e132f7"); // MD5(user:realm:pass)
+  digestAuthHash.setPasswordHash("f499b71f9a36d838b79268e145e132f7");  // MD5(user:realm:pass)
   digestAuthHash.setRealm("MyApp");
   digestAuthHash.setAuthFailureMessage("Authentication failed");
   digestAuthHash.setAuthType(AsyncAuthType::AUTH_DIGEST);
@@ -330,7 +335,7 @@ void setup() {
 
   // Test CORS preflight request
   // curl -v -X OPTIONS -H "origin: http://192.168.4.1" http://192.168.4.1/middleware/cors
-  server.on("/middleware/cors", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/middleware/cors", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Hello, world!");
   });
 
@@ -338,9 +343,10 @@ void setup() {
   // - requestLogger will log the incoming headers (including x-remove-me)
   // - headerFilter will remove x-remove-me header
   // - handler will log the remaining headers
-  server.on("/middleware/test-header-filter", HTTP_GET, [](AsyncWebServerRequest* request) {
-    for (auto& h : request->getHeaders())
+  server.on("/middleware/test-header-filter", HTTP_GET, [](AsyncWebServerRequest *request) {
+    for (auto &h : request->getHeaders()) {
       Serial.printf("Request Header: %s = %s\n", h.name().c_str(), h.value().c_str());
+    }
     request->send(200);
   });
 
@@ -348,57 +354,82 @@ void setup() {
   // - requestLogger will log the incoming headers (including x-keep-me)
   // - headerFree will remove all headers except x-keep-me and host
   // - handler will log the remaining headers (x-keep-me and host)
-  server.on("/middleware/test-header-free", HTTP_GET, [](AsyncWebServerRequest* request) {
-          for (auto& h : request->getHeaders())
-            Serial.printf("Request Header: %s = %s\n", h.name().c_str(), h.value().c_str());
-          request->send(200);
-        })
+  server
+    .on(
+      "/middleware/test-header-free", HTTP_GET,
+      [](AsyncWebServerRequest *request) {
+        for (auto &h : request->getHeaders()) {
+          Serial.printf("Request Header: %s = %s\n", h.name().c_str(), h.value().c_str());
+        }
+        request->send(200);
+      }
+    )
     .addMiddleware(&headerFree);
 
   // basic authentication method
   // curl -v -X GET -H "origin: http://192.168.4.1" -u admin:admin  http://192.168.4.1/middleware/auth-basic
-  server.on("/middleware/auth-basic", HTTP_GET, [](AsyncWebServerRequest* request) {
-          request->send(200, "text/plain", "Hello, world!");
-        })
+  server
+    .on(
+      "/middleware/auth-basic", HTTP_GET,
+      [](AsyncWebServerRequest *request) {
+        request->send(200, "text/plain", "Hello, world!");
+      }
+    )
     .addMiddleware(&basicAuth);
 
   // basic authentication method with hash
   // curl -v -X GET -H "origin: http://192.168.4.1" -u admin:admin  http://192.168.4.1/middleware/auth-basic-hash
-  server.on("/middleware/auth-basic-hash", HTTP_GET, [](AsyncWebServerRequest* request) {
-          request->send(200, "text/plain", "Hello, world!");
-        })
+  server
+    .on(
+      "/middleware/auth-basic-hash", HTTP_GET,
+      [](AsyncWebServerRequest *request) {
+        request->send(200, "text/plain", "Hello, world!");
+      }
+    )
     .addMiddleware(&basicAuthHash);
 
   // digest authentication
   // curl -v -X GET -H "origin: http://192.168.4.1" -u admin:admin --digest  http://192.168.4.1/middleware/auth-digest
-  server.on("/middleware/auth-digest", HTTP_GET, [](AsyncWebServerRequest* request) {
-          request->send(200, "text/plain", "Hello, world!");
-        })
+  server
+    .on(
+      "/middleware/auth-digest", HTTP_GET,
+      [](AsyncWebServerRequest *request) {
+        request->send(200, "text/plain", "Hello, world!");
+      }
+    )
     .addMiddleware(&digestAuth);
 
   // digest authentication with hash
   // curl -v -X GET -H "origin: http://192.168.4.1" -u admin:admin --digest  http://192.168.4.1/middleware/auth-digest-hash
-  server.on("/middleware/auth-digest-hash", HTTP_GET, [](AsyncWebServerRequest* request) {
-          request->send(200, "text/plain", "Hello, world!");
-        })
+  server
+    .on(
+      "/middleware/auth-digest-hash", HTTP_GET,
+      [](AsyncWebServerRequest *request) {
+        request->send(200, "text/plain", "Hello, world!");
+      }
+    )
     .addMiddleware(&digestAuthHash);
 
   // test digest auth with cors
   // curl -v -X GET -H "origin: http://192.168.4.1" --digest -u user:password  http://192.168.4.1/middleware/auth-custom
-  server.on("/middleware/auth-custom", HTTP_GET, [](AsyncWebServerRequest* request) {
-          String buffer = "Hello ";
-          buffer.concat(request->getAttribute("user"));
-          buffer.concat(" with role: ");
-          buffer.concat(request->getAttribute("role"));
-          request->send(200, "text/plain", buffer);
-        })
+  server
+    .on(
+      "/middleware/auth-custom", HTTP_GET,
+      [](AsyncWebServerRequest *request) {
+        String buffer = "Hello ";
+        buffer.concat(request->getAttribute("user"));
+        buffer.concat(" with role: ");
+        buffer.concat(request->getAttribute("role"));
+        request->send(200, "text/plain", buffer);
+      }
+    )
     .addMiddlewares({&complexAuth, &authz});
 
   ///////////////////////////////////////////////////////////////////////
 
   // curl -v -X GET -H "origin: http://192.168.4.1" http://192.168.4.1/redirect
   // curl -v -X POST -H "origin: http://192.168.4.1" http://192.168.4.1/redirect
-  server.on("/redirect", HTTP_GET | HTTP_POST, [](AsyncWebServerRequest* request) {
+  server.on("/redirect", HTTP_GET | HTTP_POST, [](AsyncWebServerRequest *request) {
     request->redirect("/");
   });
 
@@ -406,7 +437,7 @@ void setup() {
   // > brew install autocannon
   // > autocannon -c 10 -w 10 -d 20 http://192.168.4.1
   // > autocannon -c 16 -w 16 -d 20 http://192.168.4.1
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/html", htmlContent);
   });
 
@@ -422,7 +453,7 @@ void setup() {
   // Otherwise, do not use serveStatic.
   // Example below: IP never changes.
   // curl -v -X GET http://192.168.4.1/index-static.html
-  server.serveStatic("/index-static.html", LittleFS, "/index.html").setTemplateProcessor([](const String& var) -> String {
+  server.serveStatic("/index-static.html", LittleFS, "/index.html").setTemplateProcessor([](const String &var) -> String {
     if (var == "IP") {
       // for CI, commented out since H2 board doesn ot support WiFi
       // return WiFi.localIP().toString();
@@ -435,10 +466,11 @@ void setup() {
   // to serve a template with dynamic content (output changes over time), use normal
   // Example below: content changes over tinme do not use serveStatic.
   // curl -v -X GET http://192.168.4.1/index-dynamic.html
-  server.on("/index-dynamic.html", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(LittleFS, "/index.html", "text/html", false, [](const String& var) -> String {
-      if (var == "IP")
+  server.on("/index-dynamic.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(LittleFS, "/index.html", "text/html", false, [](const String &var) -> String {
+      if (var == "IP") {
         return String(random(0, 1000));
+      }
       return emptyString;
     });
   });
@@ -446,7 +478,7 @@ void setup() {
   // Issue #14: assert failed: tcp_update_rcv_ann_wnd (needs help to test fix)
   // > curl -v http://192.168.4.1/issue-14
   pinMode(4, OUTPUT);
-  server.on("/issue-14", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/issue-14", HTTP_GET, [](AsyncWebServerRequest *request) {
     digitalWrite(4, HIGH);
     request->send(LittleFS, "/index.txt", "text/pain");
     delay(500);
@@ -457,10 +489,11 @@ void setup() {
     Chunked encoding test: sends 16k of characters.
     ❯ curl -N -v -X GET -H "origin: http://192.168.4.1" http://192.168.4.1/chunk
   */
-  server.on("/chunk", HTTP_HEAD | HTTP_GET, [](AsyncWebServerRequest* request) {
-    AsyncWebServerResponse* response = request->beginChunkedResponse("text/html", [](uint8_t* buffer, size_t maxLen, size_t index) -> size_t {
-      if (index >= 16384)
+  server.on("/chunk", HTTP_HEAD | HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginChunkedResponse("text/html", [](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      if (index >= 16384) {
         return 0;
+      }
       memset(buffer, characters[charactersIndex], maxLen);
       charactersIndex = (charactersIndex + 1) % sizeof(characters);
       return maxLen;
@@ -470,7 +503,7 @@ void setup() {
 
   // curl -N -v -X GET http://192.168.4.1/chunked.html --output -
   // curl -N -v -X GET -H "if-none-match: 4272" http://192.168.4.1/chunked.html --output -
-  server.on("/chunked.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/chunked.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     String len = String(htmlContentLength);
 
     if (request->header(asyncsrv::T_INM) == len) {
@@ -478,7 +511,7 @@ void setup() {
       return;
     }
 
-    AsyncWebServerResponse* response = request->beginChunkedResponse("text/html", [](uint8_t* buffer, size_t maxLen, size_t index) -> size_t {
+    AsyncWebServerResponse *response = request->beginChunkedResponse("text/html", [](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
       Serial.printf("%u / %u\n", index, htmlContentLength);
 
       // finished ?
@@ -503,15 +536,16 @@ void setup() {
   });
 
   // time curl -N -v -G -d 'd=3000' -d 'l=10000'  http://192.168.4.1/slow.html --output -
-  server.on("/slow.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/slow.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     uint32_t d = request->getParam("d")->value().toInt();
     uint32_t l = request->getParam("l")->value().toInt();
     Serial.printf("d = %" PRIu32 ", l = %" PRIu32 "\n", d, l);
-    AsyncWebServerResponse* response = request->beginChunkedResponse("text/html", [d, l](uint8_t* buffer, size_t maxLen, size_t index) -> size_t {
+    AsyncWebServerResponse *response = request->beginChunkedResponse("text/html", [d, l](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
       Serial.printf("%u\n", index);
       // finished ?
-      if (index >= l)
+      if (index >= l) {
         return 0;
+      }
 
       // slow down the task by 2 seconds
       // to simulate some heavy processing, like SD card reading
@@ -534,14 +568,14 @@ void setup() {
     Accept-Ranges: bytes
   */
   // Ref: https://github.com/mathieucarbou/ESPAsyncWebServer/pull/80
-  server.on("/download", HTTP_HEAD | HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/download", HTTP_HEAD | HTTP_GET, [](AsyncWebServerRequest *request) {
     if (request->method() == HTTP_HEAD) {
-      AsyncWebServerResponse* response = request->beginResponse(200, "application/octet-stream");
+      AsyncWebServerResponse *response = request->beginResponse(200, "application/octet-stream");
       response->addHeader(asyncsrv::T_Accept_Ranges, "bytes");
       response->addHeader(asyncsrv::T_Content_Length, 10);
-      response->setContentLength(1024); // overrides previous one
+      response->setContentLength(1024);  // overrides previous one
       response->addHeader(asyncsrv::T_Content_Type, "foo");
-      response->setContentType("application/octet-stream"); // overrides previous one
+      response->setContentType("application/octet-stream");  // overrides previous one
       // ...
       request->send(response);
     } else {
@@ -550,7 +584,7 @@ void setup() {
   });
 
   // Send a GET request to <IP>/get?message=<message>
-  server.on("/get", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request) {
     String message;
     if (request->hasParam(PARAM_MESSAGE)) {
       message = request->getParam(PARAM_MESSAGE)->value();
@@ -561,7 +595,7 @@ void setup() {
   });
 
   // Send a POST request to <IP>/post with a form field message set to <message>
-  server.on("/post", HTTP_POST, [](AsyncWebServerRequest* request) {
+  server.on("/post", HTTP_POST, [](AsyncWebServerRequest *request) {
     String message;
     if (request->hasParam(PARAM_MESSAGE, true)) {
       message = request->getParam(PARAM_MESSAGE, true)->value();
@@ -576,8 +610,8 @@ void setup() {
 
   // sends JSON
   // curl -v -X GET http://192.168.4.1/json1
-  server.on("/json1", HTTP_GET, [](AsyncWebServerRequest* request) {
-    AsyncJsonResponse* response = new AsyncJsonResponse();
+  server.on("/json1", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncJsonResponse *response = new AsyncJsonResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["hello"] = "world";
     response->setLength();
@@ -585,8 +619,8 @@ void setup() {
   });
 
   // curl -v -X GET http://192.168.4.1/json2
-  server.on("/json2", HTTP_GET, [](AsyncWebServerRequest* request) {
-    AsyncResponseStream* response = request->beginResponseStream("application/json");
+  server.on("/json2", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
     JsonDocument doc;
     JsonObject root = doc.to<JsonObject>();
     root["foo"] = "bar";
@@ -597,9 +631,9 @@ void setup() {
   // curl -v -X POST -H 'Content-Type: application/json' -d '{"name":"You"}' http://192.168.4.1/json2
   // curl -v -X PUT -H 'Content-Type: application/json' -d '{"name":"You"}' http://192.168.4.1/json2
   jsonHandler->setMethod(HTTP_POST | HTTP_PUT);
-  jsonHandler->onRequest([](AsyncWebServerRequest* request, JsonVariant& json) {
+  jsonHandler->onRequest([](AsyncWebServerRequest *request, JsonVariant &json) {
     serializeJson(json, Serial);
-    AsyncJsonResponse* response = new AsyncJsonResponse();
+    AsyncJsonResponse *response = new AsyncJsonResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["hello"] = json.as<JsonObject>()["name"];
     response->setLength();
@@ -609,11 +643,11 @@ void setup() {
   // MessagePack
 
   // receives MessagePack and sends MessagePack
-  msgPackHandler->onRequest([](AsyncWebServerRequest* request, JsonVariant& json) {
+  msgPackHandler->onRequest([](AsyncWebServerRequest *request, JsonVariant &json) {
     // JsonObject jsonObj = json.as<JsonObject>();
     // ...
 
-    AsyncMessagePackResponse* response = new AsyncMessagePackResponse();
+    AsyncMessagePackResponse *response = new AsyncMessagePackResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["hello"] = "world";
     response->setLength();
@@ -621,8 +655,8 @@ void setup() {
   });
 
   // sends MessagePack
-  server.on("/msgpack1", HTTP_GET, [](AsyncWebServerRequest* request) {
-    AsyncMessagePackResponse* response = new AsyncMessagePackResponse();
+  server.on("/msgpack1", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncMessagePackResponse *response = new AsyncMessagePackResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["hello"] = "world";
     response->setLength();
@@ -630,18 +664,18 @@ void setup() {
   });
 #endif
 
-  events.onConnect([](AsyncEventSourceClient* client) {
+  events.onConnect([](AsyncEventSourceClient *client) {
     if (client->lastId()) {
       Serial.printf("SSE Client reconnected! Last message ID that it gat is: %" PRIu32 "\n", client->lastId());
     }
     client->send("hello!", NULL, millis(), 1000);
   });
 
-  server.on("/sse", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/sse", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/html", SSE_HTLM);
   });
 
-  ws.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
     (void)len;
     if (type == WS_EVT_CONNECT) {
       wsClients++;
@@ -658,12 +692,12 @@ void setup() {
     } else if (type == WS_EVT_PONG) {
       Serial.println("ws pong");
     } else if (type == WS_EVT_DATA) {
-      AwsFrameInfo* info = (AwsFrameInfo*)arg;
+      AwsFrameInfo *info = (AwsFrameInfo *)arg;
       String msg = "";
       if (info->final && info->index == 0 && info->len == len) {
         if (info->opcode == WS_TEXT) {
           data[len] = 0;
-          Serial.printf("ws text: %s\n", (char*)data);
+          Serial.printf("ws text: %s\n", (char *)data);
         }
       }
     }
@@ -736,7 +770,7 @@ void setup() {
 websocat: WebSocketError: WebSocketError: Received unexpected status code (503 Service Unavailable)
 websocat: error running
   */
-  server.addHandler(&ws).addMiddleware([](AsyncWebServerRequest* request, ArMiddlewareNext next) {
+  server.addHandler(&ws).addMiddleware([](AsyncWebServerRequest *request, ArMiddlewareNext next) {
     if (ws.count() > 2) {
       // too many clients - answer back immediately and stop processing next middlewares and handler
       request->send(503, "text/plain", "Server is busy");
@@ -757,9 +791,10 @@ websocat: error running
 
   // catch any request, and send a 404 Not Found response
   // except for /game_log which is handled by onRequestBody
-  server.onNotFound([](AsyncWebServerRequest* request) {
-    if (request->url() == "/game_log")
-      return; // response object already creted by onRequestBody
+  server.onNotFound([](AsyncWebServerRequest *request) {
+    if (request->url() == "/game_log") {
+      return;  // response object already creted by onRequestBody
+    }
 
     request->send(404, "text/plain", "Not found");
   });
@@ -767,7 +802,7 @@ websocat: error running
   // https://github.com/ESP32Async/ESPAsyncWebServer/issues/6
   // curl -v -X POST http://192.168.4.1/game_log -H "Content-Type: application/json" -d '{"game": "test"}'
   // catch any POST request and send a 200 OK response
-  server.onRequestBody([](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
     if (request->url() == "/game_log") {
       request->send(200, "application/json", "{\"status\":\"OK\"}");
     }

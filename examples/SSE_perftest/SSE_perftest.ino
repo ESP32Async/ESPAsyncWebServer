@@ -6,27 +6,27 @@
 
 #include <Arduino.h>
 #ifdef ESP32
-  #include <AsyncTCP.h>
-  #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <WiFi.h>
 #elif defined(ESP8266)
-  #include <ESP8266WiFi.h>
-  #include <ESPAsyncTCP.h>
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
 #elif defined(TARGET_RP2040)
-  #include <WebServer.h>
-  #include <WiFi.h>
+#include <WebServer.h>
+#include <WiFi.h>
 #endif
 
 #include <ESPAsyncWebServer.h>
 
 #if __has_include("ArduinoJson.h")
-  #include <ArduinoJson.h>
-  #include <AsyncJson.h>
-  #include <AsyncMessagePack.h>
+#include <ArduinoJson.h>
+#include <AsyncJson.h>
+#include <AsyncMessagePack.h>
 #endif
 
 #include <LittleFS.h>
 
-const char* htmlContent PROGMEM = R"(
+const char *htmlContent PROGMEM = R"(
 <!DOCTYPE html>
 <html>
 <head>
@@ -86,7 +86,7 @@ const char* htmlContent PROGMEM = R"(
 </html>
 )";
 
-const char* staticContent PROGMEM = R"(
+const char *staticContent PROGMEM = R"(
 <!DOCTYPE html>
 <html>
 <head>
@@ -103,8 +103,8 @@ AsyncEventSource events("/events");
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const char* PARAM_MESSAGE PROGMEM = "message";
-const char* SSE_HTLM PROGMEM = R"(
+const char *PARAM_MESSAGE PROGMEM = "message";
+const char *SSE_HTLM PROGMEM = R"(
 <!DOCTYPE html>
 <html>
 <head>
@@ -135,12 +135,13 @@ const char* SSE_HTLM PROGMEM = R"(
 </html>
 )";
 
-static const char* SSE_MSG = R"(Alice felt that this could not be denied, so she tried another question. 'What sort of people live about here?' 'In THAT direction,' the Cat said, waving its right paw round, 'lives a Hatter: and in THAT direction,' waving the other paw, 'lives a March Hare. Visit either you like: they're both mad.'
+static const char *SSE_MSG =
+  R"(Alice felt that this could not be denied, so she tried another question. 'What sort of people live about here?' 'In THAT direction,' the Cat said, waving its right paw round, 'lives a Hatter: and in THAT direction,' waving the other paw, 'lives a March Hare. Visit either you like: they're both mad.'
 'But I don't want to go among mad people,' Alice remarked. 'Oh, you can't help that,' said the Cat: 'we're all mad here. I'm mad. You're mad.' 'How do you know I'm mad?' said Alice.
 'You must be,' said the Cat, `or you wouldn't have come here.' Alice didn't think that proved it at all; however, she went on 'And how do you know that you're mad?' 'To begin with,' said the Cat, 'a dog's not mad. You grant that?'
 )";
 
-void notFound(AsyncWebServerRequest* request) {
+void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
 
@@ -167,18 +168,18 @@ void setup() {
   WiFi.softAP("esp-captive");
 #endif
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/html", staticContent);
   });
 
-  events.onConnect([](AsyncEventSourceClient* client) {
+  events.onConnect([](AsyncEventSourceClient *client) {
     if (client->lastId()) {
       Serial.printf("SSE Client reconnected! Last message ID that it gat is: %" PRIu32 "\n", client->lastId());
     }
     client->send("hello!", NULL, millis(), 1000);
   });
 
-  server.on("/sse", HTTP_GET, [](AsyncWebServerRequest* request) {
+  server.on("/sse", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/html", SSE_HTLM);
   });
 
@@ -192,17 +193,18 @@ void setup() {
 
 uint32_t lastSSE = 0;
 uint32_t deltaSSE = 25;
-uint32_t messagesSSE = 4; // how many messages to q each time
+uint32_t messagesSSE = 4;  // how many messages to q each time
 uint32_t sse_disc{0}, sse_enq{0}, sse_penq{0}, sse_second{0};
 
 AsyncEventSource::SendStatus enqueue() {
   AsyncEventSource::SendStatus state = events.send(SSE_MSG, "message");
-  if (state == AsyncEventSource::SendStatus::DISCARDED)
+  if (state == AsyncEventSource::SendStatus::DISCARDED) {
     ++sse_disc;
-  else if (state == AsyncEventSource::SendStatus::ENQUEUED) {
+  } else if (state == AsyncEventSource::SendStatus::ENQUEUED) {
     ++sse_enq;
-  } else
+  } else {
     ++sse_penq;
+  }
 
   return state;
 }
@@ -246,10 +248,11 @@ void loop() {
     Serial.println(s);
 
     // if we see discards or partial enqueues, let's decrease message rate, else - increase. So that we can come to a max sustained message rate
-    if (sse_disc || sse_penq)
+    if (sse_disc || sse_penq) {
       ++deltaSSE;
-    else if (deltaSSE > 5)
+    } else if (deltaSSE > 5) {
       --deltaSSE;
+    }
 
     sse_disc = sse_enq = sse_penq = 0;
     sse_second = now;

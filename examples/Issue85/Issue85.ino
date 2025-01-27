@@ -7,10 +7,10 @@
  */
 #include <Arduino.h>
 #ifdef ESP8266
-  #include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>
 #endif
 #ifdef ESP32
-  #include <WiFi.h>
+#include <WiFi.h>
 #endif
 #include <ESPAsyncWebServer.h>
 
@@ -35,7 +35,7 @@ void connect_wifi() {
   // Serial.println(WiFi.localIP());
 }
 
-void notFound(AsyncWebServerRequest* request) {
+void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
 
@@ -43,7 +43,7 @@ AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
 // initial stack
-char* stack_start;
+char *stack_start;
 
 void printStackSize() {
   char stack;
@@ -60,22 +60,24 @@ void printStackSize() {
   Serial.println();
 }
 
-void onWsEventEmpty(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+void onWsEventEmpty(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
   msgCount++;
   Serial.printf("count: %d\n", msgCount);
 
   times.push_back(millis());
-  while (times.size() > window)
+  while (times.size() > window) {
     times.pop_front();
-  if (times.size() == window)
+  }
+  if (times.size() == window) {
     Serial.printf("%f req/s\n", 1000.0 * window / (times.back() - times.front()));
+  }
 
   printStackSize();
 
   client->text("PONG");
 }
 
-void serve_upload(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final) {
+void serve_upload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final) {
   Serial.print("> onUpload ");
   Serial.print("index: ");
   Serial.print(index);
@@ -101,7 +103,13 @@ void setup() {
   ws.onEvent(onWsEventEmpty);
   server.addHandler(&ws);
 
-  server.on("/upload", HTTP_POST, [](AsyncWebServerRequest* request) { request->send(200); }, serve_upload);
+  server.on(
+    "/upload", HTTP_POST,
+    [](AsyncWebServerRequest *request) {
+      request->send(200);
+    },
+    serve_upload
+  );
 
   server.begin();
   Serial.println("Server started");
