@@ -138,7 +138,7 @@ bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest *request) const {
     return false;
   }
 
-  // Try to add default file, ensure there is a trailing '/' ot the path.
+  // Try to add default file, ensure there is a trailing '/' to the path.
   if (path.length() == 0 || path[path.length() - 1] != '/') {
     path += String('/');
   }

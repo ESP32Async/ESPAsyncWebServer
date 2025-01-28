@@ -82,7 +82,7 @@ static String generateEventMessage(const char *message, const char *event, uint3
     char *nextLine = NULL;
     if (nextN != NULL && nextR != NULL) {  // windows line-ending \r\n
       if (nextR + 1 == nextN) {
-        // normal \r\n sequense
+        // normal \r\n sequence
         lineEnd = nextR;
         nextLine = nextN + 1;
       } else {

@@ -96,7 +96,7 @@ static constexpr const char *T_RCT_WS = "RCT_WS";
 static constexpr const char *T_RCT_EVENT = "RCT_EVENT";
 static constexpr const char *T_ERROR = "ERROR";
 
-// extentions & MIME-Types
+// extensions & MIME-Types
 static constexpr const char *T__css = ".css";
 static constexpr const char *T__eot = ".eot";
 static constexpr const char *T__gif = ".gif";
@@ -136,7 +136,7 @@ static constexpr const char *T_text_html = "text/html";
 static constexpr const char *T_text_plain = "text/plain";
 static constexpr const char *T_text_xml = "text/xml";
 
-// Responce codes
+// Response codes
 static constexpr const char *T_HTTP_CODE_100 = "Continue";
 static constexpr const char *T_HTTP_CODE_101 = "Switching Protocols";
 static constexpr const char *T_HTTP_CODE_200 = "OK";

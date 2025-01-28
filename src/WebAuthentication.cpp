@@ -148,7 +148,7 @@ bool checkDigestAuthentication(
   const char *opaque, const char *uri
 ) {
   if (username == NULL || password == NULL || header == NULL || method == NULL) {
-    // os_printf("AUTH FAIL: missing requred fields\n");
+    // os_printf("AUTH FAIL: missing required fields\n");
     return false;
   }
 

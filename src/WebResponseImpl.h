@@ -51,7 +51,7 @@ public:
 class AsyncAbstractResponse : public AsyncWebServerResponse {
 private:
 #if ASYNCWEBSERVER_USE_CHUNK_INFLIGHT
-  // amount of responce data in-flight, i.e. sent, but not acked yet
+  // amount of response data in-flight, i.e. sent, but not acked yet
   size_t _in_flight{0};
   // in-flight queue credits
   size_t _in_flight_credit{2};
@@ -102,8 +102,8 @@ public:
   AsyncFileResponse(
     File content, const String &path, const char *contentType = asyncsrv::empty, bool download = false, AwsTemplateProcessor callback = nullptr
   );
-  AsyncFileResponse(File content, const String &path, const String &contentType, bool download = false, AwsTemplateProcessor callack = nullptr)
-    : AsyncFileResponse(content, path, contentType.c_str(), download, callack) {}
+  AsyncFileResponse(File content, const String &path, const String &contentType, bool download = false, AwsTemplateProcessor callback = nullptr)
+    : AsyncFileResponse(content, path, contentType.c_str(), download, callback) {}
   ~AsyncFileResponse() {
     _content.close();
   }

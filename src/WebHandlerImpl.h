@@ -67,7 +67,7 @@ public:
   AsyncStaticWebHandler &setLastModified(const char *last_modified);
   AsyncStaticWebHandler &setLastModified(struct tm *last_modified);
   AsyncStaticWebHandler &setLastModified(time_t last_modified);
-  // sets to current time. Make sure sntp is runing and time is updated
+  // sets to current time. Make sure sntp is running and time is updated
   AsyncStaticWebHandler &setLastModified();
 
   AsyncStaticWebHandler &setTemplateProcessor(AwsTemplateProcessor newCallback);

@@ -60,7 +60,7 @@ Supports: WebSocket, SSE, Authentication, Arduino Json 7, File Upload, Static Fi
 - (perf) `setCloseClientOnQueueFull(bool)` which can be set on a client to either close the connection or discard messages but not close the connection when the queue is full
 - (perf) `SSE_MAX_QUEUED_MESSAGES` to control the maximum number of messages that can be queued for a SSE client
 - (perf) `WS_MAX_QUEUED_MESSAGES`: control the maximum number of messages that can be queued for a Websocket client
-- (perf) in-flight buffer control and queue congestion avoidance to help to improve parallel connections handling, high volume data transfers and mitigate poor implemeneted slow user-code callbacks delayes on connctions handling
+- (perf) in-flight buffer control and queue congestion avoidance to help to improve parallel connections handling, high volume data transfers and mitigate poor implemented slow user-code callbacks delayes on connections handling
 - (perf) Code size improvements
 - (perf) Lot of code cleanup and optimizations
 - (perf) Performance improvements in terms of memory, speed and size
@@ -187,7 +187,7 @@ Here are some recommendations to avoid them and build-time flags you can change.
 In some bad network conditions you might consider increasing it.
 
 `CONFIG_ASYNC_TCP_QUEUE_SIZE` - defines the length of the queue for events related to connections handling.
-Both the server and AsyncTCP library in this fork were optimized to control the queue automatically. Do NOT try blindly increasing the queue size, it does not help you in a way you might think it is. If you receive debug messages about queue throttling, try to optimize your server callbaks code to execute as fast as possible.
+Both the server and AsyncTCP library in this fork were optimized to control the queue automatically. Do NOT try blindly increasing the queue size, it does not help you in a way you might think it is. If you receive debug messages about queue throttling, try to optimize your server callbacks code to execute as fast as possible.
 Read #165 thread, it might give you some hints.
 
 `CONFIG_ASYNC_TCP_RUNNING_CORE` - CPU core thread affinity that runs the queue events handling and executes server callbacks. Default is ANY core, so it means that for dualcore SoCs both cores could handle server activities. If your server's code is too heavy and unoptimized or you see that sometimes
@@ -196,7 +196,7 @@ server might affect other network activities, you might consider to bind it to t
 `CONFIG_ASYNC_TCP_STACK_SIZE` - stack size for the thread that runs sever events and callbacks. Default is 16k that is a way too much waste for well-defined short async code or  simple static file handling. You might want to cosider reducing it to 4-8k to same RAM usage. If you do not know what this is or not sure about your callback code demands - leave it as default, should be enough even for very hungry callbacks in most cases.
 
 > [!NOTE]
-> This relates to ESP32 only, ESP8266 uses different ESPAsyncTCP lib that does not has this build options  
+> This relates to ESP32 only, ESP8266 uses different ESPAsyncTCP lib that does not has this build options
 
 I personally use the following configuration in my projects:
 
@@ -300,7 +300,7 @@ AsyncMiddlewareFunction complexAuth([](AsyncWebServerRequest* request, ArMiddlew
 
 ## How to use authentication with AsyncAuthenticationMiddleware
 
-Do not use the `setUsername()` and `setPassword()` methods on the hanlders anymore.
+Do not use the `setUsername()` and `setPassword()` methods on the handlers anymore.
 They are deprecated.
 These methods were causing a copy of the username and password for each handler, which is not efficient.
 
@@ -529,8 +529,8 @@ request->version();       // uint8_t: 0 = HTTP/1.0, 1 = HTTP/1.1
 request->method();        // enum:    HTTP_GET, HTTP_POST, HTTP_DELETE, HTTP_PUT, HTTP_PATCH, HTTP_HEAD, HTTP_OPTIONS
 request->url();           // String:  URL of the request (not including host, port or GET parameters)
 request->host();          // String:  The requested host (can be used for virtual hosting)
-request->contentType();   // String:  ContentType of the request (not avaiable in Handler::canHandle)
-request->contentLength(); // size_t:  ContentLength of the request (not avaiable in Handler::canHandle)
+request->contentType();   // String:  ContentType of the request (not available in Handler::canHandle)
+request->contentLength(); // size_t:  ContentLength of the request (not available in Handler::canHandle)
 request->multipart();     // bool:    True if the request has content type "multipart"
 ```
 
@@ -945,7 +945,7 @@ without memory problems.
 You need to create a file handler in outer function (to have a single one for request) but use
 it in a lambda. The catch is that the lambda has it's own lifecycle which may/will cause it's
 called after the original function is over thus the original file handle is destroyed. Using the
-captured `&file` in the lambda then causes segfault (Hello, Exception 9!) and the whole ESP crashes.  
+captured `&file` in the lambda then causes segfault (Hello, Exception 9!) and the whole ESP crashes.
 By using this code, you tell the compiler to move the handle into the lambda so it won't be
 destroyed when outer function (that one where you call `request->send(response)`) ends.
 
@@ -1176,7 +1176,7 @@ To serve files in a directory, the path to the files should specify a directory 
 
 ```cpp
 // Serve files in directory "/www/" when request url starts with "/"
-// Request to the root or none existing files will try to server the defualt
+// Request to the root or none existing files will try to server the default
 // file name "index.htm" if exists
 server.serveStatic("/", SPIFFS, "/www/");
 
@@ -1220,7 +1220,7 @@ with "If-Modified-Since" header with the same value, instead of responding with 
 // Update the date modified string every time files are updated
 server.serveStatic("/", SPIFFS, "/www/").setLastModified("Mon, 20 Jun 2016 14:00:00 GMT");
 
-//*** Chage last modified value at a later stage ***
+//*** Change last modified value at a later stage ***
 
 // During setup - read last modified value from config or EEPROM
 String date_modified = loadDateModified();
@@ -1253,7 +1253,7 @@ server.serveStatic("/", SPIFFS, "/www/").setTemplateProcessor(processor);
 
 #### Serving static files by custom handling
 
-It may happen your static files are too big and the ESP will crash the request before it sends the whole file.  
+It may happen your static files are too big and the ESP will crash the request before it sends the whole file.
 In that case, you can handle static files with custom file serving through not found handler.
 
 This code below is more-or-less equivalent to this:

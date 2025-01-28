@@ -89,7 +89,7 @@ public:
      * @brief acknowledge sending len bytes of data
      * @note if num of bytes to ack is larger then the unacknowledged message length the number of carried over bytes are returned
      *
-     * @param len bytes to acknowlegde
+     * @param len bytes to acknowledge
      * @param time
      * @return size_t number of extra bytes carried over
      */

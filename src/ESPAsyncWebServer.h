@@ -348,10 +348,10 @@ public:
   }
 
   /**
-     * @brief issue HTTP redirect responce with Location header
+     * @brief issue HTTP redirect response with Location header
      *
      * @param url - url to redirect to
-     * @param code - responce code, default is 302 : temporary redirect
+     * @param code - response code, default is 302 : temporary redirect
      */
   void redirect(const char *url, int code = 302);
   void redirect(const String &url, int code = 302) {

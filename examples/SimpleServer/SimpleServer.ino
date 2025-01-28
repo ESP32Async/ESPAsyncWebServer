@@ -449,13 +449,13 @@ void setup() {
 
   // ServeStatic static is used to serve static output which never changes over time.
   // This special endpoints automatyically adds caching headers.
-  // If a template processor is used, it must enure that the outputed content will always be the ame over time and never changes.
+  // If a template processor is used, it must ensure that the outputted content will always be the same over time and never changes.
   // Otherwise, do not use serveStatic.
   // Example below: IP never changes.
   // curl -v -X GET http://192.168.4.1/index-static.html
   server.serveStatic("/index-static.html", LittleFS, "/index.html").setTemplateProcessor([](const String &var) -> String {
     if (var == "IP") {
-      // for CI, commented out since H2 board doesn ot support WiFi
+      // for CI, commented out since H2 board does not support WiFi
       // return WiFi.localIP().toString();
       // return WiFi.softAPIP().toString();
       return "127.0.0..1";
@@ -793,7 +793,7 @@ websocat: error running
   // except for /game_log which is handled by onRequestBody
   server.onNotFound([](AsyncWebServerRequest *request) {
     if (request->url() == "/game_log") {
-      return;  // response object already creted by onRequestBody
+      return;  // response object already created by onRequestBody
     }
 
     request->send(404, "text/plain", "Not found");
