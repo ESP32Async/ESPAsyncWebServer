@@ -179,6 +179,8 @@ typedef enum {
 typedef std::function<size_t(uint8_t *, size_t, size_t)> AwsResponseFiller;
 typedef std::function<String(const String &)> AwsTemplateProcessor;
 
+using AsyncWebServerRequestPtr = std::weak_ptr<AsyncWebServerRequest>;
+
 class AsyncWebServerRequest {
   using File = fs::File;
   using FS = fs::FS;
@@ -192,8 +194,9 @@ private:
   AsyncWebServerResponse *_response;
   ArDisconnectHandler _onDisconnectfn;
 
-  // response is sent
-  bool _sent = false;
+  bool _sent = false;                            // response is sent
+  bool _paused = false;                          // request is paused (request continuation)
+  std::shared_ptr<AsyncWebServerRequest> _this;  // shared pointer to this request
 
   String _temp;
   uint8_t _parseState;
@@ -483,6 +486,21 @@ public:
   )]]
 #endif
   AsyncWebServerResponse *beginResponse_P(int code, const String &contentType, PGM_P content, AwsTemplateProcessor callback = nullptr);
+
+  /**
+   * @brief Request Continuation: this function pauses the current request and returns a weak pointer (AsyncWebServerRequestPtr is a std::weak_ptr) to the request in order to reuse it later on.
+   * The middelware chain will continue to be processed until the end, but no response will be sent.
+   * To resume operations (send the request), the request must be retrieved from the weak pointer and a send() function must be called.
+   * AsyncWebServerRequestPtr is the only object allowed to exist the scope of the request handler.
+   * @warning This function should be called from within the context of a request (in a handler or middleware for example).
+   * @warning While the request is paused, if the client aborts the request, the latter will be disconnected and deleted.
+   * So it is the responsibility of the user to check the validity of the request pointer (AsyncWebServerRequestPtr) before using it by calling lock() and/or expired().
+   */
+  AsyncWebServerRequestPtr pause();
+
+  bool isPaused() const {
+    return _paused;
+  }
 
   /**
      * @brief Get the Request parameter by name

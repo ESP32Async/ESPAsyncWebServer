@@ -670,7 +670,7 @@ void AsyncWebServerRequest::_runMiddlewareChain() {
 }
 
 void AsyncWebServerRequest::_send() {
-  if (!_sent) {
+  if (!_sent && !_paused) {
     // log_d("AsyncWebServerRequest::_send()");
 
     // user did not create a response ?
@@ -688,6 +688,18 @@ void AsyncWebServerRequest::_send() {
     _response->_respond(this);
     _sent = true;
   }
+}
+
+AsyncWebServerRequestPtr AsyncWebServerRequest::pause() {
+  if (_paused) {
+    return _this;
+  }
+  client()->setRxTimeout(0);
+  // this shared ptr will hold the request pointer until it gets destroyed following a disconnect.
+  // this is just used as a holder providing weak observers, so the deleter is a no-op.
+  _this = std::shared_ptr<AsyncWebServerRequest>(this, [](AsyncWebServerRequest *) {});
+  _paused = true;
+  return _this;
 }
 
 size_t AsyncWebServerRequest::headers() const {
@@ -866,13 +878,22 @@ AsyncWebServerResponse *AsyncWebServerRequest::beginResponse_P(int code, const S
 }
 
 void AsyncWebServerRequest::send(AsyncWebServerResponse *response) {
+  // request is already sent on the wire ?
   if (_sent) {
     return;
   }
+
+  // if we already had a response, delete it and replace it with the new one
   if (_response) {
     delete _response;
   }
   _response = response;
+
+  // if request was paused, we need to send the response now
+  if (_paused) {
+    _paused = false;
+    _send();
+  }
 }
 
 void AsyncWebServerRequest::redirect(const char *url, int code) {
