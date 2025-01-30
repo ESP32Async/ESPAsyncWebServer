@@ -121,6 +121,7 @@ void AsyncWebServer::beginSecure(const char *cert, const char *key, const char *
 #endif
 
 void AsyncWebServer::_handleDisconnect(AsyncWebServerRequest *request) {
+  log_d("Request was disconnected!");
   delete request;
 }
 
