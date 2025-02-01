@@ -75,6 +75,8 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
 }
 
 AsyncWebServerRequest::~AsyncWebServerRequest() {
+  log_d("AsyncWebServerRequest::~AsyncWebServerRequest()");
+
   _headers.clear();
 
   _pathParams.clear();
@@ -94,6 +96,8 @@ AsyncWebServerRequest::~AsyncWebServerRequest() {
   if (_itemBuffer) {
     free(_itemBuffer);
   }
+
+  _this.reset();
 }
 
 void AsyncWebServerRequest::_onData(void *buf, size_t len) {
@@ -197,16 +201,7 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
                             )
                           : send(501);
         });
-        if (!_sent) {
-          if (!_response) {
-            send(501, T_text_plain, "Handler did not handle the request");
-          } else if (!_response->_sourceValid()) {
-            send(500, T_text_plain, "Invalid data in handler");
-          }
-          _client->setRxTimeout(0);
-          _response->_respond(this);
-          _sent = true;
-        }
+        _send();
       }
     }
     break;
@@ -676,21 +671,41 @@ void AsyncWebServerRequest::_parseLine() {
                             )
                           : send(501);
         });
-        if (!_sent) {
-          if (!_response) {
-            send(501, T_text_plain, "Handler did not handle the request");
-          } else if (!_response->_sourceValid()) {
-            send(500, T_text_plain, "Invalid data in handler");
-          }
-          _client->setRxTimeout(0);
-          _response->_respond(this);
-          _sent = true;
-        }
+        _send();
       }
     } else {
       _parseReqHeader();
     }
   }
+}
+
+void AsyncWebServerRequest::_send() {
+  if (!_sent) {
+    // user did not create a response ?
+    if (!_response) {
+      send(501, T_text_plain, "Handler did not handle the request");
+    }
+
+    // response is not valid ?
+    if (!_response->_sourceValid()) {
+      send(500, T_text_plain, "Invalid data in handler");
+    }
+
+    // here, we either have a response give nfrom user or one of the two above
+    _client->setRxTimeout(0);
+    _response->_respond(this);
+    _sent = true;
+    _paused = false;
+  }
+}
+
+AsyncWebServerRequestPtr AsyncWebServerRequest::pause() {
+  if (_paused) {
+    return _this;
+  }
+  _this = std::make_shared<AsyncWebServerRequest>(_server, _client);
+  _paused = true;
+  return _this;
 }
 
 size_t AsyncWebServerRequest::headers() const {
@@ -869,13 +884,21 @@ AsyncWebServerResponse *AsyncWebServerRequest::beginResponse_P(int code, const S
 }
 
 void AsyncWebServerRequest::send(AsyncWebServerResponse *response) {
+  // request is already sent on the wire ?
   if (_sent) {
     return;
   }
+
+  // if we already had a response, delete it and replace it with the new one
   if (_response) {
     delete _response;
   }
   _response = response;
+
+  // if request was paused, we need to send the response now
+  if (_paused) {
+    _send();
+  }
 }
 
 void AsyncWebServerRequest::redirect(const char *url, int code) {
