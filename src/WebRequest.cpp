@@ -660,13 +660,19 @@ void AsyncWebServerRequest::_parseLine() {
 }
 
 void AsyncWebServerRequest::_runMiddlewareChain() {
-  _server->_runChain(this, [this]() {
-    if (_handler) {
-      _handler->_runChain(this, [this]() {
-        _handler->handleRequest(this);
-      });
-    }
-  });
+  if (_handler && _handler->mustSkipServerMiddlewares()) {
+    _handler->_runChain(this, [this]() {
+      _handler->handleRequest(this);
+    });
+  } else {
+    _server->_runChain(this, [this]() {
+      if (_handler) {
+        _handler->_runChain(this, [this]() {
+          _handler->handleRequest(this);
+        });
+      }
+    });
+  }
 }
 
 void AsyncWebServerRequest::_send() {
