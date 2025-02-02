@@ -188,25 +188,8 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
       }
       if (_parsedLength == _contentLength) {
         _parseState = PARSE_REQ_END;
-        _server->_runChain(this, [this]() {
-          return _handler ? _handler->_runChain(
-                              this,
-                              [this]() {
-                                _handler->handleRequest(this);
-                              }
-                            )
-                          : send(501);
-        });
-        if (!_sent) {
-          if (!_response) {
-            send(501, T_text_plain, "Handler did not handle the request");
-          } else if (!_response->_sourceValid()) {
-            send(500, T_text_plain, "Invalid data in handler");
-          }
-          _client->setRxTimeout(0);
-          _response->_respond(this);
-          _sent = true;
-        }
+        _runMiddlewareChain();
+        _send();
       }
     }
     break;
@@ -667,29 +650,43 @@ void AsyncWebServerRequest::_parseLine() {
         _parseState = PARSE_REQ_BODY;
       } else {
         _parseState = PARSE_REQ_END;
-        _server->_runChain(this, [this]() {
-          return _handler ? _handler->_runChain(
-                              this,
-                              [this]() {
-                                _handler->handleRequest(this);
-                              }
-                            )
-                          : send(501);
-        });
-        if (!_sent) {
-          if (!_response) {
-            send(501, T_text_plain, "Handler did not handle the request");
-          } else if (!_response->_sourceValid()) {
-            send(500, T_text_plain, "Invalid data in handler");
-          }
-          _client->setRxTimeout(0);
-          _response->_respond(this);
-          _sent = true;
-        }
+        _runMiddlewareChain();
+        _send();
       }
     } else {
       _parseReqHeader();
     }
+  }
+}
+
+void AsyncWebServerRequest::_runMiddlewareChain() {
+  _server->_runChain(this, [this]() {
+    if (_handler) {
+      _handler->_runChain(this, [this]() {
+        _handler->handleRequest(this);
+      });
+    }
+  });
+}
+
+void AsyncWebServerRequest::_send() {
+  if (!_sent) {
+    // log_d("AsyncWebServerRequest::_send()");
+
+    // user did not create a response ?
+    if (!_response) {
+      send(501, T_text_plain, "Handler did not handle the request");
+    }
+
+    // response is not valid ?
+    if (!_response->_sourceValid()) {
+      send(500, T_text_plain, "Invalid data in handler");
+    }
+
+    // here, we either have a response give nfrom user or one of the two above
+    _client->setRxTimeout(0);
+    _response->_respond(this);
+    _sent = true;
   }
 }
 
