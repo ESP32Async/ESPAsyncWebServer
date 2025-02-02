@@ -129,7 +129,14 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
       if (i == len) {  // No new line, just add the buffer in _temp
         char ch = str[len - 1];
         str[len - 1] = 0;
-        _temp.reserve(_temp.length() + len);
+        if (!_temp.reserve(_temp.length() + len)) {
+#ifdef ESP32
+          log_e("Failed to allocate buffer");
+#endif
+          _parseState = PARSE_REQ_FAIL;
+          _client->abort();
+          return;
+        }
         _temp.concat(str);
         _temp.concat(ch);
       } else {       // Found new line - extract it and parse
@@ -280,9 +287,11 @@ void AsyncWebServerRequest::_addGetParams(const String &params) {
     if (equal < 0 || equal > end) {
       equal = end;
     }
-    String name(params.substring(start, equal));
-    String value(equal + 1 < end ? params.substring(equal + 1, end) : String());
-    _params.emplace_back(urlDecode(name), urlDecode(value));
+    String name = urlDecode(params.substring(start, equal));
+    String value = urlDecode(equal + 1 < end ? params.substring(equal + 1, end) : emptyString);
+    if (name.length()) {
+      _params.emplace_back(name, value);
+    }
     start = end + 1;
   }
 }
@@ -408,7 +417,10 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
       name = _temp.substring(0, _temp.indexOf('='));
       value = _temp.substring(_temp.indexOf('=') + 1);
     }
-    _params.emplace_back(urlDecode(name), urlDecode(value), true);
+    name = urlDecode(name);
+    if (name.length()) {
+      _params.emplace_back(name, urlDecode(value), true);
+    }
 
 #ifndef TARGET_RP2040
     _temp.clear();
@@ -531,6 +543,9 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
           }
           _itemBuffer = (uint8_t *)malloc(RESPONSE_STREAM_BUFFER_SIZE);
           if (_itemBuffer == NULL) {
+#ifdef ESP32
+            log_e("Failed to allocate buffer");
+#endif
             _multiParseState = PARSE_ERROR;
             return;
           }
@@ -934,27 +949,42 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
     case AsyncAuthType::AUTH_BASIC:
     {
       String header;
-      header.reserve(strlen(T_BASIC_REALM) + strlen(realm) + 1);
-      header.concat(T_BASIC_REALM);
-      header.concat(realm);
-      header.concat('"');
-      r->addHeader(T_WWW_AUTH, header.c_str());
+      if (header.reserve(strlen(T_BASIC_REALM) + strlen(realm) + 1)) {
+        header.concat(T_BASIC_REALM);
+        header.concat(realm);
+        header.concat('"');
+        r->addHeader(T_WWW_AUTH, header.c_str());
+      } else {
+#ifdef ESP32
+        log_e("Failed to allocate buffer");
+#endif
+      }
+
       break;
     }
     case AsyncAuthType::AUTH_DIGEST:
     {
       size_t len = strlen(T_DIGEST_) + strlen(T_realm__) + strlen(T_auth_nonce) + 32 + strlen(T__opaque) + 32 + 1;
       String header;
-      header.reserve(len + strlen(realm));
-      header.concat(T_DIGEST_);
-      header.concat(T_realm__);
-      header.concat(realm);
-      header.concat(T_auth_nonce);
-      header.concat(genRandomMD5());
-      header.concat(T__opaque);
-      header.concat(genRandomMD5());
-      header.concat((char)0x22);  // '"'
-      r->addHeader(T_WWW_AUTH, header.c_str());
+      if (header.reserve(len + strlen(realm))) {
+        const String nonce = genRandomMD5();
+        const String opaque = genRandomMD5();
+        if (nonce.length() && opaque.length()) {
+          header.concat(T_DIGEST_);
+          header.concat(T_realm__);
+          header.concat(realm);
+          header.concat(T_auth_nonce);
+          header.concat(nonce);
+          header.concat(T__opaque);
+          header.concat(opaque);
+          header.concat((char)0x22);  // '"'
+          r->addHeader(T_WWW_AUTH, header.c_str());
+        } else {
+#ifdef ESP32
+          log_e("Failed to allocate buffer");
+#endif
+        }
+      }
       break;
     }
     default: break;
@@ -1031,7 +1061,13 @@ String AsyncWebServerRequest::urlDecode(const String &text) const {
   unsigned int len = text.length();
   unsigned int i = 0;
   String decoded;
-  decoded.reserve(len);  // Allocate the string internal buffer - never longer from source text
+  // Allocate the string internal buffer - never longer from source text
+  if (!decoded.reserve(len)) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
+    return emptyString;
+  }
   while (i < len) {
     char decodedChar;
     char encodedChar = text.charAt(i++);

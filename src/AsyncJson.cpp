@@ -150,6 +150,12 @@ void AsyncCallbackJsonWebHandler::handleBody(AsyncWebServerRequest *request, uin
     _contentLength = total;
     if (total > 0 && request->_tempObject == NULL && total < _maxContentLength) {
       request->_tempObject = malloc(total);
+      if (request->_tempObject == NULL) {
+#ifdef ESP32
+        log_e("Failed to allocate buffer");
+#endif
+        return;
+      }
     }
     if (request->_tempObject != NULL) {
       memcpy((uint8_t *)(request->_tempObject) + index, data, len);

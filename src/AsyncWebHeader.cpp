@@ -17,11 +17,16 @@ AsyncWebHeader::AsyncWebHeader(const String &data) {
 
 String AsyncWebHeader::toString() const {
   String str;
-  str.reserve(_name.length() + _value.length() + 2);
-  str.concat(_name);
-  str.concat((char)0x3a);
-  str.concat((char)0x20);
-  str.concat(_value);
-  str.concat(asyncsrv::T_rn);
+  if (str.reserve(_name.length() + _value.length() + 2)) {
+    str.concat(_name);
+    str.concat((char)0x3a);
+    str.concat((char)0x20);
+    str.concat(_value);
+    str.concat(asyncsrv::T_rn);
+  } else {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
+  }
   return str;
 }
