@@ -86,6 +86,9 @@ String genRandomMD5() {
 #endif
   char *out = (char *)malloc(33);
   if (out == NULL || !getMD5((uint8_t *)(&r), 4, out)) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
     return emptyString;
   }
   String res = String(out);
@@ -96,6 +99,9 @@ String genRandomMD5() {
 static String stringMD5(const String &in) {
   char *out = (char *)malloc(33);
   if (out == NULL || !getMD5((uint8_t *)(in.c_str()), in.length(), out)) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
     return emptyString;
   }
   String res = String(out);
@@ -108,16 +114,33 @@ String generateDigestHash(const char *username, const char *password, const char
     return emptyString;
   }
   char *out = (char *)malloc(33);
+  if (out == NULL) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
+    return emptyString;
+  }
 
   String in;
-  in.reserve(strlen(username) + strlen(realm) + strlen(password) + 2);
+  if (!in.reserve(strlen(username) + strlen(realm) + strlen(password) + 2)) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
+    free(out);
+    return emptyString;
+  }
+
   in.concat(username);
   in.concat(':');
   in.concat(realm);
   in.concat(':');
   in.concat(password);
 
-  if (out == NULL || !getMD5((uint8_t *)(in.c_str()), in.length(), out)) {
+  if (!getMD5((uint8_t *)(in.c_str()), in.length(), out)) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
+    free(out);
     return emptyString;
   }
 

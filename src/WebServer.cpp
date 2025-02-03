@@ -30,9 +30,6 @@ const char *fs::FileOpenMode::append = "a";
 
 AsyncWebServer::AsyncWebServer(uint16_t port) : _server(port) {
   _catchAllHandler = new AsyncCallbackWebHandler();
-  if (_catchAllHandler == NULL) {
-    return;
-  }
   _server.onClient(
     [](void *s, AsyncClient *c) {
       if (c == NULL) {
@@ -52,9 +49,7 @@ AsyncWebServer::AsyncWebServer(uint16_t port) : _server(port) {
 AsyncWebServer::~AsyncWebServer() {
   reset();
   end();
-  if (_catchAllHandler) {
-    delete _catchAllHandler;
-  }
+  delete _catchAllHandler;
 }
 
 AsyncWebRewrite &AsyncWebServer::addRewrite(std::shared_ptr<AsyncWebRewrite> rewrite) {
@@ -179,9 +174,7 @@ void AsyncWebServer::reset() {
   _rewrites.clear();
   _handlers.clear();
 
-  if (_catchAllHandler != NULL) {
-    _catchAllHandler->onRequest(NULL);
-    _catchAllHandler->onUpload(NULL);
-    _catchAllHandler->onBody(NULL);
-  }
+  _catchAllHandler->onRequest(NULL);
+  _catchAllHandler->onUpload(NULL);
+  _catchAllHandler->onBody(NULL);
 }

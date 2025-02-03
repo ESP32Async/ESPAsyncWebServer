@@ -408,7 +408,9 @@ size_t AsyncAbstractResponse::_ack(AsyncWebServerRequest *request, size_t len, u
 
     uint8_t *buf = (uint8_t *)malloc(outLen + headLen);
     if (!buf) {
-      // os_printf("_ack malloc %d failed\n", outLen+headLen);
+#ifdef ESP32
+      log_e("Failed to allocate buffer");
+#endif
       return 0;
     }
 
@@ -817,7 +819,11 @@ AsyncResponseStream::AsyncResponseStream(const char *contentType, size_t bufferS
   _code = 200;
   _contentLength = 0;
   _contentType = contentType;
-  _content.reserve(bufferSize);
+  if (!_content.reserve(bufferSize)) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
+  }
 }
 
 size_t AsyncResponseStream::_fillBuffer(uint8_t *buf, size_t maxLen) {

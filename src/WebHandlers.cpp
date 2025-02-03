@@ -172,6 +172,13 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
     // Extract the file name from the path and keep it in _tempObject
     size_t pathLen = path.length();
     char *_tempPath = (char *)malloc(pathLen + 1);
+    if (_tempPath == NULL) {
+#ifdef ESP32
+      log_e("Failed to allocate buffer");
+#endif
+      request->_tempFile.close();
+      return false;
+    }
     snprintf_P(_tempPath, pathLen + 1, PSTR("%s"), path.c_str());
     request->_tempObject = (void *)_tempPath;
   }

@@ -24,7 +24,12 @@ static String generateEventMessage(const char *message, const char *event, uint3
 
   len += 42;  // give it some overhead
 
-  str.reserve(len);
+  if (!str.reserve(len)) {
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
+    return emptyString;
+  }
 
   if (reconnect) {
     str += T_retry_;

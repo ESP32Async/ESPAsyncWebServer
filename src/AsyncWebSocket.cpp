@@ -66,8 +66,9 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
 
   uint8_t *buf = (uint8_t *)malloc(headLen);
   if (buf == NULL) {
-    // os_printf("could not malloc %u bytes for frame header\n", headLen);
-    //  Serial.println("SF 3");
+#ifdef ESP32
+    log_e("Failed to allocate buffer");
+#endif
     return 0;
   }
 
@@ -168,6 +169,9 @@ public:
       _data = (uint8_t *)malloc(_len);
 
       if (_data == NULL) {
+#ifdef ESP32
+        log_e("Failed to allocate buffer");
+#endif
         _len = 0;
       } else {
         memcpy(_data, data, len);
@@ -516,6 +520,10 @@ void AsyncWebSocketClient::close(uint16_t code, const char *message) {
       _queueControl(WS_DISCONNECT, (uint8_t *)buf, packetLen);
       free(buf);
       return;
+    } else {
+#ifdef ESP32
+      log_e("Failed to allocate buffer");
+#endif
     }
   }
   _queueControl(WS_DISCONNECT);
@@ -1289,7 +1297,10 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket
   sha1(key + WS_STR_UUID, hash);
 #else
   String k;
-  k.reserve(key.length() + WS_STR_UUID_LEN);
+  if (!k.reserve(key.length() + WS_STR_UUID_LEN)) {
+    log_e("Failed to allocate buffer");
+    return;
+  }
   k.concat(key);
   k.concat(WS_STR_UUID);
   SHA1Builder sha1;
