@@ -31,6 +31,7 @@ Supports: WebSocket, SSE, Authentication, Arduino Json 7, File Upload, Static Fi
 - [How to use Middleware](#how-to-use-middleware)
 - [How to use authentication with AsyncAuthenticationMiddleware](#how-to-use-authentication-with-asyncauthenticationmiddleware)
 - [Migration to Middleware to improve performance and memory usage](#migration-to-middleware-to-improve-performance-and-memory-usage)
+- [Request Continuation](#request-continuation)
 - [Original Documentation](#original-documentation)
 
 ## Compatibility
@@ -368,6 +369,52 @@ myHandler.addMiddleware(&authMiddleware); // add authentication to a specific ha
 - `ArUploadHandlerFunction` and `ArBodyHandlerFunction` => these callbacks receiving body data and upload and not calling anymore the authentication code for performance reasons.
   These callbacks can be called multiple times during request parsing, so this is up to the user to now call the `AsyncAuthenticationMiddleware.allowed(request)` if needed and ideally when the method is called for the first time.
   These callbacks are also not triggering the whole middleware chain since they are not part of the request processing workflow (they are not the final handler).
+
+## Request Continuation
+
+Request Continuation is the ability to pause the processing of a request (the actual sending over the network) to be able to let another task commit the response on the network later.
+
+This is a common supported use case amongst web servers.
+
+A usage example can be found in the example called [RequestContinuation.ino](https://github.com/ESP32Async/ESPAsyncWebServer/blob/main/examples/RequestContinuation/RequestContinuation.ino)
+
+In the handler receiving the request, just execute:
+
+```c++
+AsyncWebServerRequestPtr ptr = request->pause();
+```
+
+This will pause the request and return a `AsyncWebServerRequestPtr` (this is a weak pointer).
+
+**The AsyncWebServerRequestPtr is the ONLY object authorized to leave the scope of the request handler.**
+
+Save somewhere this smart pointer and use it later to commit the response like this:
+
+```c++
+// you can check for expiration
+if (requestPtr.expired()) {
+  // the request connection was closed some time ago so the request is not accessible anymore
+
+} else if (longRunningTaskFinished) {
+  // this is what you always need to do when you want to access the request.
+  if (auto request = requestPtr.lock()) {
+    // send back the response
+    request->send(200, contentType, ...);
+
+  } else {
+    // the connection has been closed so the request is not accessible anymore
+  }
+}
+```
+
+Most of the time you can simply do like below if checking expiration is not needed:
+
+```c++
+if (auto request = requestPtr.lock()) {
+  // send back the response
+  request->send(200, contentType, ...);
+}
+```
 
 ## Original Documentation
 
