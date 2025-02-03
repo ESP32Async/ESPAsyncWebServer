@@ -251,6 +251,9 @@ private:
   void _handleUploadByte(uint8_t data, bool last);
   void _handleUploadEnd();
 
+  void _send();
+  void _runMiddlewareChain();
+
 public:
   File _tempFile;
   void *_tempObject;
@@ -312,6 +315,9 @@ public:
   }
   void requestAuthentication(AsyncAuthType method, const char *realm = nullptr, const char *_authFailMsg = nullptr);
 
+  // IMPORTANT: this method is for internal use ONLY
+  // Please do not use it!
+  // It can be removed or modified at any time without notice
   void setHandler(AsyncWebHandler *handler) {
     _handler = handler;
   }
@@ -900,6 +906,7 @@ class AsyncWebHandler : public AsyncMiddlewareChain {
 protected:
   ArRequestFilterFunction _filter = nullptr;
   AsyncAuthenticationMiddleware *_authMiddleware = nullptr;
+  bool _skipServerMiddlewares = false;
 
 public:
   AsyncWebHandler() {}
@@ -909,6 +916,17 @@ public:
   AsyncWebHandler &setAuthentication(const String &username, const String &password, AsyncAuthType authMethod = AsyncAuthType::AUTH_DIGEST) {
     return setAuthentication(username.c_str(), password.c_str(), authMethod);
   };
+  AsyncWebHandler &setSkipServerMiddlewares(bool state) {
+    _skipServerMiddlewares = state;
+    return *this;
+  }
+  // skip all glboally defined server middlewares for this handler and only execute those defined for this handler specifically
+  AsyncWebHandler &skipServerMiddlewares() {
+    return setSkipServerMiddlewares(true);
+  }
+  bool mustSkipServerMiddlewares() const {
+    return _skipServerMiddlewares;
+  }
   bool filter(AsyncWebServerRequest *request) {
     return _filter == NULL || _filter(request);
   }
@@ -1090,6 +1108,8 @@ public:
   void onNotFound(ArRequestHandlerFunction fn);   // called when handler is not assigned
   void onFileUpload(ArUploadHandlerFunction fn);  // handle file uploads
   void onRequestBody(ArBodyHandlerFunction fn);   // handle posts with plain body content (JSON often transmitted this way as a request)
+  // give access to the handler used to catch all requests, so that middleware can be added to it
+  AsyncWebHandler &catchAllHandler() const;
 
   void reset();  // remove all writers and handlers, with onNotFound/onFileUpload/onRequestBody
 
