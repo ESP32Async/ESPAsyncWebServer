@@ -417,12 +417,12 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
       _params.emplace_back(name, urlDecode(value), true);
     }
 
-    #if defined(TARGET_RP2040) || defined(TARGET_RP2350)|| defined(PICO_RP2040) || defined(PICO_RP2350)
-      // Ancient PRI core does not have String::clear() method 8-()
-      _temp = emptyString;
-    #else
-      _temp.clear();
-    #endif
+#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+    // Ancient PRI core does not have String::clear() method 8-()
+    _temp = emptyString;
+#else
+    _temp.clear();
+#endif
   }
 }
 
