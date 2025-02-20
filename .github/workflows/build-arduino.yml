@@ -76,7 +76,7 @@ jobs:
             echo "============================================================="
             arduino-cli compile --library . --warnings none -b esp32:esp32:esp32 "examples/$i/$i.ino"
           done
-        
+
   arduino-esp8266:
     name: Arduino ESP8266
     runs-on: ubuntu-latest
@@ -110,7 +110,7 @@ jobs:
 
   arduino-rp2040:
     name: Arduino RP2040
-    runs-on: ubuntu-latest            
+    runs-on: ubuntu-latest
     steps:
       - name: Install arduino-cli
         run: curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
@@ -124,8 +124,8 @@ jobs:
       - name: Install ArduinoJson
         run: arduino-cli lib install ArduinoJson
 
-      - name: Install AsyncTCP (RP2040)
-        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/khoih-prog/AsyncTCP_RP2040W#v1.2.0
+      - name: Install RPAsyncTCP
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/ayushsharma82/RPAsyncTCP#v1.3.0
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -137,4 +137,35 @@ jobs:
             echo "Building examples/$i..."
             echo "============================================================="
             arduino-cli compile --library . --warnings none -b rp2040:rp2040:rpipicow "examples/$i/$i.ino"
+          done
+
+  arduino-rp2350:
+    name: Arduino RP2350
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install arduino-cli
+        run: curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
+
+      - name: Update core index
+        run: arduino-cli core update-index --additional-urls https://github.com/earlephilhower/arduino-pico/releases/download/4.4.3/package_rp2040_index.json
+
+      - name: Install core
+        run: arduino-cli core install --additional-urls https://github.com/earlephilhower/arduino-pico/releases/download/4.4.3/package_rp2040_index.json rp2040:rp2040
+
+      - name: Install ArduinoJson
+        run: arduino-cli lib install ArduinoJson
+
+      - name: Install RPAsyncTCP
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/ayushsharma82/RPAsyncTCP#v1.3.0
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Examples
+        run: |
+          for i in `ls examples`; do
+            echo "============================================================="
+            echo "Building examples/$i..."
+            echo "============================================================="
+            arduino-cli compile --library . --warnings none -b rp2040:rp2040:rpipico2w "examples/$i/$i.ino"
           done
