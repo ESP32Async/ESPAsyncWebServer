@@ -16,8 +16,8 @@
 #ifndef WS_MAX_QUEUED_MESSAGES
 #define WS_MAX_QUEUED_MESSAGES 8
 #endif
-#elif defined(TARGET_RP2040)
-#include <AsyncTCP_RP2040W.h>
+#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#include <RPAsyncTCP.h>
 #ifndef WS_MAX_QUEUED_MESSAGES
 #define WS_MAX_QUEUED_MESSAGES 32
 #endif

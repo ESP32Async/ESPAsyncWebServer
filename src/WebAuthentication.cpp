@@ -3,7 +3,7 @@
 
 #include "WebAuthentication.h"
 #include <libb64/cencode.h>
-#if defined(ESP32) || defined(TARGET_RP2040)
+#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 #include <MD5Builder.h>
 #else
 #include "md5.h"
@@ -50,7 +50,7 @@ String generateBasicHash(const char *username, const char *password) {
 }
 
 static bool getMD5(uint8_t *data, uint16_t len, char *output) {  // 33 bytes or more
-#if defined(ESP32) || defined(TARGET_RP2040)
+#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
   MD5Builder md5;
   md5.begin();
   md5.add(data, len);

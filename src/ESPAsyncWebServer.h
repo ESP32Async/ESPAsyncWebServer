@@ -20,8 +20,8 @@
 #elif defined(ESP8266)
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
-#elif defined(TARGET_RP2040)
-#include <AsyncTCP_RP2040W.h>
+#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#include <RPAsyncTCP.h>
 #include <HTTP_Method.h>
 #include <WiFi.h>
 #include <http_parser.h>
@@ -58,7 +58,7 @@ class AsyncCallbackWebHandler;
 class AsyncResponseStream;
 class AsyncMiddlewareChain;
 
-#if defined(TARGET_RP2040)
+#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 typedef enum http_method WebRequestMethod;
 #else
 #ifndef WEBSERVER_H

@@ -21,8 +21,8 @@
 #endif
 #define SSE_MIN_INFLIGH 2 * 1460  // allow 2 MSS packets
 #define SSE_MAX_INFLIGH 8 * 1024  // but no more than 8k, no need to blow it, since same data is kept in local Q
-#elif defined(TARGET_RP2040)
-#include <AsyncTCP_RP2040W.h>
+#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#include <RPAsyncTCP.h>
 #ifndef SSE_MAX_QUEUED_MESSAGES
 #define SSE_MAX_QUEUED_MESSAGES 32
 #endif

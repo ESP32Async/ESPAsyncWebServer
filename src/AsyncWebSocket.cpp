@@ -15,7 +15,7 @@
 #include <SHA1Builder.h>
 #endif
 #include <rom/ets_sys.h>
-#elif defined(TARGET_RP2040) || defined(ESP8266)
+#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(ESP8266)
 #include <Hash.h>
 #endif
 
@@ -1290,7 +1290,7 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket
   uint8_t hash[20];
   char buffer[33];
 
-#if defined(ESP8266) || defined(TARGET_RP2040)
+#if defined(ESP8266) || defined(TARGET_RP2040) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(TARGET_RP2350)
   sha1(key + WS_STR_UUID, hash);
 #else
   String k;

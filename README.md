@@ -89,9 +89,9 @@ lib_ignore =
   ESP32Async/AsyncTCP
 ```
 
-**AsyncTCP_RP2040W**
+**RPAsyncTCP**
 
-AsyncTCP_RP2040W provides support for RP2040 and replaced AsyncTCP in this case:
+RPAsyncTCP replaces AsyncTCP to provide support for RP2040(+WiFi) and RP2350(+WiFi) boards. For example - Raspberry Pi Pico W and Raspberry Pi Pico 2W.
 
 ```ini
 lib_compat_mode = strict
@@ -100,7 +100,7 @@ platform = https://github.com/maxgerhardt/platform-raspberrypi.git
 board = rpipicow
 board_build.core = earlephilhower
 lib_deps =
-  khoih-prog/AsyncTCP_RP2040W @ 1.2.0
+  ayushsharma82/RPAsyncTCP@1.3.0
   ESP32Async/ESPAsyncWebServer
 lib_ignore =
   lwIP_ESPHost

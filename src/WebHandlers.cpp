@@ -212,7 +212,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
   String etag;
   if (lw) {
     setLastModified(lw);
-#if defined(TARGET_RP2040)
+#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
     // time_t == long long int
     constexpr size_t len = 1 + 8 * sizeof(time_t);
     char buf[len];
