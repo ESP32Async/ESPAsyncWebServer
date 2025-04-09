@@ -152,7 +152,7 @@ private:
   uint32_t _clientId;
   AwsClientStatus _status;
 #ifdef ESP32
-  mutable std::mutex _lock;
+  mutable std::recursive_mutex _lock;
 #endif
   std::deque<AsyncWebSocketControl> _controlQueue;
   std::deque<AsyncWebSocketMessage> _messageQueue;
@@ -385,6 +385,7 @@ public:
     return _cNextId++;
   }
   AsyncWebSocketClient *_newClient(AsyncWebServerRequest *request);
+  void _handleDisconnect(AsyncWebSocketClient *client);
   void _handleEvent(AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
   bool canHandle(AsyncWebServerRequest *request) const override final;
   void handleRequest(AsyncWebServerRequest *request) override final;
