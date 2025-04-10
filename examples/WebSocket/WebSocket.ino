@@ -105,7 +105,7 @@ void loop() {
     Serial.printf("Connected clients: %u / %u total\n", ws.count(), ws.getClients().size());
 
     // this can be called to also set a soft limit on the number of connected clients
-    ws.cleanupClients(2); // no more than 2 clients
+    ws.cleanupClients(2);  // no more than 2 clients
 
 #ifdef ESP32
     Serial.printf("Free heap: %" PRIu32 "\n", ESP.getFreeHeap());
