@@ -363,7 +363,7 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
         _status = WS_DISCONNECTED;
         if (_client) {
 #ifdef ESP32
-          /* 
+          /*
             Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
             Due to _client->close(true) shall call the callback function _onDisconnect()
             The calling flow _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient()
@@ -475,7 +475,7 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
 
       if (_client) {
 #ifdef ESP32
-        /* 
+        /*
           Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
           Due to _client->close(true) shall call the callback function _onDisconnect()
           The calling flow _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient()
