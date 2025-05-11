@@ -58,6 +58,7 @@ class AsyncStaticWebHandler;
 class AsyncCallbackWebHandler;
 class AsyncResponseStream;
 class AsyncMiddlewareChain;
+class AsyncRouter;
 
 #if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 typedef enum http_method WebRequestMethod;
@@ -88,6 +89,7 @@ public:
 #else
 #include "FileOpenMode.h"
 #endif
+#include "AsyncRouter.h"
 
 // if this value is returned when asked for data, packet will not be sent and you will be asked for data again
 #define RESPONSE_TRY_AGAIN          0xFFFFFFFF
@@ -1090,6 +1092,7 @@ protected:
   AsyncServer _server;
   std::list<std::shared_ptr<AsyncWebRewrite>> _rewrites;
   std::list<std::unique_ptr<AsyncWebHandler>> _handlers;
+  std::list<std::unique_ptr<AsyncRouter>> _routers;
   AsyncCallbackWebHandler *_catchAllHandler;
 
 public:
@@ -1114,6 +1117,7 @@ public:
 #endif
 
   AsyncWebRewrite &addRewrite(AsyncWebRewrite *rewrite);
+  AsyncRouter &addRouter(AsyncRouter *router);
 
   /**
      * @brief (compat) Add url rewrite rule by pointer
@@ -1124,6 +1128,16 @@ public:
      * @return AsyncWebRewrite& reference to a newly created rewrite rule
      */
   AsyncWebRewrite &addRewrite(std::shared_ptr<AsyncWebRewrite> rewrite);
+
+  /**
+   * @brief (compat) Add router by pointer
+   * a deep copy of the pointer object will be created,
+   * it is up to user to manage further lifetime of the object in argument
+   *
+   * @param router pointer to router object to copy setting from
+   * @return AsyncRouter& reference to a newly created router
+   */
+  AsyncRouter &addRouter(std::unique_ptr<AsyncRouter> router);
 
   /**
      * @brief add url rewrite rule
@@ -1144,6 +1158,7 @@ public:
      */
   bool removeRewrite(AsyncWebRewrite *rewrite);
 
+
   /**
      * @brief remove rewrite rule
      *
@@ -1153,6 +1168,25 @@ public:
      * @return false
      */
   bool removeRewrite(const char *from, const char *to);
+
+  /**
+   * @brief (compat) remove router via referenced object
+   * this will NOT deallocate pointed object itself, internal router with same path will be removed if any
+   * it's a compat method, better use `removeRouter(const char* path)`
+   * @param router
+   * @return true
+   * @return false
+   */
+  bool removeRouter(AsyncRouter *router);
+
+  /**
+     * @brief remove router by path
+     *
+     * @param path
+     * @return true
+     * @return false
+     */
+  bool removeRouter(const char *path);
 
   AsyncWebHandler &addHandler(AsyncWebHandler *handler);
   bool removeHandler(AsyncWebHandler *handler);
