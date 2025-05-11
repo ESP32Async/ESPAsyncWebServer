@@ -52,6 +52,11 @@ void setup() {
     request->send(200, "text/plain", "Hello from /example/test2");
   });
 
+  // With specific method
+  exampleRouter.on("/test2", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "text/plain", "Hello from /example/test2");
+  });
+
   // Add the routers to the server
   server.addRouter(&settingsRouter);
   server.addRouter(&exampleRouter);

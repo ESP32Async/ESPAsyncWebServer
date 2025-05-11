@@ -17,8 +17,6 @@ class AsyncRouter {
     public:
         AsyncRouter(AsyncWebServer* server, const char *path);
         ~AsyncRouter();
-        AsyncCallbackWebHandler& on(const char* uri, ArRequestHandlerFunction onRequest);
-        AsyncCallbackWebHandler& on(const char* uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest);
         AsyncCallbackWebHandler& on(
             const char* uri,
             WebRequestMethodComposite method,
@@ -26,6 +24,8 @@ class AsyncRouter {
             ArUploadHandlerFunction onUpload = nullptr,
             ArBodyHandlerFunction onBody = nullptr
         );
+        AsyncCallbackWebHandler& on(const char* uri, ArRequestHandlerFunction onRequest);
+        AsyncCallbackWebHandler& on(const char* uri, WebRequestMethod method, ArRequestHandlerFunction onRequest);
 
         void addMidleware(AsyncMiddleware* middleware);
         std::string path();
