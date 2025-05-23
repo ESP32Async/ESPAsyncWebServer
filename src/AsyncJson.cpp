@@ -125,12 +125,12 @@ void AsyncCallbackJsonWebHandler::handleRequest(AsyncWebServerRequest *request) 
       if (json.success()) {
 #elif ARDUINOJSON_VERSION_MAJOR == 6
       DynamicJsonDocument jsonBuffer(this->maxJsonBufferSize);
-      DeserializationError error = deserializeJson(jsonBuffer, (uint8_t *)(request->_tempObject));
+      DeserializationError error = deserializeJson(jsonBuffer, (uint8_t *)(request->_tempObject), request->contentLength());
       if (!error) {
         JsonVariant json = jsonBuffer.as<JsonVariant>();
 #else
       JsonDocument jsonBuffer;
-      DeserializationError error = deserializeJson(jsonBuffer, (uint8_t *)(request->_tempObject));
+      DeserializationError error = deserializeJson(jsonBuffer, (uint8_t *)(request->_tempObject), request->contentLength());
       if (!error) {
         JsonVariant json = jsonBuffer.as<JsonVariant>();
 #endif
