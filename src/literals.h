@@ -3,6 +3,11 @@
 
 #pragma once
 
+#ifdef LIBRETINY
+extern const String emptyStringForEspAsync;
+#define emptyString emptyStringForEspAsync
+#endif
+
 namespace asyncsrv {
 
 static constexpr const char *empty = "";

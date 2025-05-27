@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
-#ifdef ESP32
+#if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #include <WiFi.h>
 #elif defined(ESP8266)
@@ -1100,7 +1100,7 @@ public:
   void end();
 
   tcp_state state() const {
-#ifdef ESP8266
+#if defined(ESP8266) || defined(LIBRETINY)
     // ESPAsyncTCP and RPAsyncTCP methods are not corrected declared with const for immutable ones.
     return static_cast<tcp_state>(const_cast<AsyncWebServer *>(this)->_server.status());
 #else

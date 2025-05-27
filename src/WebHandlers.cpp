@@ -209,11 +209,14 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     char buf[len];
     char *ret = lltoa(lw ^ request->_tempFile.size(), buf, len, 10);
     etag = ret ? String(ret) : String(request->_tempFile.size());
+#elif defined(LIBRETINY)
+    long val = lw ^ request->_tempFile.size();
+    etag = String(val);
 #else
     etag = lw ^ request->_tempFile.size();  // etag combines file size and lastmod timestamp
 #endif
   } else {
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY)
     etag = String(request->_tempFile.size());
 #else
     etag = request->_tempFile.size();
