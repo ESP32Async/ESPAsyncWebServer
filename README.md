@@ -108,6 +108,18 @@ build_flags = ${env.build_flags}
   -Wno-missing-field-initializers
 ```
 
+**AsyncTCP-esphome**
+
+AsyncTCP-esphome replaces AsyncTCP to provide support for LibreTiny platform (BK72xx, RTL87xx). The dependency is automatically enabled with ESPAsyncWebServer.
+
+```ini
+platform = libretiny
+board = generic-bk7231n-tuya-qfn32
+lib_deps =
+  esphome/AsyncTCP-esphome@^2.1.4
+  ESP32Async/ESPAsyncWebServer
+```
+
 ## Important recommendations for build options
 
 Most of the crashes are caused by improper use or configuration of the AsyncTCP library used for the project.
