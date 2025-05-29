@@ -53,14 +53,38 @@ AsyncWebServer::~AsyncWebServer() {
   _catchAllHandler = nullptr;  // Prevent potential use-after-free
 }
 
+AsyncRouter &AsyncWebServer::addRouter(std::unique_ptr<AsyncRouter> router) {
+  _routers.emplace_back(std::move(router));
+  return *_routers.back().get();
+}
+
 AsyncWebRewrite &AsyncWebServer::addRewrite(std::shared_ptr<AsyncWebRewrite> rewrite) {
   _rewrites.emplace_back(rewrite);
   return *_rewrites.back().get();
 }
 
+AsyncRouter &AsyncWebServer::addRouter(AsyncRouter *router) {
+  _routers.emplace_back(router);
+  return *_routers.back().get();
+}
+
 AsyncWebRewrite &AsyncWebServer::addRewrite(AsyncWebRewrite *rewrite) {
   _rewrites.emplace_back(rewrite);
   return *_rewrites.back().get();
+}
+
+bool AsyncWebServer::removeRouter(AsyncRouter *router) {
+  return removeRouter(router->path().c_str());
+}
+
+bool AsyncWebServer::removeRouter(const char *path) {
+  for (auto r = _routers.begin(); r != _routers.end(); ++r) {
+    if (r->get()->path() == path) {
+      _routers.erase(r);
+      return true;
+    }
+  }
+  return false;
 }
 
 bool AsyncWebServer::removeRewrite(AsyncWebRewrite *rewrite) {
