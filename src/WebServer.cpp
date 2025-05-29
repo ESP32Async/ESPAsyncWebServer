@@ -4,6 +4,10 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
+#ifdef LIBRETINY
+const String emptyStringForEspAsync;
+#endif
+
 using namespace asyncsrv;
 
 bool ON_STA_FILTER(AsyncWebServerRequest *request) {

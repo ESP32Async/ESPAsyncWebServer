@@ -18,7 +18,8 @@
   "platforms": [
     "espressif32",
     "espressif8266",
-    "raspberrypi"
+    "raspberrypi",
+    "libretiny"
   ],
   "dependencies": [
     {
@@ -42,6 +43,12 @@
       "name": "RPAsyncTCP",
       "version": "^1.3.2",
       "platforms": "raspberrypi"
+    },
+    {
+      "owner": "esphome",
+      "name": "AsyncTCP-esphome",
+      "version": "^2.1.4",
+      "platforms": "libretiny"
     }
   ],
   "export": {
