@@ -74,9 +74,11 @@ lib_deps =
 
 ### LibreTiny (BK7231N/T, RTL8710B, etc.)
 
+Version 1.9.1 or newer is required.
+
 ```ini
 [env:stable]
-platform = libretiny
+platform = libretiny @ ^1.9.1
 lib_ldf_mode = chain
 lib_deps =
   ESP32Async/AsyncTCP
