@@ -72,6 +72,17 @@ lib_deps =
   ESP32Async/ESPAsyncWebServer
 ```
 
+### LibreTiny (BK7231N/T, RTL8710B, etc.)
+
+```ini
+[env:stable]
+platform = libretiny
+lib_ldf_mode = chain
+lib_deps =
+  ESP32Async/AsyncTCP
+  ESP32Async/ESPAsyncWebServer
+```
+
 ### Unofficial dependencies
 
 **AsyncTCPSock**
