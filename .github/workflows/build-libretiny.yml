@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  platformio-rpi:
+  platformio-libretiny:
     name: LibreTiny (pio)
     runs-on: ubuntu-latest
     strategy:
