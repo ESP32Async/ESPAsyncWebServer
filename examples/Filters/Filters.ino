@@ -32,7 +32,7 @@ public:
     response->print("<!DOCTYPE html><html><head><title>Captive Portal</title></head><body>");
     response->print("<p>This is out captive portal front page.</p>");
     response->printf("<p>You were trying to reach: http://%s%s</p>", request->host().c_str(), request->url().c_str());
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
     response->printf("<p>Try opening <a href='http://%s'>this link</a> instead</p>", WiFi.softAPIP().toString().c_str());
 #endif
     response->print("</body></html>");
@@ -51,17 +51,17 @@ void setup() {
       "/", HTTP_GET,
       [](AsyncWebServerRequest *request) {
         Serial.println("Captive portal request...");
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
         Serial.println("WiFi.localIP(): " + WiFi.localIP().toString());
 #endif
         Serial.println("request->client()->localIP(): " + request->client()->localIP().toString());
 #if ESP_IDF_VERSION_MAJOR >= 5
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
         Serial.println("WiFi.type(): " + String((int)WiFi.localIP().type()));
 #endif
         Serial.println("request->client()->type(): " + String((int)request->client()->localIP().type()));
 #endif
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
         Serial.println(WiFi.localIP() == request->client()->localIP() ? "should be: ON_STA_FILTER" : "should be: ON_AP_FILTER");
         Serial.println(WiFi.localIP() == request->client()->localIP());
         Serial.println(WiFi.localIP().toString() == request->client()->localIP().toString());
@@ -77,17 +77,17 @@ void setup() {
       "/", HTTP_GET,
       [](AsyncWebServerRequest *request) {
         Serial.println("Website request...");
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
         Serial.println("WiFi.localIP(): " + WiFi.localIP().toString());
 #endif
         Serial.println("request->client()->localIP(): " + request->client()->localIP().toString());
 #if ESP_IDF_VERSION_MAJOR >= 5
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
         Serial.println("WiFi.type(): " + String((int)WiFi.localIP().type()));
 #endif
         Serial.println("request->client()->type(): " + String((int)request->client()->localIP().type()));
 #endif
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
         Serial.println(WiFi.localIP() == request->client()->localIP() ? "should be: ON_STA_FILTER" : "should be: ON_AP_FILTER");
         Serial.println(WiFi.localIP() == request->client()->localIP());
         Serial.println(WiFi.localIP().toString() == request->client()->localIP().toString());
@@ -113,7 +113,7 @@ void setup() {
   // dnsServer.stop();
   // WiFi.softAPdisconnect();
 
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
   WiFi.persistent(false);
   WiFi.begin("IoT");
   while (WiFi.status() != WL_CONNECTED) {

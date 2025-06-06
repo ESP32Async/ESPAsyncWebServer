@@ -17,14 +17,11 @@
 
 #ifdef ESP32
 #include <AsyncTCP.h>
-#include <WiFi.h>
 #elif defined(ESP8266)
-#include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 #include <RPAsyncTCP.h>
 #include <HTTP_Method.h>
-#include <WiFi.h>
 #include <http_parser.h>
 #else
 #error Platform not supported

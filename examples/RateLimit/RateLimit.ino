@@ -25,7 +25,7 @@ static AsyncRateLimitMiddleware rateLimit;
 void setup() {
   Serial.begin(115200);
 
-#ifndef CONFIG_IDF_TARGET_ESP32H2
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
