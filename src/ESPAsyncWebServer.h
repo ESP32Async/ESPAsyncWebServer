@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
-#ifdef ESP32
+#if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #include <WiFi.h>
 #elif defined(ESP8266)

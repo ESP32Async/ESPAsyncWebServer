@@ -18,14 +18,18 @@
   "platforms": [
     "espressif32",
     "espressif8266",
-    "raspberrypi"
+    "raspberrypi",
+    "libretiny"
   ],
   "dependencies": [
     {
       "owner": "ESP32Async",
       "name": "AsyncTCP",
       "version": "^3.4.4",
-      "platforms": "espressif32"
+      "platforms": [
+        "espressif32",
+        "libretiny"
+      ]
     },
     {
       "owner": "ESP32Async",

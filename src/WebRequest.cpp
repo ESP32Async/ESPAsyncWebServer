@@ -394,7 +394,7 @@ bool AsyncWebServerRequest::_parseReqHeader() {
     }
     _headers.emplace_back(name, value);
   }
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY)
   // Ancient PRI core does not have String::clear() method 8-()
   _temp = emptyString;
 #else
@@ -419,7 +419,7 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
       _params.emplace_back(name, urlDecode(value), true);
     }
 
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY)
     // Ancient PRI core does not have String::clear() method 8-()
     _temp = emptyString;
 #else
