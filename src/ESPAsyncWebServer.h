@@ -379,19 +379,19 @@ public:
         if (file.read(trailer, sizeof(trailer)) == sizeof(trailer)) {
           char serverETag[11];
           _getEtag(trailer, serverETag);
-          
+
           // Compare with client's If-None-Match header
           const char *clientETag = this->getHeader(asyncsrv::T_INM)->value().c_str();
           if (strcmp(clientETag, serverETag) == 0) {
             file.close();
-            this->send(304); // Not Modified
+            this->send(304);  // Not Modified
             return;
           }
         }
         file.close();
       }
     }
-    
+
     // If we get here, create and send the normal response
     if (fs.exists(path) || (!download && fs.exists(path + asyncsrv::T__gz))) {
       send(beginResponse(fs, path, contentType, download, callback));
@@ -400,15 +400,15 @@ public:
     }
   }
 
-  void _getEtag(uint8_t trailer[4], char* serverETag) {
+  void _getEtag(uint8_t trailer[4], char *serverETag) {
     serverETag[0] = '"';
     for (int i = 0; i < 4; ++i) {
       uint8_t byte = trailer[i];
       uint8_t highNibble = (byte >> 4) & 0x0F;
-      uint8_t lowNibble  = byte & 0x0F;
+      uint8_t lowNibble = byte & 0x0F;
 
       serverETag[1 + i * 2] = (highNibble < 10) ? ('0' + highNibble) : ('A' + highNibble - 10);
-      serverETag[2 + i * 2] = (lowNibble  < 10) ? ('0' + lowNibble)  : ('A' + lowNibble - 10);
+      serverETag[2 + i * 2] = (lowNibble < 10) ? ('0' + lowNibble) : ('A' + lowNibble - 10);
     }
     serverETag[9] = '"';
     serverETag[10] = '\0';

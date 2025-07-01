@@ -670,12 +670,12 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
         addHeader(T_ETag, serverETag, false);
         addHeader(T_Cache_Control, T_no_cache, false);
       }
-  
-    // Return to the beginning of the file
-    _content.seek(0);
+
+      // Return to the beginning of the file
+      _content.seek(0);
     }
   }
-  
+
   _content = fs.open(_path, fs::FileOpenMode::read);
   _contentLength = _content.size();
 
@@ -699,15 +699,15 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
   addHeader(T_Content_Disposition, buf, false);
 }
 
-void AsyncFileResponse::_getEtag(uint8_t trailer[4], char* serverETag) {
+void AsyncFileResponse::_getEtag(uint8_t trailer[4], char *serverETag) {
   serverETag[0] = '"';
   for (int i = 0; i < 4; ++i) {
     uint8_t byte = trailer[i];
     uint8_t highNibble = (byte >> 4) & 0x0F;
-    uint8_t lowNibble  = byte & 0x0F;
+    uint8_t lowNibble = byte & 0x0F;
 
     serverETag[1 + i * 2] = (highNibble < 10) ? ('0' + highNibble) : ('A' + highNibble - 10);
-    serverETag[2 + i * 2] = (lowNibble  < 10) ? ('0' + lowNibble)  : ('A' + lowNibble - 10);
+    serverETag[2 + i * 2] = (lowNibble < 10) ? ('0' + lowNibble) : ('A' + lowNibble - 10);
   }
   serverETag[9] = '"';
   serverETag[10] = '\0';
