@@ -657,8 +657,25 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     _callback = nullptr;  // Unable to process zipped templates
     _sendContentLength = true;
     _chunked = false;
-  }
+    _content = fs.open(_path, fs::FileOpenMode::read);
+    _contentLength = _content.size();
 
+    // CRC32-based ETag of the trailer, bytes 4-7 from the end
+    if (_content && _contentLength >= 8) {
+      _content.seek(_contentLength - 8);
+      uint8_t trailer[4];
+      if (_content.read(trailer, sizeof(trailer)) == sizeof(trailer)) {
+        char serverETag[11];
+        _getEtag(trailer, serverETag);
+        addHeader(T_ETag, serverETag, false);
+        addHeader(T_Cache_Control, T_no_cache, false);
+      }
+  
+    // Return to the beginning of the file
+    _content.seek(0);
+    }
+  }
+  
   _content = fs.open(_path, fs::FileOpenMode::read);
   _contentLength = _content.size();
 
@@ -680,6 +697,20 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     snprintf_P(buf, sizeof(buf), PSTR("inline"));
   }
   addHeader(T_Content_Disposition, buf, false);
+}
+
+void AsyncFileResponse::_getEtag(uint8_t trailer[4], char* serverETag) {
+  serverETag[0] = '"';
+  for (int i = 0; i < 4; ++i) {
+    uint8_t byte = trailer[i];
+    uint8_t highNibble = (byte >> 4) & 0x0F;
+    uint8_t lowNibble  = byte & 0x0F;
+
+    serverETag[1 + i * 2] = (highNibble < 10) ? ('0' + highNibble) : ('A' + highNibble - 10);
+    serverETag[2 + i * 2] = (lowNibble  < 10) ? ('0' + lowNibble)  : ('A' + lowNibble - 10);
+  }
+  serverETag[9] = '"';
+  serverETag[10] = '\0';
 }
 
 AsyncFileResponse::AsyncFileResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
