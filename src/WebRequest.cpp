@@ -341,10 +341,10 @@ bool AsyncWebServerRequest::_parseReqHead() {
 }
 
 bool AsyncWebServerRequest::_parseReqHeader() {
-  int index = _temp.indexOf(':');
-  if (index) {
-    String name(_temp.substring(0, index));
-    String value(_temp.substring(index + 2));
+  AsyncWebHeader header = AsyncWebHeader::parse(_temp);
+  if (header) {
+    const String &name = header.name();
+    const String &value = header.value();
     if (name.equalsIgnoreCase(T_Host)) {
       _host = value;
     } else if (name.equalsIgnoreCase(T_Content_Type)) {
@@ -392,7 +392,7 @@ bool AsyncWebServerRequest::_parseReqHeader() {
         _reqconntype = RCT_EVENT;
       }
     }
-    _headers.emplace_back(name, value);
+    _headers.emplace_back(std::move(header));
   }
 #if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY)
   // Ancient PRI core does not have String::clear() method 8-()

@@ -79,6 +79,29 @@ void setup() {
     )
     .addMiddleware(&headerFree);
 
+  // curl -v http://192.168.4.1/
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "Hello, world!");
+    response->addHeader(AsyncWebHeader::parse("X-Test-1: value1"));
+    response->addHeader(AsyncWebHeader::parse("X-Test-2:value2"));
+    response->addHeader(AsyncWebHeader::parse("X-Test-3:"));
+    response->addHeader(AsyncWebHeader::parse("X-Test-4: "));
+    response->addHeader(AsyncWebHeader::parse(""));
+    response->addHeader(AsyncWebHeader::parse(":"));
+    request->send(response);
+    /**
+< HTTP/1.1 200 OK
+< connection: close
+< X-Test-1: value1
+< X-Test-2: value2
+< X-Test-3:
+< X-Test-4:
+< accept-ranges: none
+< content-length: 13
+< content-type: text/plain
+     */
+  });
+
   server.begin();
 }
 

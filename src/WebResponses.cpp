@@ -134,6 +134,30 @@ bool AsyncWebServerResponse::headerMustBePresentOnce(const String &name) {
   return false;
 }
 
+bool AsyncWebServerResponse::addHeader(AsyncWebHeader &&header, bool replaceExisting) {
+  if (!header) {
+    return false;  // invalid header
+  }
+  for (auto i = _headers.begin(); i != _headers.end(); ++i) {
+    if (i->name().equalsIgnoreCase(header.name())) {
+      // header already set
+      if (replaceExisting) {
+        // remove, break and add the new one
+        _headers.erase(i);
+        break;
+      } else if (headerMustBePresentOnce(i->name())) {  // we can have only one header with that name
+        // do not update
+        return false;
+      } else {
+        break;  // accept multiple headers with the same name
+      }
+    }
+  }
+  // header was not found found, or existing one was removed
+  _headers.emplace_back(std::move(header));
+  return true;
+}
+
 bool AsyncWebServerResponse::addHeader(const char *name, const char *value, bool replaceExisting) {
   for (auto i = _headers.begin(); i != _headers.end(); ++i) {
     if (i->name().equalsIgnoreCase(name)) {

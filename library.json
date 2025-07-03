@@ -25,7 +25,7 @@
     {
       "owner": "ESP32Async",
       "name": "AsyncTCP",
-      "version": "^3.4.4",
+      "version": "^3.4.5",
       "platforms": [
         "espressif32",
         "libretiny"

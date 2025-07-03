@@ -29,7 +29,7 @@ dependencies:
     version: "^3.1.1"
     require: public
   esp32async/asynctcp:
-    version: "^3.4.4"
+    version: "^3.4.5"
     require: public
   bblanchon/arduinojson:
     version: "^7.4.2"

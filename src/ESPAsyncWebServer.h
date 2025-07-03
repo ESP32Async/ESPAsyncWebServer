@@ -135,12 +135,20 @@ private:
   String _value;
 
 public:
+  AsyncWebHeader() {}
   AsyncWebHeader(const AsyncWebHeader &) = default;
+  AsyncWebHeader(AsyncWebHeader &&) = default;
   AsyncWebHeader(const char *name, const char *value) : _name(name), _value(value) {}
   AsyncWebHeader(const String &name, const String &value) : _name(name), _value(value) {}
-  AsyncWebHeader(const String &data);
+
+#ifndef ESP8266
+  [[deprecated("Use AsyncWebHeader::parse(data) instead")]]
+#endif
+  AsyncWebHeader(const String &data)
+    : AsyncWebHeader(parse(data)){};
 
   AsyncWebHeader &operator=(const AsyncWebHeader &) = default;
+  AsyncWebHeader &operator=(AsyncWebHeader &&other) = default;
 
   const String &name() const {
     return _name;
@@ -148,7 +156,18 @@ public:
   const String &value() const {
     return _value;
   }
+
   String toString() const;
+
+  // returns true if the header is valid
+  operator bool() const {
+    return _name.length();
+  }
+
+  static const AsyncWebHeader parse(const String &data) {
+    return parse(data.c_str());
+  }
+  static const AsyncWebHeader parse(const char *data);
 };
 
 /*
@@ -1034,6 +1053,10 @@ public:
     setContentType(type.c_str());
   }
   void setContentType(const char *type);
+  bool addHeader(AsyncWebHeader &&header, bool replaceExisting = true);
+  bool addHeader(const AsyncWebHeader &header, bool replaceExisting = true) {
+    return header && addHeader(header.name(), header.value(), replaceExisting);
+  }
   bool addHeader(const char *name, const char *value, bool replaceExisting = true);
   bool addHeader(const String &name, const String &value, bool replaceExisting = true) {
     return addHeader(name.c_str(), value.c_str(), replaceExisting);
