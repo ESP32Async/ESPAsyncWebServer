@@ -8,6 +8,11 @@
 
 #if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
+#ifdef LIBRETINY
+#ifdef round
+#undef round
+#endif
+#endif
 #include <mutex>
 #ifndef SSE_MAX_QUEUED_MESSAGES
 #define SSE_MAX_QUEUED_MESSAGES 32
