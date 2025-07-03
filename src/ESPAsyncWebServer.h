@@ -334,6 +334,8 @@ public:
   void addInterestingHeader(__unused const String &name) {
   }
 
+  static void _getEtag(uint8_t trailer[4], char* serverETag);
+
   /**
      * @brief issue HTTP redirect response with Location header
      *
@@ -367,13 +369,7 @@ public:
     send(beginResponse(code, contentType, content, len, callback));
   }
 
-  void send(FS &fs, const String &path, const char *contentType = asyncsrv::empty, bool download = false, AwsTemplateProcessor callback = nullptr) {
-    if (fs.exists(path) || (!download && fs.exists(path + asyncsrv::T__gz))) {
-      send(beginResponse(fs, path, contentType, download, callback));
-    } else {
-      send(404);
-    }
-  }
+  void send(FS &fs, const String &path, const char *contentType = asyncsrv::empty, bool download = false, AwsTemplateProcessor callback = nullptr);
   void send(FS &fs, const String &path, const String &contentType, bool download = false, AwsTemplateProcessor callback = nullptr) {
     send(fs, path, contentType.c_str(), download, callback);
   }
