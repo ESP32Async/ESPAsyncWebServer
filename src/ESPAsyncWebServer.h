@@ -353,7 +353,7 @@ public:
   void addInterestingHeader(__unused const String &name) {
   }
 
-  static void _getEtag(uint8_t trailer[4], char* serverETag);
+  static void _getEtag(uint8_t trailer[4], char *serverETag);
 
   /**
      * @brief issue HTTP redirect response with Location header

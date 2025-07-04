@@ -680,7 +680,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     _content = fs.open(gzPath, fs::FileOpenMode::read);
     _contentLength = _content.size();
     addHeader(T_Content_Encoding, T_gzip, false);
-    _callback = nullptr; // Unable to process zipped templates
+    _callback = nullptr;  // Unable to process zipped templates
     _sendContentLength = true;
     _chunked = false;
 
@@ -706,8 +706,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
 
   if (*contentType != '\0') {
     _setContentTypeFromPath(path);
-  }
-  else {
+  } else {
     _contentType = contentType;
   }
 
@@ -718,8 +717,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
   if (download) {
     // set filename and force download
     snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), filename);
-  }
-  else {
+  } else {
     // set filename and force rendering
     snprintf_P(buf, sizeof(buf), PSTR("inline"));
   }
