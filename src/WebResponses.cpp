@@ -688,7 +688,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     _content.seek(_contentLength - 8);
     uint8_t crcInTrailer[4];
     if (_content.read(crcInTrailer, sizeof(crcInTrailer)) == sizeof(crcInTrailer)) {
-      char serverETag[11];
+      char serverETag[9];
       AsyncWebServerRequest::_getEtag(crcInTrailer, serverETag);
       addHeader(T_ETag, serverETag, false);
       addHeader(T_Cache_Control, T_no_cache, false);
