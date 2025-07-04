@@ -203,6 +203,7 @@ class AsyncWebServerRequest {
   using FS = fs::FS;
   friend class AsyncWebServer;
   friend class AsyncCallbackWebHandler;
+  friend class AsyncFileResponse;
 
 private:
   AsyncClient *_client;
@@ -273,6 +274,8 @@ private:
 
   void _send();
   void _runMiddlewareChain();
+
+  static void _getEtag(uint8_t trailer[4], char *serverETag);
 
 public:
   File _tempFile;
@@ -352,8 +355,6 @@ public:
 #endif
   void addInterestingHeader(__unused const String &name) {
   }
-
-  static void _getEtag(uint8_t trailer[4], char *serverETag);
 
   /**
      * @brief issue HTTP redirect response with Location header

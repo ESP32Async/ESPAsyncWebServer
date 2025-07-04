@@ -55,7 +55,7 @@ void AsyncWebServerRequest::send(FS &fs, const String &path, const char *content
 }
 
 /**
- * @brief Generates an ETag string from a 4-byte trailer using basic loop implementation
+ * @brief Generates an ETag string from a 4-byte trailer
  *
  * This function converts a 4-byte array into a hexadecimal ETag string enclosed in quotes.
  *
