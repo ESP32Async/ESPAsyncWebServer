@@ -22,7 +22,7 @@ enum {
 };
 
 AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
-  : _client(c), _server(s), _handler(NULL), _response(NULL), _temp(), _parseState(PARSE_REQ_START), _version(0), _method(HTTP_ANY), _url(), _host(),
+  : _client(c), _server(s), _handler(NULL), _response(NULL), _onDisconnectfn(NULL), _temp(), _parseState(PARSE_REQ_START), _version(0), _method(HTTP_ANY), _url(), _host(),
     _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP), _authMethod(AsyncAuthType::AUTH_NONE), _isMultipart(false), _isPlainPost(false),
     _expectingContinue(false), _contentLength(0), _parsedLength(0), _multiParseState(0), _boundaryPosition(0), _itemStartIndex(0), _itemSize(0), _itemName(),
     _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0), _itemBufferIndex(0), _itemIsFile(false), _tempObject(NULL) {
