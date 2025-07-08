@@ -670,38 +670,52 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
 #endif
 }
 
+/**
+ * @brief Constructor for AsyncFileResponse that handles file serving with compression support
+ * 
+ * This constructor creates an AsyncFileResponse object that can serve files from a filesystem,
+ * with automatic fallback to gzip-compressed versions if the original file is not found.
+ * It also handles ETag generation for caching and supports both inline and download modes.
+ * 
+ * @param fs Reference to the filesystem object used to open files
+ * @param path Path to the file to be served (without compression extension)
+ * @param contentType MIME type of the file content (empty string for auto-detection)
+ * @param download If true, file will be served as download attachment; if false, as inline content
+ * @param callback Template processor callback for dynamic content processing
+ */
 AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
   : AsyncAbstractResponse(callback) {
-  _code = 200;
-  const String gzPath = path + asyncsrv::T__gz;
-
-  if (!download && !fs.exists(path) && fs.exists(gzPath)) {
-    _path = gzPath;
-    _content = fs.open(gzPath, fs::FileOpenMode::read);
+  // Try to open the uncompressed version first
+  _content = fs.open(path, fs::FileOpenMode::read);
+  if (_content) {
+    _path = path;
     _contentLength = _content.size();
-    addHeader(T_Content_Encoding, T_gzip, false);
-    _callback = nullptr;  // Unable to process zipped templates
-    _sendContentLength = true;
-    _chunked = false;
+  } else {
+    // Try to open the compressed version (.gz)
+    _path = path + asyncsrv::T__gz;
+    _content = fs.open(_path, fs::FileOpenMode::read);
+    _contentLength = _content.size();
 
-    // CRC32-based ETag of the trailer, bytes 4-7 from the end
-    _content.seek(_contentLength - 8);
-    uint8_t crcInTrailer[4];
-    if (_content.read(crcInTrailer, sizeof(crcInTrailer)) == sizeof(crcInTrailer)) {
+    if (_content.seek(_contentLength - 8)) {
+      addHeader(T_Content_Encoding, T_gzip, false);
+      _callback = nullptr;  // Unable to process zipped templates
+      _sendContentLength = true;
+      _chunked = false;
+
+      // Add ETag and cache headers
+      uint8_t crcInTrailer[4];
+      _content.read(crcInTrailer, sizeof(crcInTrailer));
       char serverETag[9];
       AsyncWebServerRequest::_getEtag(crcInTrailer, serverETag);
-      addHeader(T_ETag, serverETag, false);
-      addHeader(T_Cache_Control, T_no_cache, false);
+      addHeader(T_ETag, serverETag, true);
+      addHeader(T_Cache_Control, T_no_cache, true);
+
+      _content.seek(0);
+    } else {
+      // File is corrupted or invalid
+      _code = 404;
+      return;
     }
-
-    // Return to the beginning of the file
-    _content.seek(0);
-  }
-
-  if (!_content) {
-    _path = path;
-    _content = fs.open(path, fs::FileOpenMode::read);
-    _contentLength = _content.size();
   }
 
   if (*contentType != '\0') {
@@ -710,18 +724,19 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     _contentType = contentType;
   }
 
-  int filenameStart = path.lastIndexOf('/') + 1;
-  char buf[26 + path.length() - filenameStart];
-  char *filename = (char *)path.c_str() + filenameStart;
-
   if (download) {
-    // set filename and force download
+    // Extract filename from path and set as download attachment
+    int filenameStart = path.lastIndexOf('/') + 1;
+    char buf[26 + path.length() - filenameStart];
+    char *filename = (char *)path.c_str() + filenameStart;
     snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), filename);
+    addHeader(T_Content_Disposition, buf, false);
   } else {
-    // set filename and force rendering
-    snprintf_P(buf, sizeof(buf), PSTR("inline"));
+    // Serve file inline (display in browser)
+    addHeader(T_Content_Disposition, PSTR("inline"), false);
   }
-  addHeader(T_Content_Disposition, buf, false);
+
+  _code = 200;
 }
 
 AsyncFileResponse::AsyncFileResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)

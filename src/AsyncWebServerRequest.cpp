@@ -4,7 +4,7 @@
  * @brief Sends a file from the filesystem to the client, with optional gzip compression and ETag-based caching.
  *
  * This method serves files over HTTP from the provided filesystem. If a compressed version of the file
- * (with a `.gz` extension) exists and the `download` flag is not set, it serves the compressed file.
+ * (with a `.gz` extension) exists and uncompressed version do not exist, it serves the compressed file.
  * It also handles ETag caching using the CRC32 value from the gzip trailer, responding with `304 Not Modified`
  * if the client's `If-None-Match` header matches the generated ETag.
  *
@@ -12,46 +12,50 @@
  * @param path Path to the file to be served.
  * @param contentType Optional MIME type of the file to be sent.
  *                    If contentType is "" it will be obtained from the file extension
- * @param download If true, forces the file to be sent as a download (disables gzip compression).
+ * @param download If true, forces the file to be sent as a download.
  * @param callback Optional template processor for dynamic content generation.
  *                 Templates will not be processed in compressed files.
  *
  * @note If neither the file nor its compressed version exists, responds with `404 Not Found`.
  */
 void AsyncWebServerRequest::send(FS &fs, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback) {
-  const String gzPath = path + asyncsrv::T__gz;
-  const bool useCompressedVersion = !download && fs.exists(gzPath);
+  // Check uncompressed file first
+  if (fs.exists(path)) {
+    send(beginResponse(fs, path, contentType, download, callback));
+    return;
+  }
 
-  // If-None-Match header
-  if (useCompressedVersion && this->hasHeader(asyncsrv::T_INM)) {
-    // CRC32-based ETag of the trailer, bytes 4-7 from the end
-    File file = fs.open(gzPath, fs::FileOpenMode::read);
-    if (file && file.size() >= 18) {  // 18 is the minimum size of valid gzip file
-      file.seek(file.size() - 8);
+  // Handle compressed version
+  const String gzPath = path + asyncsrv::T__gz;  
+  File gzFile = fs.open(gzPath, "r");  
 
-      uint8_t crcFromGzipTrailer[4];
-      if (file.read(crcFromGzipTrailer, sizeof(crcFromGzipTrailer)) == sizeof(crcFromGzipTrailer)) {
-        char serverETag[9];
-        _getEtag(crcFromGzipTrailer, serverETag);
+  // Compressed file not found or invalid
+  if (!gzFile.seek(gzFile.size() - 8)) {
+    send(404);
+    gzFile.close();
+    return;
+  }
 
-        // Compare with client's If-None-Match header
-        const AsyncWebHeader *inmHeader = this->getHeader(asyncsrv::T_INM);
-        if (inmHeader && inmHeader->value().equals(serverETag)) {
-          file.close();
-          this->send(304);  // Not Modified
-          return;
-        }
-      }
-      file.close();
+  // ETag validation
+  if (this->hasHeader(asyncsrv::T_INM)) {
+    // Generate server ETag from CRC in gzip trailer
+    uint8_t crcInTrailer[4];
+    gzFile.read(crcInTrailer, 4);
+    char serverETag[9];
+    _getEtag(crcInTrailer, serverETag);
+    
+    // Compare with client's ETag
+    const AsyncWebHeader* inmHeader = this->getHeader(asyncsrv::T_INM);
+    if (inmHeader && inmHeader->value() == serverETag) {
+      gzFile.close();
+      this->send(304);  // Not Modified
+      return;
     }
   }
 
-  // If we get here, create and send the normal response
-  if (fs.exists(path) || useCompressedVersion) {
-    send(beginResponse(fs, path, contentType, download, callback));
-  } else {
-    send(404);
-  }
+  // Send compressed file response
+  gzFile.close();
+  send(beginResponse(fs, path, contentType, download, callback));
 }
 
 /**
