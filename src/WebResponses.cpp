@@ -687,7 +687,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
   : AsyncAbstractResponse(callback) {
   // Try to open the uncompressed version first
   _content = fs.open(path, fs::FileOpenMode::read);
-  if (_content) {
+  if (_content.available()) {
     _path = path;
     _contentLength = _content.size();
   } else {
