@@ -4,7 +4,7 @@
  * @brief Sends a file from the filesystem to the client, with optional gzip compression and ETag-based caching.
  *
  * This method serves files over HTTP from the provided filesystem. If a compressed version of the file
- * (with a `.gz` extension) exists and uncompressed version do not exist, it serves the compressed file.
+ * (with a `.gz` extension) exists and uncompressed version does not exist, it serves the compressed file.
  * It also handles ETag caching using the CRC32 value from the gzip trailer, responding with `304 Not Modified`
  * if the client's `If-None-Match` header matches the generated ETag.
  *
