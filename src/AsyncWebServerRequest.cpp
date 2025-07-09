@@ -26,8 +26,8 @@ void AsyncWebServerRequest::send(FS &fs, const String &path, const char *content
   }
 
   // Handle compressed version
-  const String gzPath = path + asyncsrv::T__gz;  
-  File gzFile = fs.open(gzPath, "r");  
+  const String gzPath = path + asyncsrv::T__gz;
+  File gzFile = fs.open(gzPath, "r");
 
   // Compressed file not found or invalid
   if (!gzFile.seek(gzFile.size() - 8)) {
@@ -43,9 +43,9 @@ void AsyncWebServerRequest::send(FS &fs, const String &path, const char *content
     gzFile.read(crcInTrailer, 4);
     char serverETag[9];
     _getEtag(crcInTrailer, serverETag);
-    
+
     // Compare with client's ETag
-    const AsyncWebHeader* inmHeader = this->getHeader(asyncsrv::T_INM);
+    const AsyncWebHeader *inmHeader = this->getHeader(asyncsrv::T_INM);
     if (inmHeader && inmHeader->value() == serverETag) {
       gzFile.close();
       this->send(304);  // Not Modified

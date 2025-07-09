@@ -672,11 +672,11 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
 
 /**
  * @brief Constructor for AsyncFileResponse that handles file serving with compression support
- * 
+ *
  * This constructor creates an AsyncFileResponse object that can serve files from a filesystem,
  * with automatic fallback to gzip-compressed versions if the original file is not found.
  * It also handles ETag generation for caching and supports both inline and download modes.
- * 
+ *
  * @param fs Reference to the filesystem object used to open files
  * @param path Path to the file to be served (without compression extension)
  * @param contentType MIME type of the file content (empty string for auto-detection)
