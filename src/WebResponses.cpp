@@ -713,7 +713,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     _contentLength = _content.size();
 
     if (_content.seek(_contentLength - 8)) {
-      addHeader(T_Content_Encoding, T_gzip, false);
+      addHeader(T_Content_Encoding, T_gzip, true);
       _callback = nullptr;  // Unable to process zipped templates
       _sendContentLength = true;
       _chunked = false;
@@ -734,7 +734,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     }
   }
 
-  if (*contentType != '\0') {
+  if (*contentType == '\0') {
     _setContentTypeFromPath(path);
   } else {
     _contentType = contentType;
@@ -745,47 +745,80 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     int filenameStart = path.lastIndexOf('/') + 1;
     char buf[26 + path.length() - filenameStart];
     char *filename = (char *)path.c_str() + filenameStart;
-    snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), filename);
+    snprintf(buf, sizeof(buf), T_attachment, filename);
     addHeader(T_Content_Disposition, buf, false);
   } else {
     // Serve file inline (display in browser)
-    addHeader(T_Content_Disposition, PSTR("inline"), false);
+    addHeader(T_Content_Disposition, T_inline, false);
   }
 
   _code = 200;
 }
 
+/**
+ * @brief Constructs an AsyncFileResponse for serving static files with optional compression and caching support.
+ *
+ * This constructor initializes an AsyncFileResponse object that serves files from a filesystem.
+ * If the requested file is a gzip-compressed version (i.e., ends with ".gz"), it automatically adds
+ * the appropriate "Content-Encoding" and caching headers (including ETag). If the file appears to be corrupted,
+ * the response code is set to 404.
+ *
+ * The constructor also supports auto-detecting the content type from the file path (if none is specified),
+ * and optionally enables file download by setting the appropriate "Content-Disposition" header.
+ * Template processing is disabled for gzip-compressed files.
+ *
+ * @param content     Opened file handle to be served.
+ * @param path        Logical request path to the file (without compression extension).
+ * @param contentType MIME type of the content. If empty, it will be auto-detected based on the file extension.
+ * @param download    If true, the file will be served as a download (attachment); if false, it will be served inline.
+ * @param callback    Optional template processor callback for dynamic content rendering. Ignored for gzip files.
+ */
 AsyncFileResponse::AsyncFileResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
   : AsyncAbstractResponse(callback) {
   _code = 200;
   _path = path;
-
-  if (!download && String(content.name()).endsWith(T__gz) && !path.endsWith(T__gz)) {
-    addHeader(T_Content_Encoding, T_gzip, false);
-    _callback = nullptr;  // Unable to process gzipped templates
-    _sendContentLength = true;
-    _chunked = false;
-  }
-
   _content = content;
   _contentLength = _content.size();
 
-  if (strlen(contentType) == 0) {
+  if (String(content.name()).endsWith(T__gz) && !path.endsWith(T__gz)) {
+    if (_content.seek(_contentLength - 8)) {
+      addHeader(T_Content_Encoding, T_gzip, true);
+      _callback = nullptr;  // Unable to process zipped templates
+      _sendContentLength = true;
+      _chunked = false;
+
+      // Add ETag and cache headers
+      uint8_t crcInTrailer[4];
+      _content.read(crcInTrailer, sizeof(crcInTrailer));
+      char serverETag[9];
+      AsyncWebServerRequest::_getEtag(crcInTrailer, serverETag);
+      addHeader(T_ETag, serverETag, true);
+      addHeader(T_Cache_Control, T_no_cache, true);
+
+      _content.seek(0);
+    } else {
+      // File is corrupted or invalid
+      _code = 404;
+    }
+  }
+
+  if (*contentType == '\0') {
     _setContentTypeFromPath(path);
   } else {
     _contentType = contentType;
   }
 
-  int filenameStart = path.lastIndexOf('/') + 1;
-  char buf[26 + path.length() - filenameStart];
-  char *filename = (char *)path.c_str() + filenameStart;
-
   if (download) {
-    snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), filename);
+    // Extract filename from path and set as download attachment
+    int filenameStart = path.lastIndexOf('/') + 1;
+    char buf[26 + path.length() - filenameStart];
+    char *filename = (char *)path.c_str() + filenameStart;
+    snprintf(buf, sizeof(buf), T_attachment, filename);
+    addHeader(T_Content_Disposition, buf, false);
   } else {
-    snprintf_P(buf, sizeof(buf), PSTR("inline"));
+    // Serve file inline (display in browser)
+    addHeader(T_Content_Disposition, T_inline, false);
   }
-  addHeader(T_Content_Disposition, buf, false);
 }
 
 size_t AsyncFileResponse::_fillBuffer(uint8_t *data, size_t len) {

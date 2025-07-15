@@ -7,6 +7,9 @@ namespace asyncsrv {
 
 static constexpr const char *empty = "";
 
+static const char T_inline[] = "inline";
+static const char T_attachment[] = "attachment; filename=\"%s\"";
+
 static constexpr const char *T__opaque = "\", opaque=\"";
 static constexpr const char *T_100_CONTINUE = "100-continue";
 static constexpr const char *T_13 = "13";

@@ -19,20 +19,34 @@
  * @note If neither the file nor its compressed version exists, responds with `404 Not Found`.
  */
 void AsyncWebServerRequest::send(FS &fs, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback) {
-  // Check uncompressed file first
-  if (fs.exists(path)) {
-    send(beginResponse(fs, path, contentType, download, callback));
+  constexpr size_t MAX_PATH = 128;
+  const size_t GZ_SUFFIX_LEN = 4; // ".gz\0"
+
+  // Try to open the uncompressed version first
+  File content = fs.open(path, fs::FileOpenMode::read);
+  if (content.available()) {
+    send(beginResponse(content, path, contentType, download, callback));
     return;
   }
 
   // Handle compressed version
-  const String gzPath = path + asyncsrv::T__gz;
-  File gzFile = fs.open(gzPath, "r");
+  size_t pathLen = path.length();
+  
+  // Prevent buffer overflow
+  if (pathLen > (MAX_PATH - GZ_SUFFIX_LEN)) {
+    send(404);
+    return;
+  }
+  
+  char gzPath[MAX_PATH]; // Safe buffer size for ESP32 paths
+  memcpy(gzPath, path.c_str(), pathLen);
+  memcpy(gzPath + pathLen, asyncsrv::T__gz, GZ_SUFFIX_LEN);
+  content = fs.open(gzPath, fs::FileOpenMode::read);
 
   // Compressed file not found or invalid
-  if (!gzFile.seek(gzFile.size() - 8)) {
+  if (!content.seek(content.size() - 8)) {
+    content.close();
     send(404);
-    gzFile.close();
     return;
   }
 
@@ -40,22 +54,21 @@ void AsyncWebServerRequest::send(FS &fs, const String &path, const char *content
   if (this->hasHeader(asyncsrv::T_INM)) {
     // Generate server ETag from CRC in gzip trailer
     uint8_t crcInTrailer[4];
-    gzFile.read(crcInTrailer, 4);
+    content.read(crcInTrailer, 4);
     char serverETag[9];
     _getEtag(crcInTrailer, serverETag);
 
     // Compare with client's ETag
     const AsyncWebHeader *inmHeader = this->getHeader(asyncsrv::T_INM);
     if (inmHeader && inmHeader->value() == serverETag) {
-      gzFile.close();
+      content.close();
       this->send(304);  // Not Modified
       return;
     }
   }
 
   // Send compressed file response
-  gzFile.close();
-  send(beginResponse(fs, path, contentType, download, callback));
+  send(beginResponse(content, path, contentType, download, callback));
 }
 
 /**

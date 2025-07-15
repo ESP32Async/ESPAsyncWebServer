@@ -889,6 +889,17 @@ AsyncWebServerResponse *
   return NULL;
 }
 
+/**
+ * @brief Creates an asynchronous file response for the web server request
+ * 
+ * @param content File object containing the content to be served
+ * @param path String representing the file path or URL path
+ * @param contentType MIME content type for the response (e.g., "text/html", "application/json")
+ * @param download Boolean flag indicating if the file should be served as a download attachment
+ * @param callback Optional template processor function to modify content before sending
+ * 
+ * @return AsyncWebServerResponse* Pointer to the created AsyncFileResponse object, or NULL if content is invalid
+ */
 AsyncWebServerResponse *
   AsyncWebServerRequest::beginResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback) {
   if (content == true) {
