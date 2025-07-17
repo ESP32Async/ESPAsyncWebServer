@@ -747,10 +747,9 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     char *filename = (char *)path.c_str() + filenameStart;
     snprintf(buf, sizeof(buf), T_attachment, filename);
     addHeader(T_Content_Disposition, buf, false);
-  } else {
-    // Serve file inline (display in browser)
-    addHeader(T_Content_Disposition, T_inline, false);
   }
+  // For inline display, don't set Content-Disposition header
+  // Browser will display inline by default when download=false
 
   _code = 200;
 }
@@ -782,10 +781,10 @@ AsyncFileResponse::AsyncFileResponse(File content, const String &path, const cha
 
   if (download) {
     snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), filename);
-  } else {
-    snprintf_P(buf, sizeof(buf), PSTR("inline"));
+    addHeader(T_Content_Disposition, buf, false);
   }
-  addHeader(T_Content_Disposition, buf, false);
+  // For inline display, don't set Content-Disposition header
+  // Browser will display inline by default when download=false
 }
 
 size_t AsyncFileResponse::_fillBuffer(uint8_t *data, size_t len) {
