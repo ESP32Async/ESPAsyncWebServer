@@ -749,11 +749,9 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     char *filename = (char *)path.c_str() + filenameStart;
     snprintf(buf, sizeof(buf), T_attachment, filename);
     addHeader(T_Content_Disposition, buf, false);
-        log_d("%s: download %s",filename, buf);
   } else {
     // Serve file inline (display in browser)
     addHeader(T_Content_Disposition, T_inline, false);
-    log_d("%s: inline %s", path, T_inline);
   }
 
   _code = 200;
