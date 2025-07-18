@@ -116,6 +116,7 @@ static constexpr const char *T__ico = ".ico";
 static constexpr const char *T__jpg = ".jpg";
 static constexpr const char *T__js = ".js";
 static constexpr const char *T__json = ".json";
+static constexpr const char *T__mp4 = ".mp4";
 static constexpr const char *T__pdf = ".pdf";
 static constexpr const char *T__png = ".png";
 static constexpr const char *T__svg = ".svg";
@@ -143,6 +144,7 @@ static constexpr const char *T_text_css = "text/css";
 static constexpr const char *T_text_event_stream = "text/event-stream";
 static constexpr const char *T_text_html = "text/html";
 static constexpr const char *T_text_plain = "text/plain";
+static constexpr const char *T_video_mp4 = "video/mp4";
 static constexpr const char *T_text_xml = "text/xml";
 
 // Response codes
