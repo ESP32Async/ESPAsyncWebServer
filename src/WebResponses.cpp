@@ -676,6 +676,8 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
     _contentType = T_text_xml;
   } else if (strcmp(dot, T__pdf) == 0) {
     _contentType = T_application_pdf;
+  } else if (strcmp(dot, T__mp4) == 0) {
+    _contentType = T_video_mp4;
   } else if (strcmp(dot, T__zip) == 0) {
     _contentType = T_application_zip;
   } else if (strcmp(dot, T__gz) == 0) {
@@ -747,9 +749,11 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     char *filename = (char *)path.c_str() + filenameStart;
     snprintf(buf, sizeof(buf), T_attachment, filename);
     addHeader(T_Content_Disposition, buf, false);
+        log_d("%s: download %s",filename, buf);
   } else {
     // Serve file inline (display in browser)
     addHeader(T_Content_Disposition, T_inline, false);
+    log_d("%s: inline %s", path, T_inline);
   }
 
   _code = 200;
