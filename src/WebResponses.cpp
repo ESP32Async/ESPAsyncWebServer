@@ -714,8 +714,21 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     _contentLength = _content.size();
   } else {
     // Try to open the compressed version (.gz)
-    String gzPath = path +  asyncsrv::T__gz;
-    _content = fs.open(gzPath, fs::FileOpenMode::read);
+    File gzFile;
+    uint16_t pathLen = path.length();
+    if (pathLen < 64 - sizeof(asyncsrv::T__gz)) {
+      char gzPath[64];
+      memcpy(gzPath, path.c_str(), pathLen);
+      memcpy(gzPath + pathLen, asyncsrv::T__gz, sizeof(asyncsrv::T__gz));
+      _content = fs.open(gzPath, fs::FileOpenMode::read);
+    }
+    else {
+      String gzPath;
+      gzPath.reserve(pathLen + sizeof(asyncsrv::T__gz));  
+      gzPath.concat(path);
+      gzPath.concat(asyncsrv::T__gz);
+      _content = fs.open(gzPath, fs::FileOpenMode::read);
+    }
     _contentLength = _content.size();
 
     if (_content.seek(_contentLength - 8)) {
