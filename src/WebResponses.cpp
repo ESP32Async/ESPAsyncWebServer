@@ -707,8 +707,6 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
  */
 AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
   : AsyncAbstractResponse(callback) {
-  constexpr size_t MAX_PATH = 128;
-  const size_t GZ_SUFFIX_LEN = sizeof(T__gz);
 
   // Try to open the uncompressed version first
   _content = fs.open(path, fs::FileOpenMode::read);
@@ -716,11 +714,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     _contentLength = _content.size();
   } else {
     // Try to open the compressed version (.gz)
-    size_t pathLen = path.length();
-    char gzPath[MAX_PATH]; // Safe buffer size for ESP32 paths
-    memcpy(gzPath, path.c_str(), pathLen);
-    memcpy(gzPath + pathLen, asyncsrv::T__gz, GZ_SUFFIX_LEN);
-
+    String gzPath = path +  asyncsrv::T__gz;
     _content = fs.open(gzPath, fs::FileOpenMode::read);
     _contentLength = _content.size();
 
