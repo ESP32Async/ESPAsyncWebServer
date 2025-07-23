@@ -767,7 +767,7 @@ AsyncFileResponse::AsyncFileResponse(File content, const String &path, const cha
   : AsyncAbstractResponse(callback) {
   _code = 200;
 
-  const char* contentName = content.name();
+  const char *contentName = content.name();
   const size_t lenFilename = strlen(contentName);
   if (lenFilename > sizeof(T__gz) &&
       memcmp(contentName + lenFilename - (sizeof(T__gz) - 1), T__gz, sizeof(T__gz) - 1) == 0) {
