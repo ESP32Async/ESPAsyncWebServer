@@ -12,7 +12,7 @@ static constexpr const char *T_100_CONTINUE = "100-continue";
 static constexpr const char *T_13 = "13";
 static constexpr const char *T_ACCEPT = "Accept";
 static constexpr const char *T_Accept_Ranges = "Accept-Ranges";
-static constexpr const char *T_attachment = "attachment; filename=\"%s\"";
+static constexpr const char *T_attachment = "attachment; filename=\"";
 static constexpr const char *T_AUTH = "Authorization";
 static constexpr const char *T_auth_nonce = "\", qop=\"auth\", nonce=\"";
 static constexpr const char *T_BASIC = "Basic";

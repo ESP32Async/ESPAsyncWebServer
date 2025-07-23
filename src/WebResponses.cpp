@@ -750,8 +750,10 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     // Extract filename from path and set as download attachment
     int filenameStart = path.lastIndexOf('/') + 1;
     char buf[26 + path.length() - filenameStart];
+    strcpy(buf, T_attachment);
     char *filename = (char *)path.c_str() + filenameStart;
-    snprintf(buf, sizeof(buf), T_attachment, filename);
+    strcat(buf, filename);
+    strcat(buf, "\"");
     addHeader(T_Content_Disposition, buf, false);
   } else {
     // Serve file inline (display in browser)
@@ -784,12 +786,16 @@ AsyncFileResponse::AsyncFileResponse(File content, const String &path, const cha
     _contentType = contentType;
   }
 
+  if(path.endsWith(T__jpg))
+  download = true;
   if (download) {
     // Extract filename from path and set as download attachment
     int filenameStart = path.lastIndexOf('/') + 1;
     char buf[26 + path.length() - filenameStart];
+    strcpy(buf, T_attachment);
     char *filename = (char *)path.c_str() + filenameStart;
-    snprintf(buf, sizeof(buf), T_attachment, filename);
+    strcat(buf, filename);
+    strcat(buf, "\"");
     addHeader(T_Content_Disposition, buf, false);
   } else {
     // Serve file inline (display in browser)
