@@ -786,7 +786,7 @@ AsyncFileResponse::AsyncFileResponse(File content, const String &path, const cha
     _contentType = contentType;
   }
 
-  if(path.endsWith(T__jpg))
+  if (path.endsWith(T__jpg))
   download = true;
   if (download) {
     // Extract filename from path and set as download attachment
