@@ -750,10 +750,8 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     // Extract filename from path and set as download attachment
     int filenameStart = path.lastIndexOf('/') + 1;
     char buf[26 + path.length() - filenameStart];
-    strcpy(buf, T_attachment);
     char *filename = (char *)path.c_str() + filenameStart;
-    strcat(buf, filename);
-    strcat(buf, "\"");
+    snprintf(buf, sizeof(buf), T_attachment, filename);
     addHeader(T_Content_Disposition, buf, false);
   } else {
     // Serve file inline (display in browser)
@@ -766,11 +764,9 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
 AsyncFileResponse::AsyncFileResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
   : AsyncAbstractResponse(callback) {
   _code = 200;
+  _path = path;
 
-  const char *contentName = content.name();
-  const size_t lenFilename = strlen(contentName);
-  if (lenFilename > sizeof(T__gz) &&
-      memcmp(contentName + lenFilename - (sizeof(T__gz) - 1), T__gz, sizeof(T__gz) - 1) == 0) {
+  if (String(content.name()).endsWith(T__gz) && !path.endsWith(T__gz)) {
     addHeader(T_Content_Encoding, T_gzip, false);
     _callback = nullptr;  // Unable to process gzipped templates
     _sendContentLength = true;
@@ -780,27 +776,22 @@ AsyncFileResponse::AsyncFileResponse(File content, const String &path, const cha
   _content = content;
   _contentLength = _content.size();
 
-  if (*contentType == '\0') {
+  if (strlen(contentType) == 0) {
     _setContentTypeFromPath(path);
   } else {
     _contentType = contentType;
   }
 
-  if (path.endsWith(T__jpg))
-  download = true;
+  int filenameStart = path.lastIndexOf('/') + 1;
+  char buf[26 + path.length() - filenameStart];
+  char *filename = (char *)path.c_str() + filenameStart;
+
   if (download) {
-    // Extract filename from path and set as download attachment
-    int filenameStart = path.lastIndexOf('/') + 1;
-    char buf[26 + path.length() - filenameStart];
-    strcpy(buf, T_attachment);
-    char *filename = (char *)path.c_str() + filenameStart;
-    strcat(buf, filename);
-    strcat(buf, "\"");
-    addHeader(T_Content_Disposition, buf, false);
+    snprintf_P(buf, sizeof(buf), PSTR("attachment; filename=\"%s\""), filename);
   } else {
-    // Serve file inline (display in browser)
-    addHeader(T_Content_Disposition, T_inline, false);
+    snprintf_P(buf, sizeof(buf), PSTR("inline"));
   }
+  addHeader(T_Content_Disposition, buf, false);
 }
 
 size_t AsyncFileResponse::_fillBuffer(uint8_t *data, size_t len) {
