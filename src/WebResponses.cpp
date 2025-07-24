@@ -642,7 +642,7 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
   const char *dot = strrchr(cpath, '.');
 
   if (!dot) {
-    _contentType = T_text_plain;
+    _contentType = T_application_octet_stream;
     return;
   }
 
@@ -674,20 +674,20 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
     _contentType = T_font_woff;
   } else if (strcmp(dot, T__ttf) == 0) {
     _contentType = T_font_ttf;
-  } else if (strcmp(dot, T__eot) == 0) {
-    _contentType = T_font_eot;
   } else if (strcmp(dot, T__xml) == 0) {
     _contentType = T_text_xml;
   } else if (strcmp(dot, T__pdf) == 0) {
     _contentType = T_application_pdf;
   } else if (strcmp(dot, T__mp4) == 0) {
     _contentType = T_video_mp4;
-  } else if (strcmp(dot, T__zip) == 0) {
-    _contentType = T_application_zip;
-  } else if (strcmp(dot, T__gz) == 0) {
-    _contentType = T_application_x_gzip;
-  } else {
+  } else if (strcmp(dot, T__opus) == 0) {
+    _contentType = T_audio_opus;
+  } else if (strcmp(dot, T__webm) == 0) {
+    _contentType = T_video_webm;
+  } else if (strcmp(dot, T__txt) == 0) {
     _contentType = T_text_plain;
+  } else {
+    _contentType = T_application_octet_stream;
   }
 #endif
 }
