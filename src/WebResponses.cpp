@@ -716,7 +716,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
     // Try to open the compressed version (.gz)
     String gzPath;
     uint16_t pathLen = path.length();
-    gzPath.reserve(pathLen + strlen(asyncsrv::T__gz));  
+    gzPath.reserve(pathLen + 3);
     gzPath.concat(path);
     gzPath.concat(asyncsrv::T__gz);
     _content = fs.open(gzPath, fs::FileOpenMode::read);
