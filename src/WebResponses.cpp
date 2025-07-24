@@ -629,62 +629,57 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
 #else
   const char *cpath = path.c_str();
   const char *dot = strrchr(cpath, '.');
+
   if (!dot) {
-    _contentType = T_application_octet_stream;
+    _contentType = T_text_plain;
     return;
   }
-  
- // Most frequent types in embedded systems first
+
   if (strcmp(dot, T__html) == 0 || strcmp(dot, T__htm) == 0) {
     _contentType = T_text_html;
-  } else if (strcmp(dot, T__js) == 0) {
-    _contentType = T_text_javascript;
   } else if (strcmp(dot, T__css) == 0) {
     _contentType = T_text_css;
+  } else if (strcmp(dot, T__js) == 0) {
+    _contentType = T_application_javascript;
   } else if (strcmp(dot, T__json) == 0) {
     _contentType = T_application_json;
+  } else if (strcmp(dot, T__png) == 0) {
+    _contentType = T_image_png;
+  } else if (strcmp(dot, T__ico) == 0) {
+    _contentType = T_image_x_icon;
   } else if (strcmp(dot, T__svg) == 0) {
     _contentType = T_image_svg_xml;
-  } else if (strcmp(dot, T__woff2) == 0) {
-    _contentType = T_font_woff2;
-  } else if (strcmp(dot, T__avif) == 0) {
-    _contentType = T_image_avif;
+  } else if (strcmp(dot, T__jpg) == 0) {
+    _contentType = T_image_jpeg;
   } else if (strcmp(dot, T__webp) == 0) {
     _contentType = T_image_webp;
+  } else if (strcmp(dot, T__avif) == 0) {
+    _contentType = T_image_avif;
+  } else if (strcmp(dot, T__gif) == 0) {
+    _contentType = T_image_gif;
+  } else if (strcmp(dot, T__woff2) == 0) {
+    _contentType = T_font_woff2;
+  } else if (strcmp(dot, T__woff) == 0) {
+    _contentType = T_font_woff;
+  } else if (strcmp(dot, T__ttf) == 0) {
+    _contentType = T_font_ttf;
   } else if (strcmp(dot, T__xml) == 0) {
     _contentType = T_text_xml;
-  } else if (strcmp(dot, T__txt) == 0) {
-    _contentType = T_text_plain;
   } else if (strcmp(dot, T__pdf) == 0) {
     _contentType = T_application_pdf;
+  } else if (strcmp(dot, T__mp4) == 0) {
+    _contentType = T_video_mp4;
   } else if (strcmp(dot, T__opus) == 0) {
     _contentType = T_audio_opus;
   } else if (strcmp(dot, T__webm) == 0) {
     _contentType = T_video_webm;
-  }
-
-  // Legacy formats
-  else if (strcmp(dot, T__ico) == 0) {
-    _contentType = T_image_x_icon;
-  } else if (strcmp(dot, T__gif) == 0) {
-    _contentType = T_image_gif;
-  } else if (strcmp(dot, T__jpg) == 0) {
-    _contentType = T_image_jpeg;
-  } else if (strcmp(dot, T__png) == 0) {
-    _contentType = T_image_png;
-  } else if (strcmp(dot, T__woff) == 0) {
-    _contentType = T_font_woff;
-  } else if (strcmp(dot, T__mp4) == 0) {
-    _contentType = T_video_mp4;
-  }
-
-  // Default fallback
-  else {
+  } else if (strcmp(dot, T__txt) == 0) {
+    _contentType = T_text_plain;
+  } else {
     _contentType = T_application_octet_stream;
   }
 #endif
 }
-
 
 /**
  * @brief Constructor for AsyncFileResponse that handles file serving with compression support
