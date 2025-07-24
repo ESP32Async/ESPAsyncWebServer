@@ -768,7 +768,7 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
 AsyncFileResponse::AsyncFileResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
   : AsyncAbstractResponse(callback) {
   _code = 200;
-  
+
   if (!download && String(content.name()).endsWith(T__gz) && !path.endsWith(T__gz)) {
     addHeader(T_Content_Encoding, T_gzip, false);
     _callback = nullptr;  // Unable to process gzipped templates
