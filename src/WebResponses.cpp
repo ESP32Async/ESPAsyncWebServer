@@ -631,7 +631,7 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
   const char *dot = strrchr(cpath, '.');
 
   if (!dot) {
-    _contentType = T_text_plain;
+    _contentType = T_application_octet_stream;
     return;
   }
 
