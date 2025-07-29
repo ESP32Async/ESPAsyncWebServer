@@ -70,8 +70,9 @@ bool AsyncWebServerRequest::_getEtag(File gzFile, char *etag) {
   static constexpr char hexChars[] = "0123456789ABCDEF";
 
   // Compressed file not found or invalid
-  if (!gzFile.seek(gzFile.size() - 8))
+  if (!gzFile.seek(gzFile.size() - 8)) {
     return false;
+  }
 
   uint8_t crcInTrailer[4];
   gzFile.read(crcInTrailer, 4);

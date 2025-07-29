@@ -734,9 +734,8 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
       return;
     }
   }
-  
-  _contentLength = _content.size();
 
+  _contentLength = _content.size();
 
   if (*contentType == '\0') {
     _setContentTypeFromPath(path);
