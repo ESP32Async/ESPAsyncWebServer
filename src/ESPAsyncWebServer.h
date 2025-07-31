@@ -275,7 +275,7 @@ private:
   void _send();
   void _runMiddlewareChain();
 
-  static void _getEtag(uint8_t trailer[4], char *serverETag);
+  static bool _getEtag(File gzFile, char *eTag);
 
 public:
   File _tempFile;
