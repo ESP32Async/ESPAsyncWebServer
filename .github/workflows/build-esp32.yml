@@ -32,7 +32,7 @@ jobs:
         run: arduino-cli lib install ArduinoJson
 
       - name: Install AsyncTCP (ESP32)
-        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/ESP32Async/AsyncTCP#v3.4.5
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/ESP32Async/AsyncTCP#v3.4.7
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,7 +63,7 @@ jobs:
         run: arduino-cli lib install ArduinoJson
 
       - name: Install AsyncTCP (ESP32)
-        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/ESP32Async/AsyncTCP#v3.4.5
+        run: ARDUINO_LIBRARY_ENABLE_UNSAFE_INSTALL=true arduino-cli lib install --git-url https://github.com/ESP32Async/AsyncTCP#v3.4.7
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -208,7 +208,7 @@ jobs:
             echo "============================================================="
             echo "Building examples/$i..."
             echo "============================================================="
-            PLATFORMIO_SRC_DIR=examples/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-arduino-3-latest
+            PLATFORMIO_SRC_DIR=examples/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-arduino-rc
           done
 
   platformio-specific-envs:
@@ -218,7 +218,7 @@ jobs:
       fail-fast: false
       matrix:
         env:
-          - ci-arduino-3-latest-asynctcp
+          - ci-arduino-rc-asynctcp
           - ci-arduino-3-no-json
 
     steps:
