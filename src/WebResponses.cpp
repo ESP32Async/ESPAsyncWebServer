@@ -6,17 +6,6 @@
 
 using namespace asyncsrv;
 
-// Since ESP8266 does not link memchr by default, here's its implementation.
-void *memchr(void *ptr, int ch, size_t count) {
-  unsigned char *p = static_cast<unsigned char *>(ptr);
-  while (count--) {
-    if (*p++ == static_cast<unsigned char>(ch)) {
-      return --p;
-    }
-  }
-  return nullptr;
-}
-
 /*
  * Abstract Response
  *
