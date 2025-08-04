@@ -6,17 +6,6 @@
 
 using namespace asyncsrv;
 
-// Since ESP8266 does not link memchr by default, here's its implementation.
-void *memchr(void *ptr, int ch, size_t count) {
-  unsigned char *p = static_cast<unsigned char *>(ptr);
-  while (count--) {
-    if (*p++ == static_cast<unsigned char>(ch)) {
-      return --p;
-    }
-  }
-  return nullptr;
-}
-
 /*
  * Abstract Response
  *
@@ -707,15 +696,19 @@ void AsyncFileResponse::_setContentTypeFromPath(const String &path) {
  */
 AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
   : AsyncAbstractResponse(callback) {
+
   // Try to open the uncompressed version first
   _content = fs.open(path, fs::FileOpenMode::read);
   if (_content.available()) {
-    _path = path;
     _contentLength = _content.size();
   } else {
     // Try to open the compressed version (.gz)
-    _path = path + asyncsrv::T__gz;
-    _content = fs.open(_path, fs::FileOpenMode::read);
+    String gzPath;
+    uint16_t pathLen = path.length();
+    gzPath.reserve(pathLen + 3);
+    gzPath.concat(path);
+    gzPath.concat(asyncsrv::T__gz);
+    _content = fs.open(gzPath, fs::FileOpenMode::read);
     _contentLength = _content.size();
 
     if (_content.seek(_contentLength - 8)) {
@@ -764,7 +757,6 @@ AsyncFileResponse::AsyncFileResponse(FS &fs, const String &path, const char *con
 AsyncFileResponse::AsyncFileResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback)
   : AsyncAbstractResponse(callback) {
   _code = 200;
-  _path = path;
 
   if (String(content.name()).endsWith(T__gz) && !path.endsWith(T__gz)) {
     addHeader(T_Content_Encoding, T_gzip, false);
