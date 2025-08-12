@@ -16,6 +16,9 @@
 #include <vector>
 
 #if defined(ESP32) || defined(LIBRETINY)
+#ifdef ESP32
+#include "sdkconfig.h"
+#endif
 #include <AsyncTCP.h>
 #elif defined(ESP8266)
 #include <ESPAsyncTCP.h>
@@ -42,6 +45,10 @@
 // This setting slowdown chunk serving but avoids crashing or deadlocks in the case where slow chunk responses are created, like file serving form SD Card
 #ifndef ASYNCWEBSERVER_USE_CHUNK_INFLIGHT
 #define ASYNCWEBSERVER_USE_CHUNK_INFLIGHT 1
+#endif
+
+#ifndef ASYNCWEBSERVER_RX_TIMEOUT
+#define ASYNCWEBSERVER_RX_TIMEOUT 3  // Seconds for timeout
 #endif
 
 class AsyncWebServer;
@@ -87,8 +94,13 @@ public:
 #endif
 
 // if this value is returned when asked for data, packet will not be sent and you will be asked for data again
-#define RESPONSE_TRY_AGAIN          0xFFFFFFFF
+#define RESPONSE_TRY_AGAIN 0xFFFFFFFF
+
+#ifndef CONFIG_TCP_MSS
 #define RESPONSE_STREAM_BUFFER_SIZE 1460
+#else
+#define RESPONSE_STREAM_BUFFER_SIZE CONFIG_TCP_MSS
+#endif
 
 typedef uint8_t WebRequestMethodComposite;
 typedef std::function<void(void)> ArDisconnectHandler;
@@ -250,6 +262,7 @@ private:
   String _itemValue;
   uint8_t *_itemBuffer;
   size_t _itemBufferIndex;
+  uint32_t _rx_timeout;
   bool _itemIsFile;
 
   void _onPoll();
