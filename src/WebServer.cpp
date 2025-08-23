@@ -43,7 +43,7 @@ AsyncWebServer::AsyncWebServer(uint16_t port) : _server(port) {
       if (c == NULL) {
         return;
       }
-      c->setRxTimeout(3);
+      c->setRxTimeout(ASYNCWEBSERVER_RX_TIMEOUT);
       AsyncWebServerRequest *r = new AsyncWebServerRequest((AsyncWebServer *)s, c);
       if (r == NULL) {
         c->abort();
