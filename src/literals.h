@@ -115,7 +115,6 @@ static constexpr const char *T__jpg = ".jpg";      // JPEG/JPG: Photos. Legacy s
 static constexpr const char *T__js = ".js";        // JavaScript: Interactive functionality
 static constexpr const char *T__json = ".json";    // JSON: Data exchange format
 static constexpr const char *T__mp4 = ".mp4";      // MP4: Proprietary format. Worse compression than WEBM.
-static constexpr const char *T__mjs = ".mjs";      // MJS: JavaScript module format
 static constexpr const char *T__opus = ".opus";    // OPUS: High compression audio format
 static constexpr const char *T__pdf = ".pdf";      // PDF: Universal document format
 static constexpr const char *T__png = ".png";      // PNG: Icons, logos, transparency. Legacy support
@@ -204,5 +203,5 @@ static constexpr const char *T_only_once_headers[] = {
   T_Transfer_Encoding, T_Content_Location, T_Server,       T_WWW_AUTH
 };
 static constexpr size_t T_only_once_headers_len = sizeof(T_only_once_headers) / sizeof(T_only_once_headers[0]);
-
+static constexpr size_t T__GZ_LEN = strlen(T__gz);
 }  // namespace asyncsrv

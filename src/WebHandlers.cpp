@@ -187,6 +187,15 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
   return found;
 }
 
+/**
+ * @brief Handles an incoming HTTP request for a static file.
+ *
+ * This method processes a request for serving static files asynchronously.
+ * It determines the correct ETag (entity tag) for caching, checks if the file
+ * has been modified, and prepares the appropriate response (file response or 304 Not Modified).
+ *
+ * @param request Pointer to the incoming AsyncWebServerRequest object.
+ */
 void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
   // Get the filename from request->_tempObject and free it
   String filename((char *)request->_tempObject);
@@ -198,66 +207,63 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  time_t lw = request->_tempFile.getLastWrite();  // get last file mod time (if supported by FS)
-  // set etag to lastmod timestamp if available, otherwise to size
-  String etag;
-  if (lw) {
-    setLastModified(lw);
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
-    // time_t == long long int
-    constexpr size_t len = 1 + 8 * sizeof(time_t);
-    char buf[len];
-    char *ret = lltoa(lw ^ request->_tempFile.size(), buf, len, 10);
-    etag = ret ? String(ret) : String(request->_tempFile.size());
-#elif defined(LIBRETINY)
-    long val = lw ^ request->_tempFile.size();
-    etag = String(val);
-#else
-    etag = lw ^ request->_tempFile.size();  // etag combines file size and lastmod timestamp
-#endif
+  // Get server ETag. If file is not GZ and we have a Template Processor, ETag=0
+  char etag[9];
+  const char *tempFileName = request->_tempFile.name();
+  const size_t lenFilename = strlen(tempFileName);
+
+  if (lenFilename > T__GZ_LEN && memcmp(tempFileName + lenFilename - T__GZ_LEN, T__gz, T__GZ_LEN) == 0) {
+    //File is a gz, get etag from CRC in trailer
+    if (!AsyncWebServerRequest::_getEtag(request->_tempFile, etag)) {
+      // File is corrupted or invalid
+      log_e("File is corrupted or invalid: %s", tempFileName);
+      request->send(404);
+      return;
+    }
+
+    // Reset file position to the beginning after reading the gz trailer for ETag,
+    // so the file can be served from the start.
+    request->_tempFile.seek(0);
+  } else if (_callback == nullptr) {
+    // We don't have a Template processor
+    uint32_t etagValue;
+    time_t lastWrite = request->_tempFile.getLastWrite();
+    if (lastWrite > 0) {
+      // Use timestamp-based ETag
+      etagValue = static_cast<uint32_t>(lastWrite);
+    } else {
+      // No timestamp available, use filesize-based ETag
+      size_t fileSize = request->_tempFile.size();
+      etagValue = static_cast<uint32_t>(fileSize);
+    }
+    snprintf(etag, sizeof(etag), "%08x", etagValue);
   } else {
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY)
-    etag = String(request->_tempFile.size());
-#else
-    etag = request->_tempFile.size();
-#endif
-  }
-
-  bool not_modified = false;
-
-  // if-none-match has precedence over if-modified-since
-  if (request->hasHeader(T_INM)) {
-    not_modified = request->header(T_INM).equals(etag);
-  } else if (_last_modified.length()) {
-    not_modified = request->header(T_IMS).equals(_last_modified);
+    etag[0] = '\0';
   }
 
   AsyncWebServerResponse *response;
 
-  if (not_modified) {
+  // Check if client already has the file (ETag match)
+  if (*etag != '\0' && request->header(T_INM).equals(etag)) {
     request->_tempFile.close();
     response = new AsyncBasicResponse(304);  // Not modified
   } else {
     response = new AsyncFileResponse(request->_tempFile, filename, emptyString, false, _callback);
-  }
 
-  if (!response) {
+    if (!response) {
 #ifdef ESP32
-    log_e("Failed to allocate");
+      log_e("Failed to allocate");
 #endif
-    request->abort();
-    return;
+      request->abort();
+      return;
+    }
+    if (*etag != '\0') {
+      response->addHeader(T_ETag, etag, true);
+      response->addHeader(T_Cache_Control, T_no_cache, true);
+    } else if (_cache_control.length()) {
+      response->addHeader(T_Cache_Control, _cache_control.c_str(), false);
+    }
   }
-
-  response->addHeader(T_ETag, etag.c_str());
-
-  if (_last_modified.length()) {
-    response->addHeader(T_Last_Modified, _last_modified.c_str());
-  }
-  if (_cache_control.length()) {
-    response->addHeader(T_Cache_Control, _cache_control.c_str());
-  }
-
   request->send(response);
 }
 
