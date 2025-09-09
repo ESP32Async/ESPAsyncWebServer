@@ -204,5 +204,5 @@ static constexpr const char *T_only_once_headers[] = {
   T_Transfer_Encoding, T_Content_Location, T_Server,       T_WWW_AUTH
 };
 static constexpr size_t T_only_once_headers_len = sizeof(T_only_once_headers) / sizeof(T_only_once_headers[0]);
-
+static constexpr size_t T__GZ_LEN = strlen(T__gz);
 }  // namespace asyncsrv

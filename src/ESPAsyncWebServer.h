@@ -204,6 +204,7 @@ class AsyncWebServerRequest {
   friend class AsyncWebServer;
   friend class AsyncCallbackWebHandler;
   friend class AsyncFileResponse;
+  friend class AsyncStaticWebHandler;
 
 private:
   AsyncClient *_client;
