@@ -2,6 +2,7 @@
 // Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
 
 #include "AsyncMessagePack.h"
+#include "AsyncWebServerLogging.h"
 
 #if ASYNC_MSG_PACK_SUPPORT == 1
 
@@ -103,9 +104,7 @@ void AsyncCallbackMessagePackWebHandler::handleBody(AsyncWebServerRequest *reque
     if (total > 0 && request->_tempObject == NULL && total < _maxContentLength) {
       request->_tempObject = malloc(total);
       if (request->_tempObject == NULL) {
-#ifdef ESP32
-        log_e("Failed to allocate");
-#endif
+        async_ws_log_e("Failed to allocate");
         request->abort();
         return;
       }

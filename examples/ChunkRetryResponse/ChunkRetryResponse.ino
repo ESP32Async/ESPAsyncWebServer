@@ -174,7 +174,7 @@ void setup() {
           return 0;  // 0 means we are done
         }
 
-        // log_d("UART answered!");
+        // async_ws_log_d("UART answered!");
 
         String answer = "You typed: ";
         answer.concat((char)key);
@@ -193,10 +193,10 @@ void setup() {
     },
     NULL,  // upload handler is not used so it should be NULL
     [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-      // log_d("Body: index: %u, len: %u, total: %u", index, len, total);
+      // async_ws_log_d("Body: index: %u, len: %u, total: %u", index, len, total);
 
       if (!index) {
-        // log_d("Start body parsing");
+        // async_ws_log_d("Start body parsing");
         request->_tempObject = new String();
         // cast request->_tempObject pointer to String and reserve total size
         ((String *)request->_tempObject)->reserve(total);
@@ -204,7 +204,7 @@ void setup() {
         request->client()->setRxTimeout(30);
       }
 
-      // log_d("Append body data");
+      // async_ws_log_d("Append body data");
       ((String *)request->_tempObject)->concat((const char *)data, len);
     }
   );
@@ -217,13 +217,13 @@ void setup() {
 void loop() {
   if (triggerUART.length() && key == -1) {
     Serial.println(triggerUART);
-    // log_d("Waiting for UART input...");
+    // async_ws_log_d("Waiting for UART input...");
     while (!Serial.available()) {
       delay(100);
     }
     key = Serial.read();
     Serial.flush();
-    // log_d("UART input: %c", key);
+    // async_ws_log_d("UART input: %c", key);
     triggerUART = emptyString;
   }
 }

@@ -30,6 +30,7 @@
 #endif
 
 #include <ESPAsyncWebServer.h>
+#include <AsyncWebServerLogging.h>
 
 #include <memory>
 
@@ -80,9 +81,7 @@ public:
       _data = (uint8_t *)malloc(_len);
 
       if (_data == NULL) {
-#ifdef ESP32
-        log_e("Failed to allocate");
-#endif
+        async_ws_log_e("Failed to allocate");
         _len = 0;
       } else {
         memcpy(_data, data, len);

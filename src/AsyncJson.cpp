@@ -2,6 +2,7 @@
 // Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
 
 #include "AsyncJson.h"
+#include "AsyncWebServerLogging.h"
 
 #if ASYNC_JSON_SUPPORT == 1
 
@@ -123,9 +124,7 @@ void AsyncCallbackJsonWebHandler::handleRequest(AsyncWebServerRequest *request) 
     // POST / PUT / ... requests:
     // check if JSON body is too large, if it is, don't deserialize
     if (request->contentLength() > _maxContentLength) {
-#ifdef ESP32
-      log_e("Content length exceeds maximum allowed");
-#endif
+      async_ws_log_e("Content length exceeds maximum allowed");
       request->send(413);
       return;
     }
@@ -172,9 +171,7 @@ void AsyncCallbackJsonWebHandler::handleBody(AsyncWebServerRequest *request, uin
       if (request->_tempObject == NULL) {
         request->_tempObject = calloc(total + 1, sizeof(uint8_t));  // null-terminated string
         if (request->_tempObject == NULL) {
-#ifdef ESP32
-          log_e("Failed to allocate");
-#endif
+          async_ws_log_e("Failed to allocate");
           request->abort();
           return;
         }

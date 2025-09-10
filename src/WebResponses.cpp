@@ -3,6 +3,7 @@
 
 #include "ESPAsyncWebServer.h"
 #include "WebResponseImpl.h"
+#include "AsyncWebServerLogging.h"
 
 using namespace asyncsrv;
 
@@ -360,10 +361,7 @@ size_t AsyncAbstractResponse::_ack(AsyncWebServerRequest *request, size_t len, u
 
   // for chunked responses ignore acks if there are no _in_flight_credits left
   if (_chunked && !_in_flight_credit) {
-#ifdef ESP32
-    log_d("(chunk) out of in-flight credits");
-#endif
-    return 0;
+    async_ws_log_d("(chunk) out of in-flight credits");
   }
 
   _in_flight -= (_in_flight > len) ? len : _in_flight;
@@ -397,7 +395,7 @@ size_t AsyncAbstractResponse::_ack(AsyncWebServerRequest *request, size_t len, u
     // Let's ignore polled acks and acks in case when we have more in-flight data then the available socket buff space.
     // That way we could balance on having half the buffer in-flight while another half is filling up, while minimizing events in asynctcp q
     if (_in_flight > space) {
-      // log_d("defer user call %u/%u", _in_flight, space);
+      // async_ws_log_d("defer user call %u/%u", _in_flight, space);
       //  take the credit back since we are ignoring this ack and rely on other inflight data
       if (len) {
         --_in_flight_credit;
@@ -421,9 +419,7 @@ size_t AsyncAbstractResponse::_ack(AsyncWebServerRequest *request, size_t len, u
 
     uint8_t *buf = (uint8_t *)malloc(outLen + headLen);
     if (!buf) {
-#ifdef ESP32
-      log_e("Failed to allocate");
-#endif
+      async_ws_log_e("Failed to allocate");
       request->abort();
       return 0;
     }
@@ -897,9 +893,7 @@ AsyncResponseStream::AsyncResponseStream(const char *contentType, size_t bufferS
   // internal buffer will be null on allocation failure
   _content = std::unique_ptr<cbuf>(new cbuf(bufferSize));
   if (bufferSize && _content->size() < bufferSize) {
-#ifdef ESP32
-    log_e("Failed to allocate");
-#endif
+    async_ws_log_e("Failed to allocate");
   }
 }
 
@@ -918,9 +912,7 @@ size_t AsyncResponseStream::write(const uint8_t *data, size_t len) {
     // with _content->write: if len is more than the available size in the buffer, only
     // the available size will be written
     if (len > _content->room()) {
-#ifdef ESP32
-      log_e("Failed to allocate");
-#endif
+      async_ws_log_e("Failed to allocate");
     }
   }
   size_t written = _content->write((const char *)data, len);

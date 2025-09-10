@@ -3,6 +3,7 @@
 
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
+#include "AsyncWebServerLogging.h"
 
 using namespace asyncsrv;
 
@@ -173,9 +174,7 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
     size_t pathLen = path.length();
     char *_tempPath = (char *)malloc(pathLen + 1);
     if (_tempPath == NULL) {
-#ifdef ESP32
-      log_e("Failed to allocate");
-#endif
+      async_ws_log_e("Failed to allocate");
       request->abort();
       request->_tempFile.close();
       return false;
@@ -242,9 +241,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
   }
 
   if (!response) {
-#ifdef ESP32
-    log_e("Failed to allocate");
-#endif
+    async_ws_log_e("Failed to allocate");
     request->abort();
     return;
   }

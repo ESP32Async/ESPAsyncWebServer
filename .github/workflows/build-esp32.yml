@@ -226,6 +226,8 @@ jobs:
         env:
           - ci-arduino-rc-asynctcp
           - ci-arduino-3-no-json
+          - ci-arduino-2-esp-idf-log
+          - ci-arduino-3-esp-idf-log
 
     steps:
       - name: Checkout
