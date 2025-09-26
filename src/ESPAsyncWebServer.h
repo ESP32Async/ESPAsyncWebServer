@@ -891,7 +891,13 @@ public:
     _maxAge = seconds;
   }
 
-  void addCORSHeaders(AsyncWebServerResponse *response);
+#ifndef ESP8266
+  [[deprecated("Use instead: addCORSHeaders(AsyncWebServerRequest *request, AsyncWebServerResponse *response)")]]
+#endif
+  void addCORSHeaders(AsyncWebServerResponse *response) {
+    addCORSHeaders(nullptr, response);
+  }
+  void addCORSHeaders(AsyncWebServerRequest *request, AsyncWebServerResponse *response);
 
   void run(AsyncWebServerRequest *request, ArMiddlewareNext next);
 
