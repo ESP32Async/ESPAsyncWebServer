@@ -816,10 +816,10 @@ void AsyncWebSocket::_handleEvent(AsyncWebSocketClient *client, AwsEventType typ
   }
 }
 
-AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request) {
+bool AsyncWebSocket::newClient(AsyncWebServerRequest *request) {
   _clients.emplace_back(request, this);
   _handleEvent(&_clients.back(), WS_EVT_CONNECT, request, NULL, 0);
-  return &_clients.back();
+  return true;
 }
 
 void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient *client) {
@@ -1228,7 +1228,7 @@ void AsyncWebSocket::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
   const AsyncWebHeader *key = request->getHeader(WS_STR_KEY);
-  AsyncWebServerResponse *response = new AsyncWebSocketResponse(key->value(), this);
+  AsyncWebServerResponse *response = new AsyncWebSocketResponse(key->value(), [this](AsyncWebServerRequest *r){ return newClient(r); });
   if (response == NULL) {
 #ifdef ESP32
     log_e("Failed to allocate");
@@ -1257,8 +1257,7 @@ AsyncWebSocketMessageBuffer *AsyncWebSocket::makeBuffer(const uint8_t *data, siz
  * Authentication code from https://github.com/Links2004/arduinoWebSockets/blob/master/src/WebSockets.cpp#L480
  */
 
-AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket *server) {
-  _server = server;
+AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AwsHandshakeHandler cb) : _callback(cb) {
   _code = 101;
   _sendContentLength = false;
 
@@ -1314,7 +1313,7 @@ size_t AsyncWebSocketResponse::_ack(AsyncWebServerRequest *request, size_t len, 
   (void)time;
 
   if (len) {
-    _server->_newClient(request);
+    _callback(request);
   }
 
   return 0;
