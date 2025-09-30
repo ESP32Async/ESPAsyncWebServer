@@ -93,13 +93,28 @@ AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(const String &uri, ArJs
   : _uri(uri), _method(HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_PATCH), _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize), _maxContentLength(16384) {}
 #else
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(const String &uri, ArJsonRequestHandlerFunction onRequest)
-  : _uri(uri), _method(HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_PATCH), _onRequest(onRequest), _maxContentLength(16384) {}
+  : _uri(uri), _isRegex(uri.startsWith("^") && uri.endsWith("$")), _method(HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_PATCH), _onRequest(onRequest), _maxContentLength(16384) {}
 #endif
 
 bool AsyncCallbackJsonWebHandler::canHandle(AsyncWebServerRequest *request) const {
   if (!_onRequest || !request->isHTTP() || !(_method & request->method())) {
     return false;
   }
+
+#ifdef ASYNCWEBSERVER_REGEX
+  if (_isRegex) {
+    std::regex pattern(_uri.c_str());
+    std::smatch matches;
+    std::string s(request->url().c_str());
+    if (std::regex_search(s, matches, pattern)) {
+      for (size_t i = 1; i < matches.size(); ++i) {  // start from 1
+        request->_addPathParam(matches[i].str().c_str());
+      }
+    } else {
+      return false;
+    }
+  } else
+#endif
 
   if (_uri.length() && (_uri != request->url() && !request->url().startsWith(_uri + "/"))) {
     return false;
