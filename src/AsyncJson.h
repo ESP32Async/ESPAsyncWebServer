@@ -75,6 +75,7 @@ public:
 typedef std::function<void(AsyncWebServerRequest *request, JsonVariant &json)> ArJsonRequestHandlerFunction;
 
 class AsyncCallbackJsonWebHandler : public AsyncWebHandler {
+private:
 protected:
   String _uri;
   WebRequestMethodComposite _method;
@@ -83,6 +84,7 @@ protected:
   size_t maxJsonBufferSize;
 #endif
   size_t _maxContentLength;
+  bool _isRegex;
 
 public:
 #if ARDUINOJSON_VERSION_MAJOR == 6
