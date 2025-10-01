@@ -92,6 +92,21 @@ void setup() {
   });
 
   server.addHandler(handler);
+
+#ifdef ASYNCWEBSERVER_REGEX
+  AsyncCallbackJsonWebHandler *pageRegexHandler = new AsyncCallbackJsonWebHandler("^\\/page\\/(\\d+)$",
+    [](AsyncWebServerRequest *request, JsonVariant &json) {
+      String number = request->pathArg(0);
+      AsyncJsonResponse *response = new AsyncJsonResponse();
+      JsonObject root = response->getRoot().to<JsonObject>();
+      root["pageStr"] = number;
+      root["pageInt"] = number.toInt();
+      response->setLength();
+      request->send(response);
+    });
+  server.addHandler(pageRegexHandler);
+#endif
+
 #endif
 
   server.begin();
