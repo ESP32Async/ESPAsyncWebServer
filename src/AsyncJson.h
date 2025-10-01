@@ -78,13 +78,13 @@ class AsyncCallbackJsonWebHandler : public AsyncWebHandler {
 private:
 protected:
   String _uri;
+  bool _isRegex;
   WebRequestMethodComposite _method;
   ArJsonRequestHandlerFunction _onRequest;
 #if ARDUINOJSON_VERSION_MAJOR == 6
   size_t maxJsonBufferSize;
 #endif
   size_t _maxContentLength;
-  bool _isRegex;
 
 public:
 #if ARDUINOJSON_VERSION_MAJOR == 6
