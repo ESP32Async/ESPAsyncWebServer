@@ -203,6 +203,7 @@ class AsyncWebServerRequest {
   using FS = fs::FS;
   friend class AsyncWebServer;
   friend class AsyncCallbackWebHandler;
+  friend class AsyncCallbackJsonWebHandler;
   friend class AsyncFileResponse;
 
 private:
