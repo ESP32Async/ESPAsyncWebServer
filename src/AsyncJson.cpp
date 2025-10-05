@@ -6,6 +6,8 @@
 
 #if ASYNC_JSON_SUPPORT == 1
 
+// Json content type response classes
+
 #if ARDUINOJSON_VERSION_MAJOR == 5
 AsyncJsonResponse::AsyncJsonResponse(bool isArray) : _isValid{false} {
   _code = 200;
@@ -88,6 +90,27 @@ size_t PrettyAsyncJsonResponse::_fillBuffer(uint8_t *data, size_t len) {
   return len;
 }
 
+// MessagePack content type response
+#if ASYNC_MSG_PACK_SUPPORT == 1
+
+size_t AsyncMessagePackResponse::setLength() {
+  _contentLength = measureMsgPack(_root);
+  if (_contentLength) {
+    _isValid = true;
+  }
+  return _contentLength;
+}
+
+size_t AsyncMessagePackResponse::_fillBuffer(uint8_t *data, size_t len) {
+  ChunkPrint dest(data, _sentLength, len);
+  serializeMsgPack(_root, dest);
+  return len;
+}
+
+#endif
+
+// Body handler supporting both content types: JSON and MessagePack
+
 #if ARDUINOJSON_VERSION_MAJOR == 6
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(const String &uri, ArJsonRequestHandlerFunction onRequest, size_t maxJsonBufferSize)
   : _uri(uri), _method(HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_PATCH), _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize), _maxContentLength(16384) {}
@@ -120,11 +143,12 @@ bool AsyncCallbackJsonWebHandler::canHandle(AsyncWebServerRequest *request) cons
     return false;
   }
 
-  if (request->method() != HTTP_GET && !request->contentType().equalsIgnoreCase(asyncsrv::T_application_json)) {
-    return false;
-  }
-
-  return true;
+#if ASYNC_MSG_PACK_SUPPORT == 1
+  return request->method() == HTTP_GET || request->contentType().equalsIgnoreCase(asyncsrv::T_application_json)
+         || request->contentType().equalsIgnoreCase(asyncsrv::T_application_msgpack);
+#else
+  return request->method() == HTTP_GET || request->contentType().equalsIgnoreCase(asyncsrv::T_application_json);
+#endif
 }
 
 void AsyncCallbackJsonWebHandler::handleRequest(AsyncWebServerRequest *request) {
@@ -151,26 +175,32 @@ void AsyncCallbackJsonWebHandler::handleRequest(AsyncWebServerRequest *request) 
     }
 
 #if ARDUINOJSON_VERSION_MAJOR == 5
-    DynamicJsonBuffer jsonBuffer;
-    JsonVariant json = jsonBuffer.parse((const char *)request->_tempObject);
-    if (json.success()) {
+    DynamicJsonBuffer doc;
 #elif ARDUINOJSON_VERSION_MAJOR == 6
-    DynamicJsonDocument jsonBuffer(this->maxJsonBufferSize);
-    DeserializationError error = deserializeJson(jsonBuffer, (const char *)request->_tempObject);
-    if (!error) {
-      JsonVariant json = jsonBuffer.as<JsonVariant>();
+    DynamicJsonDocument doc(this->maxJsonBufferSize);
 #else
-    JsonDocument jsonBuffer;
-    DeserializationError error = deserializeJson(jsonBuffer, (const char *)request->_tempObject);
-    if (!error) {
-      JsonVariant json = jsonBuffer.as<JsonVariant>();
+    JsonDocument doc;
 #endif
 
+#if ARDUINOJSON_VERSION_MAJOR == 5
+    JsonVariant json = doc.parse((const char *)request->_tempObject);
+    if (json.success()) {
       _onRequest(request, json);
-    } else {
-      // error parsing the body
-      request->send(400);
+      return;
     }
+#else
+    DeserializationError error = request->contentType().equalsIgnoreCase(asyncsrv::T_application_msgpack)
+                                   ? deserializeMsgPack(doc, (uint8_t *)(request->_tempObject))
+                                   : deserializeJson(doc, (const char *)request->_tempObject);
+    if (!error) {
+      JsonVariant json = doc.as<JsonVariant>();
+      _onRequest(request, json);
+      return;
+    }
+#endif
+
+    // error parsing the body
+    request->send(400);
   }
 }
 

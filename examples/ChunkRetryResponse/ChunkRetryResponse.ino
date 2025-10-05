@@ -19,12 +19,6 @@
 
 #include <ESPAsyncWebServer.h>
 
-#if __has_include("ArduinoJson.h")
-#include <ArduinoJson.h>
-#include <AsyncJson.h>
-#include <AsyncMessagePack.h>
-#endif
-
 static const char *htmlContent PROGMEM = R"(
 <!DOCTYPE html>
 <html>
@@ -107,7 +101,7 @@ void setup() {
 
   server.addMiddleware(&requestLogger);
 
-#if __has_include("ArduinoJson.h")
+#if ASYNC_JSON_SUPPORT == 1
 
   //
   // HOW TO RUN THIS EXAMPLE:

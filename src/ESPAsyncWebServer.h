@@ -15,6 +15,23 @@
 #include <unordered_map>
 #include <vector>
 
+#if __has_include("ArduinoJson.h")
+#include <ArduinoJson.h>
+
+#if ARDUINOJSON_VERSION_MAJOR >= 5
+#define ASYNC_JSON_SUPPORT 1
+#else
+#define ASYNC_JSON_SUPPORT 0
+#endif  // ARDUINOJSON_VERSION_MAJOR >= 5
+
+#if ARDUINOJSON_VERSION_MAJOR >= 6
+#define ASYNC_MSG_PACK_SUPPORT 1
+#else
+#define ASYNC_MSG_PACK_SUPPORT 0
+#endif  // ARDUINOJSON_VERSION_MAJOR >= 6
+
+#endif  // __has_include("ArduinoJson.h")
+
 #if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #elif defined(ESP8266)
@@ -205,6 +222,7 @@ class AsyncWebServerRequest {
   friend class AsyncCallbackWebHandler;
   friend class AsyncCallbackJsonWebHandler;
   friend class AsyncFileResponse;
+  friend class AsyncStaticWebHandler;
 
 private:
   AsyncClient *_client;
@@ -1109,6 +1127,20 @@ typedef std::function<void(AsyncWebServerRequest *request, const String &filenam
   ArUploadHandlerFunction;
 typedef std::function<void(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)> ArBodyHandlerFunction;
 
+#if ASYNC_JSON_SUPPORT == 1
+
+class AsyncCallbackJsonWebHandler;
+typedef std::function<void(AsyncWebServerRequest *request, JsonVariant &json)> ArJsonRequestHandlerFunction;
+
+#if ASYNC_MSG_PACK_SUPPORT == 1
+#ifndef ESP8266
+[[deprecated("Replaced by AsyncCallbackJsonWebHandler")]]
+#endif
+typedef AsyncCallbackJsonWebHandler AsyncCallbackMessagePackWebHandler;
+#endif  // ASYNC_MSG_PACK_SUPPORT
+
+#endif
+
 class AsyncWebServer : public AsyncMiddlewareChain {
 protected:
   AsyncServer _server;
@@ -1189,6 +1221,10 @@ public:
     ArBodyHandlerFunction onBody = nullptr
   );
 
+#if ASYNC_JSON_SUPPORT == 1
+  AsyncCallbackJsonWebHandler &on(const char *uri, WebRequestMethodComposite method, ArJsonRequestHandlerFunction onBody);
+#endif
+
   AsyncStaticWebHandler &serveStatic(const char *uri, fs::FS &fs, const char *path, const char *cache_control = NULL);
 
   void onNotFound(ArRequestHandlerFunction fn);   // called when handler is not assigned
@@ -1237,5 +1273,9 @@ public:
 #include "AsyncWebSocket.h"
 #include "WebHandlerImpl.h"
 #include "WebResponseImpl.h"
+
+#if ASYNC_JSON_SUPPORT == 1
+#include <AsyncJson.h>
+#endif
 
 #endif /* _AsyncWebServer_H_ */

@@ -19,16 +19,10 @@
 
 #include <ESPAsyncWebServer.h>
 
-#if __has_include("ArduinoJson.h")
-#include <ArduinoJson.h>
-#include <AsyncJson.h>
-#include <AsyncMessagePack.h>
-#endif
-
 static AsyncWebServer server(80);
 
-#if __has_include("ArduinoJson.h")
-static AsyncCallbackMessagePackWebHandler *handler = new AsyncCallbackMessagePackWebHandler("/msgpack2");
+#if ASYNC_JSON_SUPPORT == 1
+static AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/msgpack2");
 #endif
 
 void setup() {
@@ -39,7 +33,7 @@ void setup() {
   WiFi.softAP("esp-captive");
 #endif
 
-#if __has_include("ArduinoJson.h")
+#if ASYNC_JSON_SUPPORT == 1
   //
   // sends MessagePack using AsyncMessagePackResponse
   //
@@ -57,18 +51,26 @@ void setup() {
   //
   // curl -v http://192.168.4.1/msgpack2
   //
+  // Save file: curl -v http://192.168.4.1/msgpack2 -o msgpack.bin
+  //
   server.on("/msgpack2", HTTP_GET, [](AsyncWebServerRequest *request) {
     AsyncResponseStream *response = request->beginResponseStream("application/msgpack");
     JsonDocument doc;
     JsonObject root = doc.to<JsonObject>();
-    root["foo"] = "bar";
+    root["name"] = "Bob";
     serializeMsgPack(root, *response);
     request->send(response);
   });
 
+  // POST file:
+  //
+  // curl -v -X POST -H 'Content-Type: application/msgpack' --data-binary @msgpack.bin http://192.168.4.1/msgpack2
+  //
   handler->setMethod(HTTP_POST | HTTP_PUT);
   handler->onRequest([](AsyncWebServerRequest *request, JsonVariant &json) {
+    Serial.printf("Body request /msgpack2 : ");  // should print: Body request /msgpack2 : {"name":"Bob"}
     serializeJson(json, Serial);
+    Serial.println();
     AsyncMessagePackResponse *response = new AsyncMessagePackResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["hello"] = json.as<JsonObject>()["name"];
@@ -77,6 +79,22 @@ void setup() {
   });
 
   server.addHandler(handler);
+
+  // New Json API since 3.8.2, which works for both Json and MessagePack bodies
+  //
+  // curl -v -X POST -H 'Content-Type: application/json' -d '{"name":"You"}' http://192.168.4.1/msgpack3
+  // curl -v -X POST -H 'Content-Type: application/msgpack' --data-binary @msgpack.bin http://192.168.4.1/msgpack3
+  //
+  server.on("/msgpack3", HTTP_POST, [](AsyncWebServerRequest *request, JsonVariant &json) {
+    Serial.printf("Body request /msgpack3 : ");  // should print: Body request /msgpack3 : {"name":"Bob"}
+    serializeJson(json, Serial);
+    Serial.println();
+    AsyncJsonResponse *response = new AsyncJsonResponse();
+    JsonObject root = response->getRoot().to<JsonObject>();
+    root["hello"] = json.as<JsonObject>()["name"];
+    response->setLength();
+    request->send(response);
+  });
 #endif
 
   server.begin();

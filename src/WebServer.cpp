@@ -163,6 +163,15 @@ AsyncCallbackWebHandler &AsyncWebServer::on(
   return *handler;
 }
 
+#if ASYNC_JSON_SUPPORT == 1
+AsyncCallbackJsonWebHandler &AsyncWebServer::on(const char *uri, WebRequestMethodComposite method, ArJsonRequestHandlerFunction onBody) {
+  AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler(uri, onBody);
+  handler->setMethod(method);
+  addHandler(handler);
+  return *handler;
+}
+#endif
+
 AsyncStaticWebHandler &AsyncWebServer::serveStatic(const char *uri, fs::FS &fs, const char *path, const char *cache_control) {
   AsyncStaticWebHandler *handler = new AsyncStaticWebHandler(uri, fs, path, cache_control);
   addHandler(handler);
