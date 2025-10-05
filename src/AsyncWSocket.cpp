@@ -7,13 +7,9 @@
 #include "literals.h"
 
 constexpr const char WS_STR_CONNECTION[] = "Connection";
-//constexpr const char WS_STR_UPGRADE[] = "Upgrade";
-//constexpr const char WS_STR_ORIGIN[] = "Origin";
-//constexpr const char WS_STR_COOKIE[] = "Cookie";
 constexpr const char WS_STR_VERSION[] = "Sec-WebSocket-Version";
 constexpr const char WS_STR_KEY[] = "Sec-WebSocket-Key";
 constexpr const char WS_STR_PROTOCOL[] = "Sec-WebSocket-Protocol";
-//constexpr const char WS_STR_ACCEPT[] = "Sec-WebSocket-Accept";
 
 
 /**
@@ -132,14 +128,6 @@ size_t webSocketSendHeader(AsyncClient *client, WSMessageFrame& frame) {
   }
 
   size_t sent = client->add((const char*)buf, headLen);
-
-  if (frame.msg->type == WSFrameType_t::close && frame.msg->getStatusCode()){
-    // this is a 'close' message with status code, need to send the code also along with header
-    uint16_t code = htons (frame.msg->getStatusCode());
-    sent += client->add((char*)(&code), 2);
-    headLen += 2;
-  }
-
   // return size of a header added or 0 if any error
   return sent == headLen ? sent : 0;
 }
@@ -192,21 +180,15 @@ void WSocketClient::_clientSend(size_t acked_bytes){
   // create lock object but don't actually take the lock yet
   std::unique_lock lock{_sendLock, std::defer_lock};
 
-  if (acked_bytes){
-    // if it's the ack call from AsyncTCP - wait for lock!
-    lock.lock();
-    log_d("_clientSend, ack:%u/%u, space:%u", acked_bytes, _in_flight, _client ? _client->space() : 0);
-  } else {
-    // if there is no acked data - just quit, we are already sending something
-    if (!lock.try_lock())
-      return;
-  }
-
   // for response data we need to control AsyncTCP's event queue and in-flight fragmentation. Sending small chunks could give lower latency,
   // but flood asynctcp's queue and fragment socket buffer space for large responses.
   // Let's ignore polled acks and acks in case when we have more in-flight data then the available socket buff space.
   // That way we could balance on having half the buffer in-flight while another half is filling up and minimizing events in asynctcp's Q
   if (acked_bytes){
+    // if it's the ack call from AsyncTCP - wait for lock!
+    lock.lock();
+    log_d("_clientSend, ack:%u/%u, space:%u", acked_bytes, _in_flight, _client ? _client->space() : 0);
+
     _in_flight -= std::min(acked_bytes, _in_flight);
     log_d("infl:%u, state:%u", _in_flight, _connection);
     // check if we were waiting to ack our disconnection frame
@@ -220,6 +202,10 @@ void WSocketClient::_clientSend(size_t acked_bytes){
     
     // return buffer credit on acked data
     ++_in_flight_credit;
+  } else {
+    // if there is no acked data - just quit if won't be able to grab a lock, we are already sending something
+    if (!lock.try_lock())
+      return;
   }
 
   if (_in_flight > _client->space() || !_in_flight_credit) {
@@ -271,7 +257,7 @@ void WSocketClient::_clientSend(size_t acked_bytes){
 
       // execute callback that a message was sent
       if (_cb)
-      _cb(this, event_t::msgSent);
+        _cb(this, event_t::msgSent);
     
       // if there are free in-flight credits try to pull next msg from Q
       if (_in_flight_credit && _evictOutQueue()){
@@ -374,13 +360,13 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
       size_t framelen;
       uint16_t errcode;
       std::tie(framelen, errcode) = _mkNewFrame(data, plen, _inFrame);
-      if (!framelen){
-        // was unable to start receiving frame? initiate disconnect exchange
+      if (framelen < 2 || errcode){
+        // got bad length or close code, initiate disconnect procedure
         #ifdef ESP32
         std::unique_lock<std::recursive_mutex> lockout(_outQlock);
         #endif
         _messageQueueOut.push_front( std::make_shared<WSMessageClose>(errcode) );
-        // try sending disconnect message now
+        // send disconnect message now
         _clientSend();
         return;
       }
@@ -403,6 +389,12 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
     // if we got whole frame now
     if (_inFrame.index == _inFrame.len){
       Serial.printf("_onData, cmplt msg len:%lu\n", _inFrame.len);
+
+      if (_inFrame.msg->getStatusCode() == 1007){
+        // this is a dummy/corrupted message, we discard it
+        _inFrame.msg.reset();
+        continue;
+      }
 
       switch (_inFrame.msg->type){
         // received close message
@@ -511,19 +503,32 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
   // read frame size
   frame.len = data[1] & 0x7F;
   size_t offset = 2;  // first 2 bytes
+  log_d("ws hdr: ");
+  //Serial.println(frame.mask, HEX);
+  char buffer[10] = {}; // Buffer for hex conversion
+  char* ptr = data;
+  for (size_t i = 0; i != 10; ++i ) {
+    sprintf(buffer, "%02X", *ptr); // Convert to uppercase hex
+    Serial.print(buffer);
+    //Serial.print(" ");
+    ++ptr;
+  }
+  Serial.println();
 
+  // find message size from header
   if (frame.len == 126 && len >= 4) {
-    frame.len = data[3] | (uint16_t)(data[2]) << 8;
+    // two byte
+    frame.len = (data[2] << 8) | data[3];
     offset += 2;
   } else if (frame.len == 127 && len >= 10) {
+    // four byte
     frame.len = ntohl(*(uint32_t*)(data + 2));  // MSB
-    frame.len <= 32;
+    frame.len <<= 32;
     frame.len |= ntohl(*(uint32_t*)(data + 6)); // LSB
     offset += 8;
   }
 
-  if (frame.len > _max_msgsize)   // message too big than we allowed to accept
-    return {0, 1009};
+  log_d("new hdr, sock data:%u, msg body size:%u", len, frame.len);
 
   // if ws.close() is called, Safari sends a close frame with plen 2 and masked bit set. We must not try to read mask key from beyond packet size
   if (masked && len >= offset + 4) {
@@ -537,11 +542,18 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
   frame.index = frame.chunk_offset = 0;
 
   size_t bodylen = std::min(static_cast<size_t>(frame.len), len - offset);
-  // if there is no body in message, then it must a specific control message with no payload
   if (!bodylen){
-    // I'll make an empty binary container for such messages
-    _inFrame.msg = std::make_shared<WSMessageContainer<std::vector<uint8_t>>>(static_cast<WSFrameType_t>(opcode));
+    // if there is no body in message, then it must a specific control message with no payload
+    _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode));
   } else {
+    if (frame.len > _max_msgsize){
+      // message is bigger than we are allowed to accept, create a dummy container for it, it will just discard all incoming data
+      _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode, 1007));    // code 'Invalid frame payload data'
+      offset += bodylen;
+      _inFrame.index = bodylen;
+      return {offset, 1009};  // code 'message too big'
+    }
+  
     // let's unmask payload right in sock buff, later it could be consumed as raw data
     if (masked){
       wsMaskPayload(_inFrame.mask, 0, data + offset, bodylen);
@@ -632,8 +644,8 @@ WSocketClient::err_t WSocketClient::close(uint16_t code, const char *message){
   return err_t::ok;
 }
 
-// ***** WSocketServer implementation *****
 
+// ***** WSocketServer implementation *****
 
 bool WSocketServer::newClient(AsyncWebServerRequest *request){
   // remove expired clients first
@@ -739,3 +751,16 @@ void WSocketServer::_purgeClients(){
   // purge clients that are disconnected and with all messages consumed
   std::erase_if(_clients, [](const WSocketClient& c){ return (c.status() == WSocketClient::conn_state_t::disconnected && !c.inQueueSize() ); });
 }
+
+size_t WSocketServer::activeClientsCount() const {
+  return std::count_if(std::begin(_clients), std::end(_clients), [](const WSocketClient &c) { return c.status() == WSocketClient::conn_state_t::connected; });
+};
+
+
+// ***** WSMessageClose implementation *****
+
+WSMessageClose::WSMessageClose (uint16_t status) : WSMessageContainer<std::string>(WSFrameType_t::close, true), _status_code(status) {
+  // convert code to message body
+  uint16_t buff = htons (status);
+  container.append((char*)(&buff), 2);
+};

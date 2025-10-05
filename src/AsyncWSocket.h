@@ -78,8 +78,9 @@ public:
 
   /**
    * @brief WebSocket message status code as defined in https://datatracker.ietf.org/doc/html/rfc6455#section-7.4
+   * it could be used as integrity control or derived class features
    * 
-   * @return uint16_t 
+   * @return uint16_t 0 - default code for correct message
    */
   virtual uint16_t getStatusCode() const { return 0; }
 
@@ -115,7 +116,6 @@ protected:
   virtual void addChunk(char* data, size_t len, size_t offset) = 0;
 
 };
-
 
 template<typename T>
 class WSMessageContainer : public WSMessageGeneric {
@@ -197,13 +197,35 @@ public:
    * 
    * @param status close code as defined in https://datatracker.ietf.org/doc/html/rfc6455#section-7.4
    */
-  WSMessageClose (uint16_t status = 1000) : WSMessageContainer<std::string>(WSFrameType_t::close, true), _status_code(status) {};
+  WSMessageClose (uint16_t status = 1000);
   // variadic constructor for anything that std::string can be made of
   template<typename... Args>
-  WSMessageClose (uint16_t status, Args&&... args) : WSMessageContainer<std::string>(WSFrameType_t::close, true, std::forward<Args>(args)...), _status_code(status) {};
+  WSMessageClose (uint16_t status, Args&&... args) : WSMessageContainer<std::string>(WSFrameType_t::close, true, std::forward<Args>(args)...), _status_code(status) {
+    // convert code to message body
+    uint16_t buff = htons (status);
+    container.append((char*)(&buff), 2);
+  };
   
   uint16_t getStatusCode() const override { return _status_code; }
 };
+
+/**
+ * @brief Dummy message that does not carry any data
+ * could be used as a container for bodyless control messages or 
+ * specific cased (to gracefully handle oversised incoming messages)
+ */
+class WSMessageDummy : public WSMessageGeneric {
+  const uint16_t _code;
+public:
+  explicit WSMessageDummy(WSFrameType_t type, uint16_t status_code = 0) : WSMessageGeneric(type, true), _code(status_code) {};
+  size_t getSize() const override { return 0; };
+  char* getData() override { return nullptr; };
+  uint16_t getStatusCode() const override { return _code; }
+
+protected:
+  void addChunk(char* data, size_t len, size_t offset) override {};
+};
+
 
 /**
  * @brief structure that owns the message (or fragment) while sending/receiving by WSocketClient
@@ -229,9 +251,9 @@ class WSocketClient {
 public:
   // TCP connection state
   enum class conn_state_t {
-    connected,
-    disconnecting,
-    disconnected
+    connected,      // connected and exchangin messages
+    disconnecting,  // awaiting close ack
+    disconnected    // ws client is disconnected
   };
 
   /**
@@ -369,7 +391,6 @@ private:
   // in-flight data credits
   size_t _in_flight_credit{2};
 
-
   /**
    * @brief go through out Q and send message data ()
    * @note this method will grab a mutex lock on outQ internally
@@ -419,17 +440,6 @@ public:
   explicit WSocketServer(const char* url, WSocketServerEvent_t handler = {}) : _url(url), _eventHandler(handler) {}
   ~WSocketServer() = default;
 
-  const char *url() const {
-    return _url.c_str();
-  }
-  void enable(bool e) {
-    _enabled = e;
-  }
-  bool enabled() const {
-    return _enabled;
-  }
-
-
   /**
    * @brief check if client with specified id can accept new message for sending
    * 
@@ -446,7 +456,7 @@ public:
   msgall_err_t canSend() const;
 
   // return number of active clients
-  //size_t activeClientsCount() const { return std::count_if(std::begin(_clients), std::end(_clients), [](const WSocketClient &c) { return c.status() == WSocketClient::conn_state_t::connected; }); };
+  size_t activeClientsCount() const;
 
   // find if there is a client with specified id
   bool hasClient(uint32_t id) const {
@@ -490,6 +500,21 @@ public:
    */
   msgall_err_t pingAll(const char *data = NULL, size_t len = 0);
 
+  /**
+   * @brief send message to specific client
+   * 
+   * @param id 
+   * @param m 
+   * @return WSocketClient::err_t 
+   */
+  WSocketClient::err_t message(uint32_t id, std::shared_ptr<WSMessageGeneric> m){ if (WSocketClient *c = _getClient(id)) { return c->enqueueMessage(std::move(m)); } }
+
+  /**
+   * @brief send message to all available clients
+   * 
+   * @param m 
+   * @return msgall_err_t 
+   */
   msgall_err_t messageAll(std::shared_ptr<WSMessageGeneric> m);
 
 
@@ -543,6 +568,11 @@ public:
   // return next available client's ID
   uint32_t getNextId() {
     return ++_cNextId;
+  }
+
+  // return bound URL
+  const char *url() const {
+    return _url.c_str();
   }
 
   /**
