@@ -63,8 +63,56 @@ void setup() {
     request->send(200, "text/css", "/* OK */");
   });
 
+  // =============================================================================
+  // NEW ASYNCURIMATCHER FACTORY METHODS TESTS
+  // =============================================================================
+
+  // Exact match using factory method (does NOT match subpaths like traditional)
+  server.on(AsyncURIMatcher::exact("/factory/exact"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Prefix match using factory method
+  server.on(AsyncURIMatcher::prefix("/factory/prefix"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Directory match using factory method (matches /dir/anything but not /dir itself)
+  server.on(AsyncURIMatcher::dir("/factory/dir"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Extension match using factory method
+  server.on(AsyncURIMatcher::ext("/factory/files/*.txt"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // =============================================================================
+  // CASE INSENSITIVE MATCHING TESTS
+  // =============================================================================
+
+  // Case insensitive exact match
+  server.on(AsyncURIMatcher::exact("/case/exact", AsyncURIMatcher::CaseInsensitive), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Case insensitive prefix match
+  server.on(AsyncURIMatcher::prefix("/case/prefix", AsyncURIMatcher::CaseInsensitive), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Case insensitive directory match
+  server.on(AsyncURIMatcher::dir("/case/dir", AsyncURIMatcher::CaseInsensitive), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Case insensitive extension match
+  server.on(AsyncURIMatcher::ext("/case/files/*.PDF", AsyncURIMatcher::CaseInsensitive), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
 #ifdef ASYNCWEBSERVER_REGEX
-  // Regex patterns
+  // Traditional regex patterns (backward compatibility)
   server.on("^/user/([0-9]+)$", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "OK");
   });
@@ -72,7 +120,35 @@ void setup() {
   server.on("^/blog/([0-9]{4})/([0-9]{2})/([0-9]{2})$", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "OK");
   });
+
+  // =============================================================================
+  // NEW ASYNCURIMATCHER REGEX FACTORY METHODS
+  // =============================================================================
+
+  // Regex match using factory method
+  server.on(AsyncURIMatcher::regex("^/factory/user/([0-9]+)$"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Case insensitive regex match using factory method
+  server.on(AsyncURIMatcher::regex("^/factory/search/(.+)$", AsyncURIMatcher::CaseInsensitive), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Complex regex with multiple capture groups
+  server.on(AsyncURIMatcher::regex("^/factory/blog/([0-9]{4})/([0-9]{2})/([0-9]{2})$"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
 #endif
+
+  // =============================================================================
+  // SPECIAL MATCHERS
+  // =============================================================================
+
+  // Match all POST requests (catch-all before 404)
+  server.on(AsyncURIMatcher::all(), HTTP_POST, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "OK");
+  });
 
   // 404 handler
   server.onNotFound([](AsyncWebServerRequest *request) {
