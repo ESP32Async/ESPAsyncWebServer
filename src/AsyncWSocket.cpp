@@ -152,17 +152,18 @@ WSocketClient::WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocke
   _max_msgsize(msgsize),
   _max_qcap(qcapsize)
 {
+  _lastPong = millis();
   // disable connection timeout
   _client->setRxTimeout(0);
   _client->setNoDelay(true);
   // set AsyncTCP callbacks
   _client->onAck( [](void *r, AsyncClient *c, size_t len, uint32_t rtt) { (void)c; reinterpret_cast<WSocketClient*>(r)->_clientSend(len); }, this );
   //_client->onAck( [](void *r, AsyncClient *c, size_t len, uint32_t rtt) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onAck(len, rtt); }, this );
-  _client->onDisconnect( [](void *r, AsyncClient *c) { reinterpret_cast<WSocketClient*>(r)->_onDisconnect(c); }, this );
-  _client->onTimeout( [](void *r, AsyncClient *c, uint32_t time) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onTimeout(time); }, this );
-  _client->onData( [](void *r, AsyncClient *c, void *buf, size_t len) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onData(buf, len); }, this );
-  _client->onPoll( [](void *r, AsyncClient *c) { (void)c; reinterpret_cast<WSocketClient*>(r)->_clientSend(); }, this );
-  _client->onError( [](void *r, AsyncClient *c, int8_t error) { (void)c; log_e("err:%d", error); }, this );
+  _client->onDisconnect(  [](void *r, AsyncClient *c) { reinterpret_cast<WSocketClient*>(r)->_onDisconnect(c); }, this );
+  _client->onTimeout(     [](void *r, AsyncClient *c, uint32_t time) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onTimeout(time); }, this );
+  _client->onData(        [](void *r, AsyncClient *c, void *buf, size_t len) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onData(buf, len); }, this );
+  _client->onPoll(        [](void *r, AsyncClient *c) { (void)c; reinterpret_cast<WSocketClient*>(r)->_keepalive(); reinterpret_cast<WSocketClient*>(r)->_clientSend(); }, this );
+  _client->onError(       [](void *r, AsyncClient *c, int8_t error) { (void)c; log_e("err:%d", error); }, this );
   delete request;
 }
 
@@ -652,6 +653,13 @@ void WSocketClient::_sendEvent(event_t e){
     _cb(this, e);
 }
 
+void WSocketClient::_keepalive(){
+  if (millis() - _lastPong > _keepAlivePeriod){
+    enqueueMessage(std::make_shared< WSMessageContainer<std::string> >(WSFrameType_t::pong, true, "WSocketClient Pong" ));
+    _lastPong = millis();
+  }
+}
+
 
 // ***** WSocketServer implementation *****
 
@@ -666,10 +674,11 @@ bool WSocketServer::newClient(AsyncWebServerRequest *request){
       if (eventHandler)
         eventHandler(c, e);
       else
-        c->dequeueMessage(); }  // silently discard incoming messages when there is no callback set
-    );
+        c->dequeueMessage(); },   // silently discard incoming messages when there is no callback set
+      msgsize, qcap);
   }
   _clients.back().setOverflowPolicy(_overflow_policy);
+  _clients.back().setKeepALive(_keepAlivePeriod);
   if (eventHandler) eventHandler(&_clients.back(), WSocketClient::event_t::connect);
   return true;
 }
@@ -742,6 +751,13 @@ WSocketServer::msgall_err_t WSocketServer::pingAll(const char *data, size_t len)
   return cnt == _clients.size() ? msgall_err_t::ok : msgall_err_t::partial;
 }
 
+WSocketClient::err_t WSocketServer::message(uint32_t id, WSMessagePtr m){
+if (WSocketClient *c = _getClient(id))
+  return c->enqueueMessage(std::move(m));
+else
+  return WSocketClient::err_t::disconnected;
+}
+
 WSocketServer::msgall_err_t WSocketServer::messageAll(WSMessagePtr m){
   size_t cnt{0};
   for (auto &c : _clients) {
@@ -781,12 +797,13 @@ bool WSocketServerWorker::newClient(AsyncWebServerRequest *request){
     #ifdef ESP32
     std::lock_guard<std::mutex> lock (clientslock);
     #endif
-    _clients.emplace_back(getNextId(), request, [this](WSocketClient *c, WSocketClient::event_t e){ if (_task_hndlr) xTaskNotifyGive(_task_hndlr); });
+    _clients.emplace_back(getNextId(), request, [this](WSocketClient *c, WSocketClient::event_t e){ if (_task_hndlr) xTaskNotifyGive(_task_hndlr); }, msgsize, qcap);
   }
 
   // create events group where we'll pick events
   _clients.back().createEventGroupHandle();
   _clients.back().setOverflowPolicy(getOverflowPolicy());
+  _clients.back().setKeepALive(_keepAlivePeriod);
   xEventGroupSetBits(_clients.back().getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect));
   if (_task_hndlr)
     xTaskNotifyGive(_task_hndlr);

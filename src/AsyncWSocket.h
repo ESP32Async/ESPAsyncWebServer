@@ -211,7 +211,7 @@ public:
   WSMessageClose (uint16_t status, Args&&... args) : WSMessageContainer<std::string>(WSFrameType_t::close, true, std::forward<Args>(args)...), _status_code(status) {
     // convert code to message body
     uint16_t buff = htons (status);
-    container.append((char*)(&buff), 2);
+    container.insert(0, (char*)(&buff), 2);
   };
   
   uint16_t getStatusCode() const override { return _status_code; }
@@ -380,6 +380,18 @@ public:
   err_t canSend() const;
 
   /**
+   * @brief Set the WebSOcket ping Keep A Live
+   * if set, client will send pong packet it's peer periodically to keep the connection alive
+   * ping does not require a reply from peer
+   * 
+   * @param seconds 
+   */
+  void setKeepALive(size_t seconds){ _keepAlivePeriod = seconds * 1000; };
+
+  // get keepalive value
+  size_t getKeepALive() const { return _keepAlivePeriod / 1000; };
+
+  /**
    * @brief access Event Group Handle for the client
    * 
    * @return EventGroupHandle_t 
@@ -422,6 +434,9 @@ private:
   // in-flight data credits
   size_t _in_flight_credit{WS_IN_FLIGHT_CREDITS};
 
+  // keepalive
+  unsigned long _keepAlivePeriod{0}, _lastPong;
+
   /**
    * @brief go through out Q and send message data ()
    * @note this method will grab a mutex lock on outQ internally
@@ -451,6 +466,8 @@ private:
    */
   void _sendEvent(event_t e);
 
+  void _keepalive();
+
   // AsyncTCP callbacks
   void _onTimeout(uint32_t time);
   void _onDisconnect(AsyncClient *c);
@@ -459,8 +476,8 @@ private:
 
 /**
  * @brief WebServer Handler implementation that plays the role of a WebSocket server
- * it inherits behavior of original WebSocket server and uses AsyncTCP callback
- * to handle incoming messages
+ * it inherits behavior of original WebSocket server and uses AsyncTCP's thread to
+ * run callbacks on incoming messages
  * 
  */
 class WSocketServer : public AsyncWebHandler {
@@ -472,8 +489,33 @@ public:
     none            // no clients or all outbound queues are full, message discarded
   };
 
-  explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}) : _url(url), eventHandler(handler) {}
+  explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}, size_t msgsize = 8 * 1024, size_t qcap = 4) : _url(url), eventHandler(handler) {}
   ~WSocketServer() = default;
+
+  /**
+   * @copydoc WSClient::setOverflowPolicy(overflow_t policy)
+   */
+  void setOverflowPolicy(WSocketClient::overflow_t policy){ _overflow_policy = policy; }
+  WSocketClient::overflow_t getOverflowPolicy() const { return _overflow_policy; }
+
+  /**
+   * @brief Set Message Size limit for the incoming messages
+   * if peer tries to send us message larger then defined limit size,
+   * the message will be discarded and peer's connection would be closed with respective error code
+   * @note only new connections would be affected with changed value
+   * 
+   * @param size 
+   */
+  void setMaxMessageSize(size_t size){ msgsize = size; }
+  size_t getMaxMessageSize(size_t size) const { return msgsize; }
+
+  /**
+   * @brief Set in/out Message Queue Size
+   * 
+   * @param size 
+   */
+  void setMessageQueueSize(size_t size){ qcap = size; }
+  size_t getMessageQueueSize(size_t size){ return qcap; }
 
   /**
    * @brief check if client with specified id can accept new message for sending
@@ -497,12 +539,6 @@ public:
   bool hasClient(uint32_t id) const {
     return _getClient(id) != nullptr;
   }
-
-  /**
-   * @copydoc WSClient::setOverflowPolicy(overflow_t policy)
-   */
-  void setOverflowPolicy(WSocketClient::overflow_t policy){ _overflow_policy = policy; }
-  WSocketClient::overflow_t getOverflowPolicy() const { return _overflow_policy; }
 
   /**
    * @brief disconnect client
@@ -549,21 +585,30 @@ public:
   msgall_err_t pingAll(const char *data = NULL, size_t len = 0);
 
   /**
-   * @brief send message to specific client
+   * @brief Set the WebSocket client Keep A Live
+   * if set, server will pong it's peers periodically to keep connections alive
+   * @note it does not check for replies and it's validity, it only sends messages to
+   * help keep TCP connection alive through firewalls/routers
+   * 
+   * @param seconds 
+   */
+  void setKeepALive(size_t seconds){ _keepAlivePeriod = seconds; };
+
+  // get keepalive value
+  size_t getKeepALive() const { return _keepAlivePeriod; };
+
+
+  /**
+   * @brief send generic message to specific client
    * 
    * @param id 
    * @param m 
    * @return WSocketClient::err_t 
    */
-  WSocketClient::err_t message(uint32_t id, WSMessagePtr m){
-    if (WSocketClient *c = _getClient(id))
-      return c->enqueueMessage(std::move(m));
-    else
-      return WSocketClient::err_t::disconnected;
-  }
+  WSocketClient::err_t message(uint32_t id, WSMessagePtr m);
 
   /**
-   * @brief send message to all available clients
+   * @brief send genric message to all available clients
    * 
    * @param m 
    * @return msgall_err_t 
@@ -629,6 +674,11 @@ protected:
   #endif
   // WSocketClient events handler
   WSocketClient::event_cb_t eventHandler;
+  unsigned long _keepAlivePeriod{0};
+  // max message size
+  size_t msgsize;
+  // client's queue capacity
+  size_t qcap;
 
   // return next available client's ID
   uint32_t getNextId() {
