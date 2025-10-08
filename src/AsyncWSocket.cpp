@@ -11,6 +11,16 @@ constexpr const char WS_STR_VERSION[] = "Sec-WebSocket-Version";
 constexpr const char WS_STR_KEY[] = "Sec-WebSocket-Key";
 constexpr const char WS_STR_PROTOCOL[] = "Sec-WebSocket-Protocol";
 
+// WSockServer worke task
+constexpr const char WS_SRV_TASK[] = "WSSrvtask";
+
+// cast enum class to uint (for bit set)
+template <class E>
+constexpr std::common_type_t<uint32_t, std::underlying_type_t<E>>
+enum2uint32(E e) {
+  return static_cast<std::common_type_t<uint32_t, std::underlying_type_t<E>>>(e);
+}
+
 
 /**
  * @brief apply mask key to supplied data byte-per-byte
@@ -135,7 +145,7 @@ size_t webSocketSendHeader(AsyncClient *client, WSMessageFrame& frame) {
 
 // ******** WSocket classes implementation ********
 
-WSocketClient::WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocketClient::event_callback_t call_back, size_t msgsize, size_t qcapsize) : 
+WSocketClient::WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocketClient::event_cb_t call_back, size_t msgsize, size_t qcapsize) : 
   id(id),
   _client(request->client()),
   _cb(call_back),
@@ -152,15 +162,20 @@ WSocketClient::WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocke
   _client->onTimeout( [](void *r, AsyncClient *c, uint32_t time) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onTimeout(time); }, this );
   _client->onData( [](void *r, AsyncClient *c, void *buf, size_t len) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onData(buf, len); }, this );
   _client->onPoll( [](void *r, AsyncClient *c) { (void)c; reinterpret_cast<WSocketClient*>(r)->_clientSend(); }, this );
-  // not implemented yet
-  //_client->onError( [](void *r, AsyncClient *c, int8_t error) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onError(error); }, this );
+  _client->onError( [](void *r, AsyncClient *c, int8_t error) { (void)c; log_e("err:%d", error); }, this );
   delete request;
 }
 
 WSocketClient::~WSocketClient() {
   if (_client){
+    // remove callback here, 'cause _client's destructor will call it again
+    _client->onDisconnect(nullptr);
     delete _client;
     _client = nullptr;
+  }
+  if (_eventGroup){
+    vEventGroupDelete(_eventGroup);
+    _eventGroup = nullptr;
   }
 }
 
@@ -190,7 +205,9 @@ void WSocketClient::_clientSend(size_t acked_bytes){
     log_d("_clientSend, ack:%u/%u, space:%u", acked_bytes, _in_flight, _client ? _client->space() : 0);
 
     _in_flight -= std::min(acked_bytes, _in_flight);
-    log_d("infl:%u, state:%u", _in_flight, _connection);
+    // return buffer credit on acked data
+    ++_in_flight_credit;
+    log_d("infl:%u, credits:%u, conn state:%u", _in_flight, _in_flight_credit, _connection);
     // check if we were waiting to ack our disconnection frame
     if (!_in_flight && (_connection == conn_state_t::disconnecting)){
       log_d("closing tcp-conn");
@@ -200,8 +217,6 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       return;
     }
     
-    // return buffer credit on acked data
-    ++_in_flight_credit;
   } else {
     // if there is no acked data - just quit if won't be able to grab a lock, we are already sending something
     if (!lock.try_lock())
@@ -209,7 +224,7 @@ void WSocketClient::_clientSend(size_t acked_bytes){
   }
 
   if (_in_flight > _client->space() || !_in_flight_credit) {
-    log_d("defer ws send call, in-flight:%u/%u", _in_flight, _client->space());
+    log_d("defer ws send call, in-flight:%u/%u, credit:%u", _in_flight, _client->space(), _in_flight_credit);
     return;
   }
 
@@ -255,9 +270,8 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       // release _outFrame message here
       _outFrame.msg.reset();
 
-      // execute callback that a message was sent
-      if (_cb)
-        _cb(this, event_t::msgSent);
+      // no use case for this for now
+      //_sendEvent(event_t::msgSent);
     
       // if there are free in-flight credits try to pull next msg from Q
       if (_in_flight_credit && _evictOutQueue()){
@@ -320,10 +334,6 @@ bool WSocketClient::_evictOutQueue(){
   // this function assumes it's callee will take care of actually sending the header and message body further
 }
 
-void WSocketClient::_onError(int8_t) {
-  // Serial.println("onErr");
-}
-
 void WSocketClient::_onTimeout(uint32_t time) {
   if (!_client) {
     return;
@@ -334,19 +344,9 @@ void WSocketClient::_onTimeout(uint32_t time) {
 }
 
 void WSocketClient::_onDisconnect(AsyncClient *c) {
-  Serial.println("TCP client disconencted");
-  delete c;
-  _client = c = nullptr;
   _connection = conn_state_t::disconnected;
-
-  #ifdef ESP32
-  std::lock_guard<std::recursive_mutex> lock(_outQlock);
-  #endif
-  // clear out Q, we won't be able to send it anyway from now on
-  _messageQueueOut.clear();
-  // execute callback
-  if (_cb)
-    _cb(this, event_t::disconnect);
+  log_d("TCP client disconnected");
+  _sendEvent(event_t::disconnect);
 }
 
 void WSocketClient::_onData(void *pbuf, size_t plen) {
@@ -428,9 +428,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
             _messageQueueOut.push_front(_inFrame.msg);
           }
           _inFrame.msg.reset();
-          if (_cb)
-            _cb(this, event_t::msgRecv);
-
+          _sendEvent(event_t::msgRecv);
           break;
         }
 
@@ -445,53 +443,20 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
         }
 
         default: {
-          log_e("other msg");
           // any other messages
           {
             #ifdef ESP32
-            std::unique_lock<std::recursive_mutex> lock(_inQlock);
+            std::lock_guard<std::recursive_mutex> lock(_inQlock);
             #endif
-            // check in-queue for overflow
-            if (_messageQueueIn.size() >= _max_qcap){
-              log_e("q overflow");
-              switch (_overflow_policy){
-                case overflow_t::discard :
-                  // discard incoming message
-                  break;
-                case overflow_t::drophead :
-                  _messageQueueIn.pop_front();
-                  _messageQueueIn.push_back(_inFrame.msg);
-                  break;
-                case overflow_t::droptail :
-                  _messageQueueIn.pop_back();
-                  _messageQueueIn.push_back(_inFrame.msg);
-                  break;
-                case overflow_t::disconnect : {
-                  #ifdef ESP32
-                  std::unique_lock<std::recursive_mutex> lock(_inQlock);
-                  #endif
-                  _messageQueueOut.push_front( std::make_shared<WSMessageClose>(1011, "Server Q overflow") );
-                  break;
-                }
-                default:;
-              }
-
-            } else {
-              log_e("push new to Q");
-              _messageQueueIn.push_back(_inFrame.msg);
-            }
+            _messageQueueIn.push_back(_inFrame.msg);
           }
           _inFrame.msg.reset();
-          log_e("evt on new msg");
-          if (_cb)
-            _cb(this, event_t::msgRecv);
-
+          _sendEvent(event_t::msgRecv);
           break;
         }
       }
     }
   }
-
 }
 
 std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, WSMessageFrame& frame){
@@ -503,7 +468,7 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
   // read frame size
   frame.len = data[1] & 0x7F;
   size_t offset = 2;  // first 2 bytes
-  log_d("ws hdr: ");
+  Serial.print("ws hdr: ");
   //Serial.println(frame.mask, HEX);
   char buffer[10] = {}; // Buffer for hex conversion
   char* ptr = data;
@@ -553,7 +518,43 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
       _inFrame.index = bodylen;
       return {offset, 1009};  // code 'message too big'
     }
-  
+
+    // check in-queue for overflow
+    if (_messageQueueIn.size() >= _max_qcap){
+      log_w("q overflow");
+      switch (_overflow_policy){
+        case overflow_t::discard :
+          // silently discard incoming message
+          _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode, 1007));    // code 'Invalid frame payload data'
+          offset += bodylen;
+          _inFrame.index = bodylen;
+          return {offset, 0};
+
+        case overflow_t::disconnect : {
+          // discard incoming message and send close message
+          _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode, 1007));    // code 'Invalid frame payload data'
+          #ifdef ESP32
+          std::lock_guard<std::recursive_mutex> lock(_inQlock);
+          #endif
+          _messageQueueOut.push_front( std::make_shared<WSMessageClose>(1011, "Server Q overflow") );
+          offset += bodylen;
+          _inFrame.index = bodylen;
+          return {offset, 0};
+        }
+
+        case overflow_t::drophead :
+          _messageQueueIn.pop_front();
+          break;
+        case overflow_t::droptail :
+          _messageQueueIn.pop_back();
+          break;
+
+        default:;
+      }
+
+      _sendEvent(event_t::msgDropped);
+    }
+    
     // let's unmask payload right in sock buff, later it could be consumed as raw data
     if (masked){
       wsMaskPayload(_inFrame.mask, 0, data + offset, bodylen);
@@ -590,12 +591,12 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
     _inFrame.index = bodylen;
   }
 
-  log_e("new msg offset:%u, body:%u", offset, bodylen);
+  log_e("new msg frame size:%u, bodylen:%u", offset, bodylen);
   // return the number of consumed data from input buffer
   return {offset, 0};
 }
 
-WSocketClient::err_t WSocketClient::enqueueMessage(std::shared_ptr<WSMessageGeneric> mptr){
+WSocketClient::err_t WSocketClient::enqueueMessage(WSMessagePtr mptr){
   if (_connection != conn_state_t::connected)
     return err_t::disconnected;
 
@@ -611,11 +612,11 @@ WSocketClient::err_t WSocketClient::enqueueMessage(std::shared_ptr<WSMessageGene
   return err_t::nospace;
 }
 
-std::shared_ptr<WSMessageGeneric> WSocketClient::dequeueMessage(){
+WSMessagePtr WSocketClient::dequeueMessage(){
   #ifdef ESP32
   std::unique_lock<std::recursive_mutex> lock(_inQlock);
   #endif
-  std::shared_ptr<WSMessageGeneric> msg;
+  WSMessagePtr msg;
   if (_messageQueueIn.size()){
     msg.swap(_messageQueueIn.front());
     _messageQueueIn.pop_front();
@@ -644,6 +645,13 @@ WSocketClient::err_t WSocketClient::close(uint16_t code, const char *message){
   return err_t::ok;
 }
 
+void WSocketClient::_sendEvent(event_t e){
+  if (_eventGroup)
+    xEventGroupSetBits(_eventGroup, enum2uint32(e));
+  if (_cb)
+    _cb(this, e);
+}
+
 
 // ***** WSocketServer implementation *****
 
@@ -652,18 +660,18 @@ bool WSocketServer::newClient(AsyncWebServerRequest *request){
   _purgeClients();
   {
     #ifdef ESP32
-    std::lock_guard<std::mutex> lock (_lock);
+    std::lock_guard<std::mutex> lock(clientslock);
     #endif
-    _clients.emplace_back(getNextId(), request, [this](WSocketClient *c, WSocketClient::event_t e){ _clientEvents(c, e); });
+    _clients.emplace_back(getNextId(), request, [this](WSocketClient *c, WSocketClient::event_t e){
+      if (eventHandler)
+        eventHandler(c, e);
+      else
+        c->dequeueMessage(); }  // silently discard incoming messages when there is no callback set
+    );
   }
-  _clientEvents(&_clients.back(), WSocketClient::event_t::connect);
+  _clients.back().setOverflowPolicy(_overflow_policy);
+  if (eventHandler) eventHandler(&_clients.back(), WSocketClient::event_t::connect);
   return true;
-}
-
-void WSocketServer::_clientEvents(WSocketClient *client, WSocketClient::event_t event){
-  log_d("_clientEvents: %u", event);
-  if (_eventHandler)
-    _eventHandler(client, event);
 }
 
 void WSocketServer::handleRequest(AsyncWebServerRequest *request) {
@@ -734,7 +742,7 @@ WSocketServer::msgall_err_t WSocketServer::pingAll(const char *data, size_t len)
   return cnt == _clients.size() ? msgall_err_t::ok : msgall_err_t::partial;
 }
 
-WSocketServer::msgall_err_t WSocketServer::messageAll(std::shared_ptr<WSMessageGeneric> m){
+WSocketServer::msgall_err_t WSocketServer::messageAll(WSMessagePtr m){
   size_t cnt{0};
   for (auto &c : _clients) {
     if ( c.enqueueMessage(m) == WSocketClient::err_t::ok)
@@ -747,7 +755,7 @@ WSocketServer::msgall_err_t WSocketServer::messageAll(std::shared_ptr<WSMessageG
 
 void WSocketServer::_purgeClients(){
   log_d("purging clients");
-  std::lock_guard lock(_lock);
+  std::lock_guard lock(clientslock);
   // purge clients that are disconnected and with all messages consumed
   std::erase_if(_clients, [](const WSocketClient& c){ return (c.status() == WSocketClient::conn_state_t::disconnected && !c.inQueueSize() ); });
 }
@@ -764,3 +772,103 @@ WSMessageClose::WSMessageClose (uint16_t status) : WSMessageContainer<std::strin
   uint16_t buff = htons (status);
   container.append((char*)(&buff), 2);
 };
+
+
+// ***** WSocketServerWorker implementation *****
+
+bool WSocketServerWorker::newClient(AsyncWebServerRequest *request){
+  {
+    #ifdef ESP32
+    std::lock_guard<std::mutex> lock (clientslock);
+    #endif
+    _clients.emplace_back(getNextId(), request, [this](WSocketClient *c, WSocketClient::event_t e){ if (_task_hndlr) xTaskNotifyGive(_task_hndlr); });
+  }
+
+  // create events group where we'll pick events
+  _clients.back().createEventGroupHandle();
+  _clients.back().setOverflowPolicy(getOverflowPolicy());
+  xEventGroupSetBits(_clients.back().getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect));
+  if (_task_hndlr)
+    xTaskNotifyGive(_task_hndlr);
+  return true;
+}
+
+void WSocketServerWorker::start(uint32_t stack, UBaseType_t uxPriority, BaseType_t xCoreID){
+  if (_task_hndlr) return;    // we are already running
+
+  xTaskCreatePinnedToCore(
+    [](void* pvParams){ static_cast<WSocketServerWorker*>(pvParams)->_taskRunner(); },
+    WS_SRV_TASK,
+    stack,
+    (void *)this,
+    uxPriority,
+    &_task_hndlr,
+    xCoreID ); // == pdPASS;
+}
+
+void WSocketServerWorker::stop(){
+  if (_task_hndlr){
+    vTaskDelete(_task_hndlr);
+    _task_hndlr = nullptr;
+  }
+}
+
+void WSocketServerWorker::_taskRunner(){
+  for (;;){
+
+    // go through our client's list looking for pending events, do not care to lock the list here,
+    // 'cause nobody would be able to remove anything from it but this loop and adding new client won't invalidate current iterator
+    auto it = _clients.begin();
+    while (it != _clients.end()){
+      EventBits_t uxBits;
+
+      // check if this a new client
+      uxBits = xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect) );
+      log_d("uxBits:%u", uxBits);
+      if ( uxBits & enum2uint32(WSocketClient::event_t::connect) ){
+        _ecb(WSocketClient::event_t::connect, it->id);
+      }
+
+      // check if 'inbound Q full' flag set
+      uxBits = xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::inQfull) );
+      if ( uxBits & enum2uint32(WSocketClient::event_t::inQfull) ){
+        _ecb(WSocketClient::event_t::inQfull, it->id);
+      }
+
+      // check for dropped messages flag
+      uxBits = xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::msgDropped) );
+      if ( uxBits & enum2uint32(WSocketClient::event_t::msgDropped) ){
+        _ecb(WSocketClient::event_t::msgDropped, it->id);
+      }
+
+      // process all the messages from inbound Q
+      xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::msgRecv) );
+      while (auto m{it->dequeueMessage()}){
+        _mcb(m, it->id);
+      }
+
+      // check for disconnected client - do not care for group bits, cause if it's deleted, we will destruct the client object
+      if (it->canSend() == WSocketClient::err_t::disconnected){
+        auto id = it->id;
+        {
+          #ifdef ESP32
+            std::lock_guard<std::mutex> lock (clientslock);
+          #endif
+          it = _clients.erase(it);
+        }
+        // run a callback
+        _ecb(WSocketClient::event_t::disconnect, id);
+      } else {
+        // advance iterator
+        ++it;
+      }
+    }
+
+    // wait for next event here, using counted notification we could do some dry-runs but won't miss any events
+    ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
+
+    // end of a task loop
+  }
+  vTaskDelete(NULL);
+}
+

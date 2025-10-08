@@ -7,7 +7,13 @@
 #pragma once
 
 #include "AsyncWebSocket.h"
+#include "freertos/FreeRTOS.h"
 
+#ifndef WS_IN_FLIGHT_CREDITS
+#define WS_IN_FLIGHT_CREDITS  4
+#endif
+
+// forward declaration for WSocketServer
 class WSocketServer;
 
 /**
@@ -116,6 +122,8 @@ protected:
   virtual void addChunk(char* data, size_t len, size_t offset) = 0;
 
 };
+
+using WSMessagePtr = std::shared_ptr<WSMessageGeneric>;
 
 template<typename T>
 class WSMessageContainer : public WSMessageGeneric {
@@ -240,7 +248,7 @@ struct WSMessageFrame {
   /** offset in the current chunk of data, used to when sending message in chunks (not WS fragments!), for single chunged messages chunk_offset and index are same */
   size_t chunk_offset;
   // message object
-  std::shared_ptr<WSMessageGeneric> msg;
+  WSMessagePtr msg;
 };
 
 /**
@@ -261,10 +269,12 @@ public:
    * 
    */
   enum class event_t {
-    connect,
-    disconnect,
-    msgRecv,
-    msgSent
+    connect = 0x01,
+    disconnect = 0x02,
+    msgRecv = 0x04,
+    msgSent = 0x08,
+    msgDropped = 0x10,
+    inQfull = 0x20
   };
 
   // error codes
@@ -282,14 +292,15 @@ public:
     droptail
   };
 
-  using event_callback_t = std::function<void(WSocketClient *client, WSocketClient::event_t event)>;
+  // event callback alias
+  using event_cb_t = std::function<void(WSocketClient *client, WSocketClient::event_t event)>;
 
   // Client connection ID (increments for each new connection for the given server)
   const uint32_t id;
 
 private:
   AsyncClient *_client;
-  event_callback_t _cb;
+  event_cb_t _cb;
   // incoming message size limit
   size_t _max_msgsize;
   // cummulative maximum of the data messages held in message queues, both in and out
@@ -306,7 +317,7 @@ public:
    * @param msgcap - incoming message size limit, if incoming msg advertizes larger size the connection would be dropped
    * @param qcap - in/out queues sizes (in number of messages)
    */
-  WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocketClient::event_callback_t call_back, size_t msgsize = 8 * 1024, size_t qcap = 4);
+  WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocketClient::event_cb_t call_back, size_t msgsize = 8 * 1024, size_t qcap = 4);
   ~WSocketClient();
 
   /**
@@ -320,10 +331,10 @@ public:
   /**
    * @brief retrieve message from inbout Q
    * 
-   * @return std::shared_ptr<WSMessageGeneric>
+   * @return WSMessagePtr
    * @note if Q is empty, then empty pointer is returned, so it should be validated
    */
-  std::shared_ptr<WSMessageGeneric> dequeueMessage();
+  WSMessagePtr dequeueMessage();
 
   conn_state_t status() const {
     return _connection;
@@ -338,7 +349,7 @@ public:
   }
 
   /**
-   * @brief Set inbound queueu overflow Policy
+   * @brief Set inbound queue overflow Policy
    * 
    * @param policy inbound queue overflow policy
    * 
@@ -347,7 +358,7 @@ public:
    * The big issue with this behavior is  that is can cause the UI to automatically re-create a new WS connection, which can be filled again,
    * and so on, causing a resource exhaustion.
    * 
-   * @note overflow_t::discard - silently discard new messages if the queue is full.
+   * @note overflow_t::discard - silently discard new messages if the queue is full (only a discard event would be generated to notify about drop)
    * This is the default behavior in the original ESPAsyncWebServer library from me-no-dev. This behavior allows the best performance at the expense of unreliable message delivery in case the queue is full.
    * 
    * @note overflow_t::drophead - drop the oldest message from inbound queue to fit new message
@@ -368,13 +379,33 @@ public:
   // check if client can enqueue and send new messages
   err_t canSend() const;
 
+  /**
+   * @brief access Event Group Handle for the client
+   * 
+   * @return EventGroupHandle_t 
+   */
+  EventGroupHandle_t getEventGroupHandle(){ return _eventGroup; };
+
+  /**
+   * @brief Create a Event Group for the client
+   * if Event Group is created then client will set event bits in the group
+   * when various events are generate, i.e. message received, connect/disconnect, etc...
+   * 
+   * @return EventGroupHandle_t 
+   */
+  EventGroupHandle_t createEventGroupHandle(){
+    if (!_eventGroup) _eventGroup = xEventGroupCreate();
+    return _eventGroup;
+  }
+
 private:
   conn_state_t _connection{conn_state_t::connected};
   // frames in transit
   WSMessageFrame _inFrame{}, _outFrame{};
   // message queues
-  std::deque< std::shared_ptr<WSMessageGeneric> > _messageQueueIn;
-  std::deque< std::shared_ptr<WSMessageGeneric> > _messageQueueOut;
+  std::deque< WSMessagePtr > _messageQueueIn;
+  std::deque< WSMessagePtr > _messageQueueOut;
+  EventGroupHandle_t _eventGroup{nullptr};
 
 #ifdef ESP32
   // access mutex'es
@@ -389,7 +420,7 @@ private:
   // amount of sent data in-flight, i.e. copied to socket buffer, but not acked yet from lwip side
   size_t _in_flight{0};
   // in-flight data credits
-  size_t _in_flight_credit{2};
+  size_t _in_flight_credit{WS_IN_FLIGHT_CREDITS};
 
   /**
    * @brief go through out Q and send message data ()
@@ -413,38 +444,42 @@ private:
    */
   std::pair<size_t, uint16_t> _mkNewFrame(char* data, size_t len, WSMessageFrame& frame);
 
+  /**
+   * @brief run a callback for event / set event group bits
+   * 
+   * @param e 
+   */
+  void _sendEvent(event_t e);
+
   // AsyncTCP callbacks
-  void _onError(int8_t);
   void _onTimeout(uint32_t time);
   void _onDisconnect(AsyncClient *c);
   void _onData(void *pbuf, size_t plen);
 };
 
-
 /**
- * @brief WebServer Handler implementation that plays the role of a socket server
+ * @brief WebServer Handler implementation that plays the role of a WebSocket server
+ * it inherits behavior of original WebSocket server and uses AsyncTCP callback
+ * to handle incoming messages
  * 
  */
 class WSocketServer : public AsyncWebHandler {
 public:
-  // error enque to all
+  // error enqueue to all
   enum class msgall_err_t {
     ok = 0,         // message was enqueued for delivering to all clients
     partial,        // some of clients queueus are full, message was not enqueued there
     none            // no clients or all outbound queues are full, message discarded
   };
 
-  using WSocketServerEvent_t = std::function<void(WSocketClient *client, WSocketClient::event_t event)>;
-
-
-  explicit WSocketServer(const char* url, WSocketServerEvent_t handler = {}) : _url(url), _eventHandler(handler) {}
+  explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}) : _url(url), eventHandler(handler) {}
   ~WSocketServer() = default;
 
   /**
    * @brief check if client with specified id can accept new message for sending
    * 
    * @param id 
-   * @return WSocketClient::err_t 
+   * @return WSocketClient::err_t - ready to send only if returned value is err_t::ok, otherwise err reason is returned 
    */
   WSocketClient::err_t canSend(uint32_t id) const { return _getClient(id) ? _getClient(id)->canSend() : WSocketClient::err_t::disconnected; };
 
@@ -464,13 +499,21 @@ public:
   }
 
   /**
+   * @copydoc WSClient::setOverflowPolicy(overflow_t policy)
+   */
+  void setOverflowPolicy(WSocketClient::overflow_t policy){ _overflow_policy = policy; }
+  WSocketClient::overflow_t getOverflowPolicy() const { return _overflow_policy; }
+
+  /**
    * @brief disconnect client
    * 
    * @param id 
    * @param code 
    * @param message 
    */
-  void close(uint32_t id, uint16_t code = 0, const char *message = NULL){ if (WSocketClient *c = _getClient(id)) { c->close(code, message); } }
+  void close(uint32_t id, uint16_t code = 0, const char *message = NULL){
+    if (WSocketClient *c = _getClient(id)) c->close(code, message);
+  }
 
   /**
    * @brief disconnect all clients
@@ -489,7 +532,12 @@ public:
    * @return true 
    * @return false 
    */
-  WSocketClient::err_t ping(uint32_t id, const char *data = NULL, size_t len = 0){ if (WSocketClient *c = _getClient(id)) { return c->ping(data, len); } }
+  WSocketClient::err_t ping(uint32_t id, const char *data = NULL, size_t len = 0){
+    if (WSocketClient *c = _getClient(id))
+      return c->ping(data, len);
+    else
+      return WSocketClient::err_t::disconnected;
+  }
 
   /**
    * @brief send ping to all clients
@@ -507,7 +555,12 @@ public:
    * @param m 
    * @return WSocketClient::err_t 
    */
-  WSocketClient::err_t message(uint32_t id, std::shared_ptr<WSMessageGeneric> m){ if (WSocketClient *c = _getClient(id)) { return c->enqueueMessage(std::move(m)); } }
+  WSocketClient::err_t message(uint32_t id, WSMessagePtr m){
+    if (WSocketClient *c = _getClient(id))
+      return c->enqueueMessage(std::move(m));
+    else
+      return WSocketClient::err_t::disconnected;
+  }
 
   /**
    * @brief send message to all available clients
@@ -515,7 +568,7 @@ public:
    * @param m 
    * @return msgall_err_t 
    */
-  msgall_err_t messageAll(std::shared_ptr<WSMessageGeneric> m);
+  msgall_err_t messageAll(WSMessagePtr m);
 
 
   /*
@@ -555,46 +608,44 @@ public:
     _handshakeHandler = handler;
   }
 
-  /**
-   * @brief access clients list
-   * @note manipulating the list of clients without the locking could be dangerous!
-   * 
-   * @return std::list<WSocketClient>& 
-   */
-  std::list<WSocketClient> &getClients() {
-    return _clients;
-  }
-
-  // return next available client's ID
-  uint32_t getNextId() {
-    return ++_cNextId;
-  }
-
   // return bound URL
   const char *url() const {
     return _url.c_str();
   }
 
   /**
-   * @brief callback for AsyncServe - onboard new ws client
+   * @brief callback for AsyncServer - onboard new ws client
    * 
    * @param request 
    * @return true 
    * @return false 
    */
-  bool newClient(AsyncWebServerRequest *request);
+  virtual bool newClient(AsyncWebServerRequest *request);
+
+protected:
+  std::list<WSocketClient> _clients;
+  #ifdef ESP32
+  std::mutex clientslock;
+  #endif
+  // WSocketClient events handler
+  WSocketClient::event_cb_t eventHandler;
+
+  // return next available client's ID
+  uint32_t getNextId() {
+    return ++_cNextId;
+  }
+
+    /**
+   * @brief go through clients list and remove those ones that are disconnected and have no messages pending
+   * 
+   */
+  void _purgeClients();
 
 private:
-  String _url;
-  WSocketServerEvent_t _eventHandler;
+  std::string _url;
   AwsHandshakeHandler _handshakeHandler;
-  std::list<WSocketClient> _clients;
   uint32_t _cNextId{0};
-  bool _enabled{true};
-  #ifdef ESP32
-  std::mutex _lock;
-  #endif
-
+  WSocketClient::overflow_t _overflow_policy{WSocketClient::overflow_t::disconnect};
 
   /**
    * @brief Get ptr to client with specified id
@@ -605,17 +656,73 @@ private:
   WSocketClient* _getClient(uint32_t id);
   WSocketClient const* _getClient(uint32_t id) const;
 
-  /**
-   * @brief go through clients list and remove those ones that are disconnected and have no messages pending
-   * 
-   */
-  void _purgeClients();
-
-  // WSocketClient events handler
-  void _clientEvents(WSocketClient *client, WSocketClient::event_t event);
 
   // WebServer methods
-  bool canHandle(AsyncWebServerRequest *request) const override final { return _enabled && request->isWebSocketUpgrade() && request->url().equals(_url); };
+  bool canHandle(AsyncWebServerRequest *request) const override final { return request->isWebSocketUpgrade() && request->url().equals(_url.c_str()); };
   void handleRequest(AsyncWebServerRequest *request) override final;
+};
+
+/**
+ * @brief WebServer Handler implementation that plays the role of a WebSocket server
+ * 
+ */
+class WSocketServerWorker : public WSocketServer {
+public:
+
+  // event callback alias
+  using event_cb_t = std::function<void(WSocketClient::event_t event, uint32_t client_id)>;
+  // message callback alias
+  using msg_cb_t = std::function<void(WSMessagePtr msg, uint32_t client_id)>;
+
+  explicit WSocketServerWorker(const char* url, msg_cb_t msg_handler, event_cb_t event_handler)
+    : WSocketServer(url), _mcb(msg_handler), _ecb(event_handler) {}
+
+  ~WSocketServerWorker(){ stop(); };
+
+  /**
+   * @brief start worker task to process WS Messages
+   * 
+   * @param stack 
+   * @param uxPriority 
+   * @param xCoreID 
+   */
+  void start(uint32_t stack = 4096, UBaseType_t uxPriority = 4, BaseType_t xCoreID = tskNO_AFFINITY);
+
+  /**
+   * @brief stop worker task
+   * 
+   */
+  void stop();
+
+  /**
+   * @brief Set Message Callback function
+   * 
+   * @param handler 
+   */
+  void setMessageHandler(msg_cb_t handler){ _mcb = handler; };
+
+  /**
+   * @brief Set Event Callback function
+   * 
+   * @param handler 
+   */
+  void setEventHandler(event_cb_t handler){ _ecb = handler; };
+
+  /**
+   * @brief callback for AsyncServer - onboard new ws client
+   * 
+   * @param request 
+   * @return true 
+   * @return false 
+   */
+  bool newClient(AsyncWebServerRequest *request) override;
+
+
+private:
+  msg_cb_t _mcb;
+  event_cb_t _ecb;
+  // worker task that handles messages
+  TaskHandle_t    _task_hndlr{nullptr};
+  void _taskRunner();
 
 };
