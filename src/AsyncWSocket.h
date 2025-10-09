@@ -283,7 +283,8 @@ public:
     inQfull,            // inbound Q is full, won't receive new messages
     outQfull,           // outboud Q is full, won't send new messages
     Qsfull,             // both Qs are full
-    disconnected        // peer connection is broken
+    disconnected,       // peer connection is broken
+    na                  // client is not available
   };
 
   enum class overflow_t {
@@ -606,8 +607,10 @@ public:
    * @param code 
    * @param message 
    */
-  void close(uint32_t id, uint16_t code = 1000, const char* message = NULL){
-    if (WSocketClient* c = getClient(id)) c->close(code, message);
+  WSocketClient::err_t close(uint32_t id, uint16_t code = 1000, const char* message = NULL){
+    if (WSocketClient* c = getClient(id))
+      return c->close(code, message);
+    else return WSocketClient::err_t::na;
   }
 
   /**
@@ -630,8 +633,7 @@ public:
   WSocketClient::err_t ping(uint32_t id, const char* data = NULL, size_t len = 0){
     if (WSocketClient *c = getClient(id))
       return c->ping(data, len);
-    else
-      return WSocketClient::err_t::disconnected;
+    else return WSocketClient::err_t::na;
   }
 
   /**
@@ -653,47 +655,103 @@ public:
   WSocketClient::err_t message(uint32_t id, WSMessagePtr m);
 
   /**
-   * @brief send genric message to all available clients
+   * @brief send generic message to all available clients
    * 
    * @param m 
    * @return msgall_err_t 
    */
   msgall_err_t messageAll(WSMessagePtr m);
 
+  /**
+   * @brief Send text message to client
+   * this template can accept anything that std::string can be made of
+   * 
+   * @tparam Args 
+   * @param id 
+   * @param args 
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  WSocketClient::err_t text(uint32_t id, Args&&... args){
+    if (hasClient(id))
+      return message(id, std::make_shared<WSMessageContainer<std::string>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
+    else return WSocketClient::err_t::na;
+  }
 
-  /*
-  bool text(uint32_t id, const uint8_t *message, size_t len);
-  bool text(uint32_t id, const char *message, size_t len);
-  bool text(uint32_t id, const char *message);
-  bool text(uint32_t id, const String &message);
-  bool text(uint32_t id, AsyncWebSocketMessageBuffer *buffer);
-  bool text(uint32_t id, AsyncWebSocketSharedBuffer buffer);
+  /**
+   * @brief Send text message to all avalable clients
+   * this template can accept anything that std::string can be made of
+   * 
+   * @tparam Args 
+   * @param args 
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  msgall_err_t textAll(uint32_t id, Args&&... args){
+    return messageAll(std::make_shared<WSMessageContainer<std::string>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
+  }
 
-  enqueue_err_t textAll(const uint8_t *message, size_t len);
-  enqueue_err_t textAll(const char *message, size_t len);
-  enqueue_err_t textAll(const char *message);
-  enqueue_err_t textAll(const String &message);
-  enqueue_err_t textAll(AsyncWebSocketMessageBuffer *buffer);
-  enqueue_err_t textAll(AsyncWebSocketSharedBuffer buffer);
+  /**
+   * @brief Send String text message to client
+   * this template can accept anything that Arduino String can be made of
+   * 
+   * @tparam Args Arduino String constructor arguments
+   * @param id clien id to send message to
+   * @param args 
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  WSocketClient::err_t string(uint32_t id, Args&&... args){
+    if (hasClient(id))
+      return message(std::make_shared<WSMessageContainer<String>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
+    else return WSocketClient::err_t::na;
+  }
 
-  bool binary(uint32_t id, const uint8_t *message, size_t len);
-  bool binary(uint32_t id, const char *message, size_t len);
-  bool binary(uint32_t id, const char *message);
-  bool binary(uint32_t id, const String &message);
-  bool binary(uint32_t id, AsyncWebSocketMessageBuffer *buffer);
-  bool binary(uint32_t id, AsyncWebSocketSharedBuffer buffer);
+  /**
+   * @brief Send String text message all avalable clients
+   * this template can accept anything that Arduino String can be made of
+   * 
+   * @tparam Args
+   * @param id client id to send message to
+   * @param args Arduino String constructor arguments
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  msgall_err_t stringAll(uint32_t id, Args&&... args){
+    return messageAll(std::make_shared<WSMessageContainer<String>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
+  }
 
-  enqueue_err_t binaryAll(const uint8_t *message, size_t len);
-  enqueue_err_t binaryAll(const char *message, size_t len);
-  enqueue_err_t binaryAll(const char *message);
-  enqueue_err_t binaryAll(const String &message);
-  enqueue_err_t binaryAll(AsyncWebSocketMessageBuffer *buffer);
-  enqueue_err_t binaryAll(AsyncWebSocketSharedBuffer buffer);
+  /**
+   * @brief Send binary message to client
+   * this template can accept anything that std::vector can be made of
+   * 
+   * @tparam Args 
+   * @param id client id to send message to
+   * @param args std::vector constructor arguments
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  WSocketClient::err_t binary(uint32_t id, Args&&... args){
+    if (hasClient(id))
+      return message(id, std::make_shared< WSMessageContainer<std::vector<uint8_t>> >(WSFrameType_t::binary, true, std::forward<Args>(args)...));
+    else return WSocketClient::err_t::na;
+  }
 
-  size_t printf(uint32_t id, const char *format, ...) __attribute__((format(printf, 3, 4)));
-  size_t printfAll(const char *format, ...) __attribute__((format(printf, 2, 3)));
-*/
+  /**
+   * @brief Send binary message all avalable clients
+   * this template can accept anything that std::vector can be made of
+   * 
+   * @tparam Args
+   * @param id client id to send message to
+   * @param args std::vector constructor arguments
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  msgall_err_t binaryAll(uint32_t id, Args&&... args){
+    return messageAll(std::make_shared< WSMessageContainer<std::vector<uint8_t>> >(WSFrameType_t::binary, true, std::forward<Args>(args)...));
+  }
 
+  // set webhanshake handler
   void handleHandshake(AwsHandshakeHandler handler) {
     _handshakeHandler = handler;
   }
