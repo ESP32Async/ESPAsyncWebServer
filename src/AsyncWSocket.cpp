@@ -88,7 +88,7 @@ void wsMaskPayload(uint32_t mask, size_t mask_offset, char *data, size_t length)
 }
 
 size_t webSocketSendHeader(AsyncClient *client, WSMessageFrame& frame) {
-  if (!client || !client->canSend()) {
+  if (!client) {
     return 0;
   }
 
@@ -373,7 +373,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
       }
       // receiving a new frame from here
       data += framelen;
-      plen -= framelen;
+      plen -= std::min(framelen, plen); // safety measure from bad parsing, we can't deduct more than sockbuff size
     } else {
       // continuation of existing frame
       size_t payload_len = std::min(static_cast<size_t>(_inFrame.len - _inFrame.index), plen);
@@ -416,20 +416,23 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
           }
           
           // otherwise it's a close request from a peer - echo back close message as per https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.1
+          log_d("recv client's ws-close req");
           {
-            log_d("recv client's ws-close req");
             #ifdef ESP32
             std::unique_lock<std::recursive_mutex> lockin(_inQlock);
             std::unique_lock<std::recursive_mutex> lockout(_outQlock);
             #endif
-            // push message to recv Q, client might use it to understand disconnection reason
-            _messageQueueIn.push_back(_inFrame.msg);
+            // push message to recv Q if it has body, client might use it to understand disconnection reason
+            if (_inFrame.len > 2)
+              _messageQueueIn.push_back(_inFrame.msg);
             // purge the out Q and echo recieved frame back to client, once it's tcp-acked from the other side we can close tcp connection
             _messageQueueOut.clear();
             _messageQueueOut.push_front(_inFrame.msg);
           }
           _inFrame.msg.reset();
-          _sendEvent(event_t::msgRecv);
+          // send event only when message has body
+          if (_inFrame.len > 2)
+            _sendEvent(event_t::msgRecv);
           break;
         }
 
@@ -522,7 +525,7 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
 
     // check in-queue for overflow
     if (_messageQueueIn.size() >= _max_qcap){
-      log_w("q overflow");
+      log_w("q overflow, client id:%u, qsize:%u", id, _messageQueueIn.size());
       switch (_overflow_policy){
         case overflow_t::discard :
           // silently discard incoming message
@@ -610,7 +613,7 @@ WSocketClient::err_t WSocketClient::enqueueMessage(WSMessagePtr mptr){
     return err_t::ok;
   }
 
-  return err_t::nospace;
+  return err_t::outQfull;
 }
 
 WSMessagePtr WSocketClient::dequeueMessage(){
@@ -625,9 +628,15 @@ WSMessagePtr WSocketClient::dequeueMessage(){
   return msg;
 }
 
-WSocketClient::err_t WSocketClient::canSend() const {
+WSMessagePtr WSocketClient::peekMessage(){
+  return _messageQueueIn.size() ? _messageQueueIn.front() : WSMessagePtr();
+}
+
+WSocketClient::err_t WSocketClient::state() const {
   if (_connection != conn_state_t::connected) return err_t::disconnected;
-  if (_messageQueueOut.size() >= _max_qcap ) return err_t::nospace;
+  if (_messageQueueOut.size() >= _max_qcap && _messageQueueIn.size() >= _max_qcap ) return err_t::Qsfull;
+  if (_messageQueueIn.size() >= _max_qcap) return err_t::inQfull;
+  if (_messageQueueOut.size() >= _max_qcap) return err_t::outQfull;
   return err_t::ok;
 }
 
@@ -670,15 +679,18 @@ bool WSocketServer::newClient(AsyncWebServerRequest *request){
     #ifdef ESP32
     std::lock_guard<std::mutex> lock(clientslock);
     #endif
-    _clients.emplace_back(getNextId(), request, [this](WSocketClient *c, WSocketClient::event_t e){
-      if (eventHandler)
-        eventHandler(c, e);
-      else
-        c->dequeueMessage(); },   // silently discard incoming messages when there is no callback set
+    _clients.emplace_back(getNextId(), request,
+      [this](WSocketClient *c, WSocketClient::event_t e){
+        // server echo call
+        if (e == WSocketClient::event_t::msgRecv) serverEcho(c);
+        if (eventHandler)
+          eventHandler(c, e);
+        else
+          c->dequeueMessage(); },   // silently discard incoming messages when there is no callback set
       msgsize, qcap);
   }
   _clients.back().setOverflowPolicy(_overflow_policy);
-  _clients.back().setKeepALive(_keepAlivePeriod);
+  _clients.back().setKeepAlive(_keepAlivePeriod);
   if (eventHandler) eventHandler(&_clients.back(), WSocketClient::event_t::connect);
   return true;
 }
@@ -718,7 +730,7 @@ void WSocketServer::handleRequest(AsyncWebServerRequest *request) {
   request->send(response);
 }
 
-WSocketClient* WSocketServer::_getClient(uint32_t id) {
+WSocketClient* WSocketServer::getClient(uint32_t id) {
   auto iter = std::find_if(_clients.begin(), _clients.end(), [id](const WSocketClient &c) { return c.id == id; });
   if (iter != std::end(_clients))
     return &(*iter);
@@ -726,7 +738,7 @@ WSocketClient* WSocketServer::_getClient(uint32_t id) {
     return nullptr;
 }
 
-WSocketClient const* WSocketServer::_getClient(uint32_t id) const {
+WSocketClient const* WSocketServer::getClient(uint32_t id) const {
   const auto iter = std::find_if(_clients.cbegin(), _clients.cend(), [id](const WSocketClient &c) { return c.id == id; });
   if (iter != std::cend(_clients))
     return &(*iter);
@@ -734,8 +746,15 @@ WSocketClient const* WSocketServer::_getClient(uint32_t id) const {
     return nullptr;
 }
 
-WSocketServer::msgall_err_t WSocketServer::canSend() const {
-  size_t cnt = std::count_if(std::begin(_clients), std::end(_clients), [](const WSocketClient &c) { return c.canSend() == WSocketClient::err_t::ok; });
+WSocketClient::err_t WSocketServer::clientState(uint32_t id) const {
+  if (auto c = getClient(id))
+    return c->state();
+  else
+    return WSocketClient::err_t::disconnected;
+};
+
+WSocketServer::msgall_err_t WSocketServer::clientsState() const {
+  size_t cnt = std::count_if(std::cbegin(_clients), std::cend(_clients), [](const WSocketClient &c) { return c.state() == WSocketClient::err_t::ok; });
   if (!cnt) return msgall_err_t::none;
   return cnt == _clients.size() ? msgall_err_t::ok : msgall_err_t::partial;
 }
@@ -752,7 +771,7 @@ WSocketServer::msgall_err_t WSocketServer::pingAll(const char *data, size_t len)
 }
 
 WSocketClient::err_t WSocketServer::message(uint32_t id, WSMessagePtr m){
-if (WSocketClient *c = _getClient(id))
+if (WSocketClient *c = getClient(id))
   return c->enqueueMessage(std::move(m));
 else
   return WSocketClient::err_t::disconnected;
@@ -773,12 +792,25 @@ void WSocketServer::_purgeClients(){
   log_d("purging clients");
   std::lock_guard lock(clientslock);
   // purge clients that are disconnected and with all messages consumed
-  std::erase_if(_clients, [](const WSocketClient& c){ return (c.status() == WSocketClient::conn_state_t::disconnected && !c.inQueueSize() ); });
+  std::erase_if(_clients, [](const WSocketClient& c){ return (c.connection() == WSocketClient::conn_state_t::disconnected && !c.inQueueSize() ); });
 }
 
 size_t WSocketServer::activeClientsCount() const {
-  return std::count_if(std::begin(_clients), std::end(_clients), [](const WSocketClient &c) { return c.status() == WSocketClient::conn_state_t::connected; });
+  return std::count_if(std::begin(_clients), std::end(_clients), [](const WSocketClient &c) { return c.connection() == WSocketClient::conn_state_t::connected; });
 };
+
+void WSocketServer::serverEcho(WSocketClient *c){
+  if (!_serverEcho) return;
+  auto m = c->peekMessage();
+  if (m && (m->type == WSFrameType_t::text || m->type == WSFrameType_t::binary) ){
+    // echo only text or bin messages
+    for (auto &i: _clients){
+      if (!_serverEchoSplitHorizon || i.id != c->id){
+        i.enqueueMessage(m);
+      }
+    }
+  }
+}
 
 
 // ***** WSMessageClose implementation *****
@@ -797,13 +829,20 @@ bool WSocketServerWorker::newClient(AsyncWebServerRequest *request){
     #ifdef ESP32
     std::lock_guard<std::mutex> lock (clientslock);
     #endif
-    _clients.emplace_back(getNextId(), request, [this](WSocketClient *c, WSocketClient::event_t e){ if (_task_hndlr) xTaskNotifyGive(_task_hndlr); }, msgsize, qcap);
+    _clients.emplace_back(getNextId(), request,
+      [this](WSocketClient *c, WSocketClient::event_t e){
+        log_d("client event id:%u state:%u", c->id, c->state());
+        // server echo call
+        if (e == WSocketClient::event_t::msgRecv) serverEcho(c);
+        if (_task_hndlr) xTaskNotifyGive(_task_hndlr);
+      },
+      msgsize, qcap);
   }
 
   // create events group where we'll pick events
   _clients.back().createEventGroupHandle();
   _clients.back().setOverflowPolicy(getOverflowPolicy());
-  _clients.back().setKeepALive(_keepAlivePeriod);
+  _clients.back().setKeepAlive(_keepAlivePeriod);
   xEventGroupSetBits(_clients.back().getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect));
   if (_task_hndlr)
     xTaskNotifyGive(_task_hndlr);
@@ -841,7 +880,6 @@ void WSocketServerWorker::_taskRunner(){
 
       // check if this a new client
       uxBits = xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect) );
-      log_d("uxBits:%u", uxBits);
       if ( uxBits & enum2uint32(WSocketClient::event_t::connect) ){
         _ecb(WSocketClient::event_t::connect, it->id);
       }
@@ -865,7 +903,7 @@ void WSocketServerWorker::_taskRunner(){
       }
 
       // check for disconnected client - do not care for group bits, cause if it's deleted, we will destruct the client object
-      if (it->canSend() == WSocketClient::err_t::disconnected){
+      if (it->connection() == WSocketClient::conn_state_t::disconnected){
         auto id = it->id;
         {
           #ifdef ESP32

@@ -261,7 +261,7 @@ public:
   enum class conn_state_t {
     connected,      // connected and exchangin messages
     disconnecting,  // awaiting close ack
-    disconnected    // ws client is disconnected
+    disconnected    // ws peer is disconnected
   };
 
   /**
@@ -279,9 +279,10 @@ public:
 
   // error codes
   enum class err_t {
-    ok,                 // no problem :)
-    nospace,            // message queues are overflowed, can't accept more data
-    messageTooBig,      // can't accept such a large message
+    ok,                 // all correct
+    inQfull,            // inbound Q is full, won't receive new messages
+    outQfull,           // outboud Q is full, won't send new messages
+    Qsfull,             // both Qs are full
     disconnected        // peer connection is broken
   };
 
@@ -336,9 +337,30 @@ public:
    */
   WSMessagePtr dequeueMessage();
 
-  conn_state_t status() const {
+  /**
+   * @brief access first avaiable message from inbound queue
+   * @note this call will NOT remove message from queue but access message in-place!
+   * 
+   * @return WSMessagePtr if Q is empty, then empty pointer is returned
+   */
+  WSMessagePtr peekMessage();
+
+  /**
+   * @brief return peer connection state
+   * 
+   * @return conn_state_t 
+   */
+  conn_state_t connection() const {
     return _connection;
   }
+
+  /**
+   * @brief get client's state
+   * returns error status if client is available to send/receive data
+   * 
+   * @return err_t 
+   */
+  err_t state() const;
 
   AsyncClient *client() {
     return _client;
@@ -376,9 +398,6 @@ public:
   size_t inQueueSize() const { return _messageQueueIn.size(); };
   size_t outQueueSize() const { return _messageQueueOut.size(); };
 
-  // check if client can enqueue and send new messages
-  err_t canSend() const;
-
   /**
    * @brief Set the WebSOcket ping Keep A Live
    * if set, client will send pong packet it's peer periodically to keep the connection alive
@@ -386,10 +405,10 @@ public:
    * 
    * @param seconds 
    */
-  void setKeepALive(size_t seconds){ _keepAlivePeriod = seconds * 1000; };
+  void setKeepAlive(size_t seconds){ _keepAlivePeriod = seconds * 1000; };
 
-  // get keepalive value
-  size_t getKeepALive() const { return _keepAlivePeriod / 1000; };
+  // get keepalive value, seconds
+  size_t getKeepAlive() const { return _keepAlivePeriod / 1000; };
 
   /**
    * @brief access Event Group Handle for the client
@@ -489,7 +508,7 @@ public:
     none            // no clients or all outbound queues are full, message discarded
   };
 
-  explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}, size_t msgsize = 8 * 1024, size_t qcap = 4) : _url(url), eventHandler(handler) {}
+  explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}, size_t msgsize = 8 * 1024, size_t qcap = 4) : _url(url), eventHandler(handler), msgsize(msgsize), qcap(qcap) {}
   ~WSocketServer() = default;
 
   /**
@@ -518,26 +537,66 @@ public:
   size_t getMessageQueueSize(size_t size){ return qcap; }
 
   /**
+   * @brief Set the WebSocket client Keep A Live
+   * if set, server will pong it's peers periodically to keep connections alive
+   * @note it does not check for replies and it's validity, it only sends messages to
+   * help keep TCP connection alive through firewalls/routers
+   * 
+   * @param seconds 
+   */
+  void setKeepAlive(size_t seconds){ _keepAlivePeriod = seconds; };
+
+  // get keepalive value
+  size_t getKeepAlive() const { return _keepAlivePeriod; };
+
+  /**
+   * @brief activate server-side message echo
+   * when activated server will echo incoming messages from any client to all other connected clients.
+   * This could be usefull for applications that share messages between all connected clients, i.e. WebUIs
+   * to reflect controls across all connected clients
+   * @note only messages with text and binary types are echoed, control messages are not echoed
+   *
+   * @param enabled
+   * @param splitHorizon - when true echo message to all clients but the one from where message was received,
+   * when false, echo back message to all clients include the one who sent it
+   */
+  void setServerEcho(bool enabled = true, bool splitHorizon = true){ _serverEcho = enabled, _serverEchoSplitHorizon = splitHorizon; };
+
+  // get server echo mode
+  bool getServerEcho(){ return _serverEcho; };
+  
+
+  /**
    * @brief check if client with specified id can accept new message for sending
    * 
    * @param id 
    * @return WSocketClient::err_t - ready to send only if returned value is err_t::ok, otherwise err reason is returned 
    */
-  WSocketClient::err_t canSend(uint32_t id) const { return _getClient(id) ? _getClient(id)->canSend() : WSocketClient::err_t::disconnected; };
+  WSocketClient::err_t clientState(uint32_t id) const;
 
   /**
-   * @brief check how many clients are available for sending data
+   * @brief check if all of the connected clients are available for sending data,
+   * i.e. connection state available and outbound Q is not full
    * 
    * @return msgall_err_t 
    */
-  msgall_err_t canSend() const;
+  msgall_err_t clientsState() const;
 
-  // return number of active clients
+  // return number of active (connected) clients
   size_t activeClientsCount() const;
+
+  /**
+   * @brief Get ptr to client with specified id
+   * 
+   * @param id 
+   * @return WSocketClient* - nullptr if client not found
+   */
+  WSocketClient* getClient(uint32_t id);
+  WSocketClient const* getClient(uint32_t id) const;
 
   // find if there is a client with specified id
   bool hasClient(uint32_t id) const {
-    return _getClient(id) != nullptr;
+    return getClient(id) != nullptr;
   }
 
   /**
@@ -547,8 +606,8 @@ public:
    * @param code 
    * @param message 
    */
-  void close(uint32_t id, uint16_t code = 0, const char *message = NULL){
-    if (WSocketClient *c = _getClient(id)) c->close(code, message);
+  void close(uint32_t id, uint16_t code = 1000, const char* message = NULL){
+    if (WSocketClient* c = getClient(id)) c->close(code, message);
   }
 
   /**
@@ -557,7 +616,7 @@ public:
    * @param code 
    * @param message 
    */
-  void closeAll(uint16_t code = 0, const char *message = NULL){ for (auto &c : _clients) { c.close(code, message); } }
+  void closeAll(uint16_t code = 1000, const char* message = NULL){ for (auto &c : _clients) { c.close(code, message); } }
 
   /**
    * @brief sned ping to client
@@ -568,8 +627,8 @@ public:
    * @return true 
    * @return false 
    */
-  WSocketClient::err_t ping(uint32_t id, const char *data = NULL, size_t len = 0){
-    if (WSocketClient *c = _getClient(id))
+  WSocketClient::err_t ping(uint32_t id, const char* data = NULL, size_t len = 0){
+    if (WSocketClient *c = getClient(id))
       return c->ping(data, len);
     else
       return WSocketClient::err_t::disconnected;
@@ -582,21 +641,7 @@ public:
    * @param len 
    * @return msgall_err_t 
    */
-  msgall_err_t pingAll(const char *data = NULL, size_t len = 0);
-
-  /**
-   * @brief Set the WebSocket client Keep A Live
-   * if set, server will pong it's peers periodically to keep connections alive
-   * @note it does not check for replies and it's validity, it only sends messages to
-   * help keep TCP connection alive through firewalls/routers
-   * 
-   * @param seconds 
-   */
-  void setKeepALive(size_t seconds){ _keepAlivePeriod = seconds; };
-
-  // get keepalive value
-  size_t getKeepALive() const { return _keepAlivePeriod; };
-
+  msgall_err_t pingAll(const char* data = NULL, size_t len = 0);
 
   /**
    * @brief send generic message to specific client
@@ -665,7 +710,7 @@ public:
    * @return true 
    * @return false 
    */
-  virtual bool newClient(AsyncWebServerRequest *request);
+  virtual bool newClient(AsyncWebServerRequest* request);
 
 protected:
   std::list<WSocketClient> _clients;
@@ -685,6 +730,8 @@ protected:
     return ++_cNextId;
   }
 
+  void serverEcho(WSocketClient *c);
+
     /**
    * @brief go through clients list and remove those ones that are disconnected and have no messages pending
    * 
@@ -696,15 +743,7 @@ private:
   AwsHandshakeHandler _handshakeHandler;
   uint32_t _cNextId{0};
   WSocketClient::overflow_t _overflow_policy{WSocketClient::overflow_t::disconnect};
-
-  /**
-   * @brief Get ptr to client with specified id
-   * 
-   * @param id 
-   * @return WSocketClient* - nullptr if client not founc
-   */
-  WSocketClient* _getClient(uint32_t id);
-  WSocketClient const* _getClient(uint32_t id) const;
+  bool _serverEcho{false}, _serverEchoSplitHorizon;
 
 
   // WebServer methods
@@ -724,8 +763,8 @@ public:
   // message callback alias
   using msg_cb_t = std::function<void(WSMessagePtr msg, uint32_t client_id)>;
 
-  explicit WSocketServerWorker(const char* url, msg_cb_t msg_handler, event_cb_t event_handler)
-    : WSocketServer(url), _mcb(msg_handler), _ecb(event_handler) {}
+  explicit WSocketServerWorker(const char* url, msg_cb_t msg_handler, event_cb_t event_handler, size_t msgsize = 8 * 1024, size_t qcap = 4)
+    : WSocketServer(url, nullptr, msgsize, qcap), _mcb(msg_handler), _ecb(event_handler) {}
 
   ~WSocketServerWorker(){ stop(); };
 
