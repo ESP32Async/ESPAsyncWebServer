@@ -70,6 +70,7 @@ class AsyncStaticWebHandler;
 class AsyncCallbackWebHandler;
 class AsyncResponseStream;
 class AsyncMiddlewareChain;
+class AsyncURIMatcher;
 
 #if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 typedef enum http_method WebRequestMethod;
@@ -220,6 +221,7 @@ class AsyncWebServerRequest {
   friend class AsyncCallbackWebHandler;
   friend class AsyncFileResponse;
   friend class AsyncStaticWebHandler;
+  friend class AsyncURIMatcher;
 
 private:
   AsyncClient *_client;
@@ -727,6 +729,103 @@ public:
   double getAttribute(const char *name, double defaultValue) const;
 
   String urlDecode(const String &text) const;
+};
+
+class AsyncURIMatcher {
+public:
+  AsyncURIMatcher() {}
+  AsyncURIMatcher(const char *uri, bool ignoreCase = false) : _value(uri), _ignoreCase(ignoreCase) {
+    if (_ignoreCase) {
+      _value.toLowerCase();
+    }
+#ifdef ASYNCWEBSERVER_REGEX
+    if (isRegex()) {
+      pattern = _ignoreCase ? std::regex(_value.c_str(), std::regex::icase) : std::regex(_value.c_str());
+    }
+#endif
+  }
+  AsyncURIMatcher(String uri, bool ignoreCase = false) : _value(std::move(uri)), _ignoreCase(ignoreCase) {
+    if (_ignoreCase) {
+      _value.toLowerCase();
+    }
+#ifdef ASYNCWEBSERVER_REGEX
+    if (isRegex()) {
+      pattern = _ignoreCase ? std::regex(_value.c_str(), std::regex::icase) : std::regex(_value.c_str());
+    }
+#endif
+  }
+
+  AsyncURIMatcher(const AsyncURIMatcher &) = default;
+  AsyncURIMatcher(AsyncURIMatcher &&) = default;
+  ~AsyncURIMatcher() = default;
+
+  AsyncURIMatcher &operator=(const AsyncURIMatcher &) = default;
+  AsyncURIMatcher &operator=(AsyncURIMatcher &&) = default;
+
+#ifdef ASYNCWEBSERVER_REGEX
+  bool isRegex() const {
+    return _value.startsWith("^") && _value.endsWith("$");
+  }
+#endif
+
+  bool matches(AsyncWebServerRequest *request) const {
+#ifdef ASYNCWEBSERVER_REGEX
+    if (isRegex()) {
+      std::smatch matches;
+      std::string s(request->url().c_str());
+      if (std::regex_search(s, matches, pattern)) {
+        for (size_t i = 1; i < matches.size(); ++i) {
+          request->_pathParams.emplace_back(matches[i].str().c_str());
+        }
+        return true;
+      }
+      return false;
+    }
+#endif
+
+    // empty URI matches everything
+    if (!_value.length()) {
+      return true;
+    }
+
+    String path = request->url();
+    if (_ignoreCase) {
+      path.toLowerCase();
+    }
+
+    // exact match (should be the most common case)
+    if (_value == path) {
+      return true;
+    }
+
+    // wildcard match with * at the end
+    if (_value.endsWith("*")) {
+      return path.startsWith(_value.substring(0, _value.length() - 1));
+    }
+
+    // prefix match with /*.ext
+    // matches any path ending with .ext
+    // e.g. /images/*.png will match /images/pic.png and /images/2023/pic.png but not /img/pic.png
+    if (_value.startsWith("/*.")) {
+      return path.endsWith(_value.substring(_value.lastIndexOf(".")));
+    }
+
+    // finally check for prefix match with / at the end
+    // e.g. /images will also match /images/pic.png and /images/2023/pic.png but not /img/pic.png
+    if (path.startsWith(_value + "/")) {
+      return true;
+    }
+
+    // we did not match
+    return false;
+  }
+
+private:
+  String _value;
+  bool _ignoreCase = false;
+#ifdef ASYNCWEBSERVER_REGEX
+  std::regex pattern;
+#endif
 };
 
 /*
@@ -1261,16 +1360,16 @@ public:
   AsyncWebHandler &addHandler(AsyncWebHandler *handler);
   bool removeHandler(AsyncWebHandler *handler);
 
-  AsyncCallbackWebHandler &on(const char *uri, ArRequestHandlerFunction onRequest) {
-    return on(uri, HTTP_ANY, onRequest);
+  AsyncCallbackWebHandler &on(AsyncURIMatcher uri, ArRequestHandlerFunction onRequest) {
+    return on(std::move(uri), HTTP_ANY, onRequest);
   }
   AsyncCallbackWebHandler &on(
-    const char *uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload = nullptr,
+    AsyncURIMatcher uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload = nullptr,
     ArBodyHandlerFunction onBody = nullptr
   );
 
 #if ASYNC_JSON_SUPPORT == 1
-  AsyncCallbackJsonWebHandler &on(const char *uri, WebRequestMethodComposite method, ArJsonRequestHandlerFunction onBody);
+  AsyncCallbackJsonWebHandler &on(AsyncURIMatcher uri, WebRequestMethodComposite method, ArJsonRequestHandlerFunction onBody);
 #endif
 
   AsyncStaticWebHandler &serveStatic(const char *uri, fs::FS &fs, const char *path, const char *cache_control = NULL);
