@@ -9,9 +9,6 @@
 #include "AsyncWebSocket.h"
 #include "freertos/FreeRTOS.h"
 
-#ifndef WS_IN_FLIGHT_CREDITS
-#define WS_IN_FLIGHT_CREDITS  4
-#endif
 
 // forward declaration for WSocketServer
 class WSocketServer;
@@ -51,8 +48,6 @@ enum class WSMessageStatus_t {
  */
 class WSMessageGeneric {
   friend class WSocketClient;
-  /** Is this the last chunk in a fragmented message ?*/
-  bool _final;
 
 public:
   const WSFrameType_t type;
@@ -75,12 +70,20 @@ public:
    * @note we cast it to char* 'cause of two reasons:
    *  - the LWIP's _tcp_write() function accepts const char*
    *  - websocket is mostly text anyway unless compressed
-   * @note for messages with type 'text' this lib will always include NULL terminator at the end of data, NULL byte is NOT included in total size of the message returned by getSize()
+   * @note for messages with type 'text' this lib will ALWAYS include NULL terminator at the end of data, NULL byte is NOT included in total size of the message returned by getSize()
    *        a care should be taken when accessing the data for messages with type 'binary', it won't have NUL terminator at the end and would be valid up to getSize() in length!
    * @note buffer should be writtable so that client class could apply masking on data if needed
    * @return char* const 
    */
-  virtual char* getData() = 0;
+  virtual const char* getData() = 0;
+
+  /**
+   * @brief Get mutable access to underlying Buffer memory
+   * container might not allow this and return nullptr in this case
+   * 
+   * @return char* 
+   */
+  virtual char* getBuffer(){ return nullptr; }
 
   /**
    * @brief WebSocket message status code as defined in https://datatracker.ietf.org/doc/html/rfc6455#section-7.4
@@ -91,15 +94,17 @@ public:
   virtual uint16_t getStatusCode() const { return 0; }
 
 protected:
+  /** Is this the last chunk in a fragmented message ?*/
+  bool _final;
 
   /**
    * @brief access message buffer in chunks
-   * this method is used internally by WSocketClient class when sending message. In simple case it just wraps around getDtata() call
+   * this method is used internally by WSocketClient class when sending message. In simple case it just wraps around getDtataConst() call
    * but could also be implemented in derived classes for chunked transfers
    * 
    * @return std::pair<char*, int32_t>
    */
-  virtual std::pair<char*, size_t> getCurrentChunk(){ return std::pair(getData(), getSize()); } ;
+  virtual std::pair<const char*, size_t> getCurrentChunk(){ return std::pair(getData(), getSize()); }
 
   /**
    * @brief move to the next chunk of message data assuming current chunk has been consumed already
@@ -125,6 +130,15 @@ protected:
 
 using WSMessagePtr = std::shared_ptr<WSMessageGeneric>;
 
+/**
+ * @brief templated Message container
+ * it can use any implementation of container classes to hold message data
+ * two main types to use are std::string for text messages and std::vector for binary
+ * @note Arduino's String class has limited functionality on accessing underlying buffer
+ *  and resizing and should be avoided (but still possible)
+ * 
+ * @tparam T 
+ */
 template<typename T>
 class WSMessageContainer : public WSMessageGeneric {
 protected:
@@ -145,19 +159,32 @@ public:
     // specialisation for Arduino String
     if constexpr(std::is_same_v<String, std::decay_t<decltype(container)>>)
       return container.length();
-    // otherwise we assume either STL container is used, (i.e. st::vector or std::string) or derived class should implement same methods
+    // otherwise we assume either STL container is used, (i.e. std::vector or std::string) or derived class should implement same methods
     if constexpr(!std::is_same_v<String, std::decay_t<decltype(container)>>)
       return container.size();
   };
 
   /**
    * @copydoc WSMessageGeneric::getData()
-   * @details though casted to const char* the data there is NOT NULL-terminated string!
+   * @details though casted to const char* the data there MIGHT not be NULL-terminated string (depending on underlying container)
    */
-  char* getData() override {
+  const char* getData() override {
     // specialization for Arduino String
     if constexpr(std::is_same_v<String, std::decay_t<decltype(container)>>)
       return container.c_str();
+    // otherwise we assume either STL container is used, (i.e. st::vector or std::string) or derived class should implement same methods
+    if constexpr(!std::is_same_v<String, std::decay_t<decltype(container)>>)
+      return reinterpret_cast<char*>(container.data());
+  }
+
+  /**
+   * @copydoc WSMessageGeneric::getBuffer()
+   * @details though casted to const char* the data there MIGHT not be NULL-terminated string (depending on underlying container)
+   */
+  char* getBuffer() override {
+    // specialization for Arduino String - it does not allow accessing underlying buffer, so return nullptr here
+    if constexpr(std::is_same_v<String, std::decay_t<decltype(container)>>)
+      return nullptr;
     // otherwise we assume either STL container is used, (i.e. st::vector or std::string) or derived class should implement same methods
     if constexpr(!std::is_same_v<String, std::decay_t<decltype(container)>>)
       return reinterpret_cast<char*>(container.data());
@@ -220,20 +247,66 @@ public:
 /**
  * @brief Dummy message that does not carry any data
  * could be used as a container for bodyless control messages or 
- * specific cased (to gracefully handle oversised incoming messages)
+ * specific cases (to gracefully handle oversised incoming messages)
  */
 class WSMessageDummy : public WSMessageGeneric {
   const uint16_t _code;
 public:
   explicit WSMessageDummy(WSFrameType_t type, uint16_t status_code = 0) : WSMessageGeneric(type, true), _code(status_code) {};
   size_t getSize() const override { return 0; };
-  char* getData() override { return nullptr; };
+  const char* getData() override { return nullptr; };
   uint16_t getStatusCode() const override { return _code; }
 
 protected:
   void addChunk(char* data, size_t len, size_t offset) override {};
 };
 
+/**
+ * @brief A message that carries a pointer to arbitrary blob of data
+ * it could be used to send large blocks of memory in zero-copy mode,
+ * i.e. avoid intermediary buffering copies.
+ * The concern here is that pointer MUST persist for the duration of message
+ * transfer period. Due to async nature it' it unknown how much time it would
+ * take to complete the transfer. For this a callback function is provided
+ * that triggers on object's destruction. It allows to get the event on
+ * transfer completetion and (possibly) release the ponter or do something else
+ * 
+ */
+class WSMessageStaticBlob : public WSMessageGeneric {
+public:
+
+  // callback prototype that is triggered on message destruction
+  using event_cb_t = std::function<void(WSMessageStatus_t status, uint32_t token)>;
+
+  /**
+   * @brief Construct a new WSMessageStaticBlob object
+   * 
+   * @param type WebSocket message type
+   * @param final WS final bit
+   * @param blob a pointer to blob object (must be casted to const char*)
+   * @param size a size of the object
+   * @param cb a callback function to be call when message complete sending/errored
+   * @param token a unique token to identify packet instance in callback
+   */
+  explicit WSMessageStaticBlob(WSFrameType_t type, bool final, const char* blob, size_t size, event_cb_t cb = {}, uint32_t token = 0)
+    : WSMessageGeneric(type, final), _blob(blob), _size(size), _callback(cb), _token(token)  {};
+
+    // d-tor, we call the callback here
+  ~WSMessageStaticBlob(){ if (_callback) _callback(WSMessageStatus_t::complete, _token); }
+
+  size_t getSize() const override { return _size; };
+  const char* getData() override { return _blob; };
+
+private:
+  const char* _blob;
+  size_t _size;
+  event_cb_t _callback;
+  // unique token identifying the packet
+  uint32_t _token;
+  // it is not allowed to store anything here
+  void addChunk(char* data, size_t len, size_t offset) override final {};
+
+};
 
 /**
  * @brief structure that owns the message (or fragment) while sending/receiving by WSocketClient
@@ -451,8 +524,6 @@ private:
 
   // amount of sent data in-flight, i.e. copied to socket buffer, but not acked yet from lwip side
   size_t _in_flight{0};
-  // in-flight data credits
-  size_t _in_flight_credit{WS_IN_FLIGHT_CREDITS};
 
   // keepalive
   unsigned long _keepAlivePeriod{0}, _lastPong;
@@ -506,7 +577,7 @@ public:
   enum class msgall_err_t {
     ok = 0,         // message was enqueued for delivering to all clients
     partial,        // some of clients queueus are full, message was not enqueued there
-    none            // no clients or all outbound queues are full, message discarded
+    none            // no clients available, or all outbound queues are full, message discarded
   };
 
   explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}, size_t msgsize = 8 * 1024, size_t qcap = 4) : _url(url), eventHandler(handler), msgsize(msgsize), qcap(qcap) {}
@@ -535,7 +606,7 @@ public:
    * @param size 
    */
   void setMessageQueueSize(size_t size){ qcap = size; }
-  size_t getMessageQueueSize(size_t size){ return qcap; }
+  size_t getMessageQueueSize(size_t size) const { return qcap; }
 
   /**
    * @brief Set the WebSocket client Keep A Live
@@ -564,7 +635,7 @@ public:
   void setServerEcho(bool enabled = true, bool splitHorizon = true){ _serverEcho = enabled, _serverEchoSplitHorizon = splitHorizon; };
 
   // get server echo mode
-  bool getServerEcho(){ return _serverEcho; };
+  bool getServerEcho() const { return _serverEcho; };
   
 
   /**
@@ -687,7 +758,7 @@ public:
    * @return WSocketClient::err_t 
    */
   template<typename... Args>
-  msgall_err_t textAll(uint32_t id, Args&&... args){
+  msgall_err_t textAll(Args&&... args){
     return messageAll(std::make_shared<WSMessageContainer<std::string>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
   }
 
@@ -717,7 +788,7 @@ public:
    * @return WSocketClient::err_t 
    */
   template<typename... Args>
-  msgall_err_t stringAll(uint32_t id, Args&&... args){
+  msgall_err_t stringAll(Args&&... args){
     return messageAll(std::make_shared<WSMessageContainer<String>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
   }
 
@@ -771,12 +842,14 @@ public:
   virtual bool newClient(AsyncWebServerRequest* request);
 
 protected:
+  std::string _url;
+  // WSocketClient events handler
+  WSocketClient::event_cb_t eventHandler;
+
   std::list<WSocketClient> _clients;
   #ifdef ESP32
   std::mutex clientslock;
   #endif
-  // WSocketClient events handler
-  WSocketClient::event_cb_t eventHandler;
   unsigned long _keepAlivePeriod{0};
   // max message size
   size_t msgsize;
@@ -797,7 +870,6 @@ protected:
   void _purgeClients();
 
 private:
-  std::string _url;
   AwsHandshakeHandler _handshakeHandler;
   uint32_t _cNextId{0};
   WSocketClient::overflow_t _overflow_policy{WSocketClient::overflow_t::disconnect};

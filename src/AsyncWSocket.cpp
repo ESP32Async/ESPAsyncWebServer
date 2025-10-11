@@ -6,12 +6,14 @@
 #include "AsyncWSocket.h"
 #include "literals.h"
 
+#define WS_MAX_HEADER_SIZE  16
+
 constexpr const char WS_STR_CONNECTION[] = "Connection";
 constexpr const char WS_STR_VERSION[] = "Sec-WebSocket-Version";
 constexpr const char WS_STR_KEY[] = "Sec-WebSocket-Key";
 constexpr const char WS_STR_PROTOCOL[] = "Sec-WebSocket-Protocol";
 
-// WSockServer worke task
+// WSockServer worker task
 constexpr const char WS_SRV_TASK[] = "WSSrvtask";
 
 // cast enum class to uint (for bit set)
@@ -138,6 +140,7 @@ size_t webSocketSendHeader(AsyncClient *client, WSMessageFrame& frame) {
   }
 
   size_t sent = client->add((const char*)buf, headLen);
+  //log_d("send ws header, hdr size:%u, body len:%u", headLen, frame.len);
   // return size of a header added or 0 if any error
   return sent == headLen ? sent : 0;
 }
@@ -155,6 +158,7 @@ WSocketClient::WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocke
   _lastPong = millis();
   // disable connection timeout
   _client->setRxTimeout(0);
+  // disable Nagle's algo
   _client->setNoDelay(true);
   // set AsyncTCP callbacks
   _client->onAck( [](void *r, AsyncClient *c, size_t len, uint32_t rtt) { (void)c; reinterpret_cast<WSocketClient*>(r)->_clientSend(len); }, this );
@@ -184,7 +188,7 @@ WSocketClient::~WSocketClient() {
 //#ifdef NOTHING
 // callback acknowledges sending pieces of data for outgoing frame
 void WSocketClient::_clientSend(size_t acked_bytes){
-  if (!_client || _connection == conn_state_t::disconnected || !_client->space())
+  if (!_client || _connection == conn_state_t::disconnected)
     return;
 
   /*
@@ -201,14 +205,13 @@ void WSocketClient::_clientSend(size_t acked_bytes){
   // Let's ignore polled acks and acks in case when we have more in-flight data then the available socket buff space.
   // That way we could balance on having half the buffer in-flight while another half is filling up and minimizing events in asynctcp's Q
   if (acked_bytes){
-    // if it's the ack call from AsyncTCP - wait for lock!
-    lock.lock();
-    log_d("_clientSend, ack:%u/%u, space:%u", acked_bytes, _in_flight, _client ? _client->space() : 0);
-
+    auto sock_space = _client->space();
+    //log_d("ack:%u/%u, sock space:%u", acked_bytes, _in_flight, sock_space);
     _in_flight -= std::min(acked_bytes, _in_flight);
-    // return buffer credit on acked data
-    ++_in_flight_credit;
-    log_d("infl:%u, credits:%u, conn state:%u", _in_flight, _in_flight_credit, _connection);
+    if (!sock_space){
+      return;
+    }
+    //log_d("infl:%u, credits:%u", _in_flight, _in_flight_credit);
     // check if we were waiting to ack our disconnection frame
     if (!_in_flight && (_connection == conn_state_t::disconnecting)){
       log_d("closing tcp-conn");
@@ -217,25 +220,36 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       _client->close();
       return;
     }
+
+    // if it's the ack call from AsyncTCP - wait for lock!
+    lock.lock();
     
   } else {
     // if there is no acked data - just quit if won't be able to grab a lock, we are already sending something
     if (!lock.try_lock())
       return;
+
+    auto sock_space = _client->space();
+    log_d("no ack infl:%u, space:%u, data pending:%u", _in_flight, sock_space, (uint32_t)(_outFrame.len - _outFrame.index));
+    // 
+    if (!sock_space)
+      return;
   }
 
-  if (_in_flight > _client->space() || !_in_flight_credit) {
-    log_d("defer ws send call, in-flight:%u/%u, credit:%u", _in_flight, _client->space(), _in_flight_credit);
+  // ignore the call if available sock space is smaller then acked data and we won't be able to fit message's ramainder there
+  // this will reduce AsyncTCP's event Q pressure under heavy load
+  if ((_outFrame.msg && (_outFrame.len - _outFrame.index > _client->space())) && (_client->space() < acked_bytes) ){
+    log_d("defer ws send call, in-flight:%u/%u", _in_flight, _client->space());
     return;
   }
 
-  // no message in transit, try to evict one from a Q
-  if (!_outFrame.msg){
+  // no message in transit and we have enough space in sockbuff - try to evict new msg from a Q
+  if (!_outFrame.msg && _client->space() > WS_MAX_HEADER_SIZE){
     if (_evictOutQueue()){
-      // generate header and add to the socket buffer
+      // generate header and add to the socket buffer. todo: check returned size?
       _in_flight += webSocketSendHeader(_client, _outFrame);
     } else
-      return; // nothing to send now
+      return;   // nothing to send now
   }
   
   // if there is a pending _outFrame - send the data from there
@@ -250,6 +264,8 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       _outFrame.index += payload_pend;
       _outFrame.chunk_offset += payload_pend;
       _in_flight += payload_pend;
+      //size_t l = _outFrame.len;
+      //log_d("add to sock:%u, fidx:%u/%u, infl:%u", payload_pend, (uint32_t)_outFrame.index, (uint32_t)_outFrame.len, _in_flight);
     }
 
     if (_outFrame.index == _outFrame.len){
@@ -257,7 +273,6 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       // increment in-flight counter and take the credit
       if (!_client->send())
         _client->abort();
-      --_in_flight_credit;
 
       if (_outFrame.msg->type == WSFrameType_t::close){
         // if we just sent close frame, then change client state and purge out queue, we won't transmit anything from now on
@@ -274,8 +289,8 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       // no use case for this for now
       //_sendEvent(event_t::msgSent);
     
-      // if there are free in-flight credits try to pull next msg from Q
-      if (_in_flight_credit && _evictOutQueue()){
+      // if there are free in-flight credits and buffer space available try to pull next msg from Q
+      if (_client->space() > WS_MAX_HEADER_SIZE && _evictOutQueue()){
         // generate header and add to the socket buffer
         _in_flight += webSocketSendHeader(_client, _outFrame);
         continue;
@@ -284,12 +299,10 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       }
     }
 
-    if (!_client->space()){
+    if (_client->space() <= WS_MAX_HEADER_SIZE){
       // we have exhausted socket buffer, send it and quit
       if (!_client->send())
         _client->abort();
-      // take in-flight credit
-      --_in_flight_credit;
       return;
     }
 
@@ -300,8 +313,6 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       if (next_chunk_size == 0){
         // chunk is not ready yet, need to async wait and return for data later, we quit here and reevaluate on next ack or poll event from AsyncTCP
         if (!_client->send()) _client->abort();
-        // take in-flight credit
-        --_in_flight_credit;
         return;
       } else if (next_chunk_size == -1){
         // something is wrong! there would be no more chunked data but the message has not reached it's full size yet, can do nothing but close the coonections
@@ -318,7 +329,7 @@ void WSocketClient::_clientSend(size_t acked_bytes){
 
 bool WSocketClient::_evictOutQueue(){
   // check if we have something in the Q and enough sock space to send a header at least
-  if (_messageQueueOut.size() && _client->space() > 16 ){
+  if (_messageQueueOut.size() && _client->space() > WS_MAX_HEADER_SIZE ){
     {
       #ifdef ESP32
       std::unique_lock<std::recursive_mutex> lockout(_outQlock);
@@ -372,8 +383,8 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
         return;
       }
       // receiving a new frame from here
-      data += framelen;
-      plen -= std::min(framelen, plen); // safety measure from bad parsing, we can't deduct more than sockbuff size
+      data += std::min(framelen, plen); // safety measure from bad parsing, we can't deduct more than sockbuff size
+      plen -= std::min(framelen, plen);
     } else {
       // continuation of existing frame
       size_t payload_len = std::min(static_cast<size_t>(_inFrame.len - _inFrame.index), plen);
@@ -389,7 +400,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
   
     // if we got whole frame now
     if (_inFrame.index == _inFrame.len){
-      Serial.printf("_onData, cmplt msg len:%lu\n", _inFrame.len);
+      log_d("_onData, cmplt msg len:%u", (uint32_t)_inFrame.len);
 
       if (_inFrame.msg->getStatusCode() == 1007){
         // this is a dummy/corrupted message, we discard it
@@ -403,7 +414,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
           if (_connection == conn_state_t::disconnecting){
             log_d("recv close ack");
             // if it was ws-close ack - we can close TCP connection
-            _connection == conn_state_t::disconnected;
+            _connection = conn_state_t::disconnected;
             // normally we should call close() here and wait for other side also close tcp connection with TCP-FIN, but
             // for various reasons ws clients could linger connection when received TCP-FIN not closing it from the app side (even after
             // two side ws-close exchange, i.e. websocat, websocket-client)
@@ -497,7 +508,7 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
     offset += 8;
   }
 
-  log_d("new hdr, sock data:%u, msg body size:%u", len, frame.len);
+  log_d("recv hdr, sock data:%u, msg body size:%u", len, frame.len);
 
   // if ws.close() is called, Safari sends a close frame with plen 2 and masked bit set. We must not try to read mask key from beyond packet size
   if (masked && len >= offset + 4) {
@@ -512,12 +523,12 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
 
   size_t bodylen = std::min(static_cast<size_t>(frame.len), len - offset);
   if (!bodylen){
-    // if there is no body in message, then it must a specific control message with no payload
+    // if there is no body in message, then it must be a specific control message with no payload
     _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode));
   } else {
     if (frame.len > _max_msgsize){
       // message is bigger than we are allowed to accept, create a dummy container for it, it will just discard all incoming data
-      _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode, 1007));    // code 'Invalid frame payload data'
+      _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode), 1007);    // code 'Invalid frame payload data'
       offset += bodylen;
       _inFrame.index = bodylen;
       return {offset, 1009};  // code 'message too big'
@@ -529,14 +540,14 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
       switch (_overflow_policy){
         case overflow_t::discard :
           // silently discard incoming message
-          _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode, 1007));    // code 'Invalid frame payload data'
+          _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode), 1007);    // code 'Invalid frame payload data'
           offset += bodylen;
           _inFrame.index = bodylen;
           return {offset, 0};
 
         case overflow_t::disconnect : {
           // discard incoming message and send close message
-          _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode, 1007));    // code 'Invalid frame payload data'
+          _inFrame.msg = std::make_shared<WSMessageDummy>(static_cast<WSFrameType_t>(opcode), 1007);    // code 'Invalid frame payload data'
           #ifdef ESP32
           std::lock_guard<std::recursive_mutex> lock(_inQlock);
           #endif
@@ -573,11 +584,9 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
 
       case WSFrameType_t::close : {
         uint16_t status_code = ntohs(*(uint16_t*)(data + offset));
-        offset += 2;
         if (bodylen > 2){
-          bodylen -= 2;
           // create a text message container consuming as much data as possible from current payload
-          _inFrame.msg = std::make_shared<WSMessageClose>(status_code, data + offset, bodylen);
+          _inFrame.msg = std::make_shared<WSMessageClose>(status_code, data + offset + 2, bodylen -2);  // deduce 2 bytes of message code
         } else {
           // must be close message w/o body
           _inFrame.msg = std::make_shared<WSMessageClose>(status_code);
@@ -587,8 +596,9 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
 
       default:
         _inFrame.msg = std::make_shared<WSMessageContainer<std::vector<uint8_t>>>(static_cast<WSFrameType_t>(opcode), bodylen);
-        // copy data
-        memcpy(_inFrame.msg->getData(), data + offset, bodylen);
+        // copy as much data as it is available in current sock buff
+        // todo: for now assume object will consume all the payload provided
+        _inFrame.msg->addChunk(data + offset, bodylen, 0);
 
     }
     offset += bodylen;
@@ -605,10 +615,12 @@ WSocketClient::err_t WSocketClient::enqueueMessage(WSMessagePtr mptr){
     return err_t::disconnected;
 
   if (_messageQueueOut.size() < _max_qcap){
-    #ifdef ESP32
-    std::lock_guard<std::recursive_mutex> lock(_outQlock);
-    #endif
-    _messageQueueOut.emplace_back( std::move(mptr) );
+    {
+      #ifdef ESP32
+      std::lock_guard<std::recursive_mutex> lock(_outQlock);
+      #endif
+      _messageQueueOut.emplace_back( std::move(mptr) );
+    }
     _clientSend();
     return err_t::ok;
   }
@@ -663,7 +675,7 @@ void WSocketClient::_sendEvent(event_t e){
 }
 
 void WSocketClient::_keepalive(){
-  if (millis() - _lastPong > _keepAlivePeriod){
+  if (_keepAlivePeriod && (millis() - _lastPong > _keepAlivePeriod)){
     enqueueMessage(std::make_shared< WSMessageContainer<std::string> >(WSFrameType_t::pong, true, "WSocketClient Pong" ));
     _lastPong = millis();
   }
@@ -792,7 +804,7 @@ void WSocketServer::_purgeClients(){
   log_d("purging clients");
   std::lock_guard lock(clientslock);
   // purge clients that are disconnected and with all messages consumed
-  std::erase_if(_clients, [](const WSocketClient& c){ return (c.connection() == WSocketClient::conn_state_t::disconnected && !c.inQueueSize() ); });
+  _clients.remove_if([](const WSocketClient& c){ return (c.connection() == WSocketClient::conn_state_t::disconnected && !c.inQueueSize() ); });
 }
 
 size_t WSocketServer::activeClientsCount() const {
