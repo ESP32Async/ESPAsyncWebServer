@@ -3,6 +3,8 @@
 
 // A new experimental implementation of Async WebSockets client/server
 
+// We target C++17 capable toolchain
+#if __cplusplus >= 201703L
 #include "AsyncWSocket.h"
 #include "literals.h"
 
@@ -939,3 +941,4 @@ void WSocketServerWorker::_taskRunner(){
   vTaskDelete(NULL);
 }
 
+#endif  // __cplusplus >= 201703L

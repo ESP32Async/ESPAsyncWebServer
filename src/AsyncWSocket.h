@@ -3,7 +3,7 @@
 
 // A new experimental implementation of Async WebSockets client/server
 
-
+#if __cplusplus >= 201703L
 #pragma once
 
 #include "AsyncWebSocket.h"
@@ -945,3 +945,7 @@ private:
   void _taskRunner();
 
 };
+
+#else  // __cplusplus >= 201703L
+#warning "WSocket requires C++17, won't build"
+#endif // __cplusplus >= 201703L
