@@ -6,7 +6,8 @@
 // We target C++17 capable toolchain
 #if __cplusplus >= 201703L
 #include "AsyncWSocket.h"
-#if defined(ESP32) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
+#if defined(ESP32)
+#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
 #include "literals.h"
 
 #define WS_MAX_HEADER_SIZE  16
@@ -220,7 +221,7 @@ void WSocketClient::_clientSend(size_t acked_bytes){
     //log_d("infl:%u, credits:%u", _in_flight, _in_flight_credit);
     // check if we were waiting to ack our disconnection frame
     if (!_in_flight && (_connection == conn_state_t::disconnecting)){
-      log_d("closing tcp-conn");
+      //log_d("closing tcp-conn");
       // we are server, should close connection first as per https://datatracker.ietf.org/doc/html/rfc6455#section-7.1.1
       // here we close from the app side, send TCP-FIN to the party and move to FIN_WAIT_1/2 states
       _client->close();
@@ -245,7 +246,7 @@ void WSocketClient::_clientSend(size_t acked_bytes){
   // ignore the call if available sock space is smaller then acked data and we won't be able to fit message's ramainder there
   // this will reduce AsyncTCP's event Q pressure under heavy load
   if ((_outFrame.msg && (_outFrame.len - _outFrame.index > _client->space())) && (_client->space() < acked_bytes) ){
-    log_d("defer ws send call, in-flight:%u/%u", _in_flight, _client->space());
+    //log_d("defer ws send call, in-flight:%u/%u", _in_flight, _client->space());
     return;
   }
 
@@ -363,12 +364,12 @@ void WSocketClient::_onTimeout(uint32_t time) {
 
 void WSocketClient::_onDisconnect(AsyncClient *c) {
   _connection = conn_state_t::disconnected;
-  log_d("TCP client disconnected");
+  //log_d("TCP client disconnected");
   _sendEvent(event_t::disconnect);
 }
 
 void WSocketClient::_onData(void *pbuf, size_t plen) {
-  Serial.printf("_onData, len:%u\n", plen);
+  //log_d("_onData, len:%u\n", plen);
   if (!pbuf || !plen || _connection == conn_state_t::disconnected) return;
   char *data = (char *)pbuf;
 
@@ -406,7 +407,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
   
     // if we got whole frame now
     if (_inFrame.index == _inFrame.len){
-      log_d("_onData, cmplt msg len:%u", (uint32_t)_inFrame.len);
+      //log_d("cmplt msg len:%u", (uint32_t)_inFrame.len);
 
       if (_inFrame.msg->getStatusCode() == 1007){
         // this is a dummy/corrupted message, we discard it
@@ -418,7 +419,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
         // received close message
         case WSFrameType_t::close : {
           if (_connection == conn_state_t::disconnecting){
-            log_d("recv close ack");
+            //log_d("recv close ack");
             // if it was ws-close ack - we can close TCP connection
             _connection = conn_state_t::disconnected;
             // normally we should call close() here and wait for other side also close tcp connection with TCP-FIN, but
@@ -433,7 +434,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
           }
           
           // otherwise it's a close request from a peer - echo back close message as per https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.1
-          log_d("recv client's ws-close req");
+          //log_d("recv client's ws-close req");
           {
             #ifdef ESP32
             std::unique_lock<std::recursive_mutex> lockin(_inQlock);
@@ -489,6 +490,7 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
   // read frame size
   frame.len = data[1] & 0x7F;
   size_t offset = 2;  // first 2 bytes
+/*
   Serial.print("ws hdr: ");
   //Serial.println(frame.mask, HEX);
   char buffer[10] = {}; // Buffer for hex conversion
@@ -500,7 +502,7 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
     ++ptr;
   }
   Serial.println();
-
+*/
   // find message size from header
   if (frame.len == 126 && len >= 4) {
     // two byte
@@ -514,7 +516,7 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
     offset += 8;
   }
 
-  log_d("recv hdr, sock data:%u, msg body size:%u", len, frame.len);
+  //log_d("recv hdr, sock data:%u, msg body size:%u", len, frame.len);
 
   // if ws.close() is called, Safari sends a close frame with plen 2 and masked bit set. We must not try to read mask key from beyond packet size
   if (masked && len >= offset + 4) {
@@ -611,7 +613,7 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
     _inFrame.index = bodylen;
   }
 
-  log_e("new msg frame size:%u, bodylen:%u", offset, bodylen);
+  //log_e("new msg frame size:%u, bodylen:%u", offset, bodylen);
   // return the number of consumed data from input buffer
   return {offset, 0};
 }
@@ -736,9 +738,6 @@ void WSocketServer::handleRequest(AsyncWebServerRequest *request) {
   const AsyncWebHeader *key = request->getHeader(WS_STR_KEY);
   AsyncWebServerResponse *response = new AsyncWebSocketResponse(key->value(), [this](AsyncWebServerRequest *r){ return newClient(r); });
   if (response == NULL) {
-#ifdef ESP32
-    log_e("Failed to allocate");
-#endif
     request->abort();
     return;
   }
@@ -833,7 +832,6 @@ WSocketServer::msgall_err_t WSocketServer::messageToEndpoint(uint32_t hash, WSMe
 }
 
 void WSocketServer::_purgeClients(){
-  log_d("purging clients");
   std::lock_guard lock(clientslock);
   // purge clients that are disconnected and with all messages consumed
   _clients.remove_if([](const WSocketClient& c){ return (c.connection() == WSocketClient::conn_state_t::disconnected && !c.inQueueSize() ); });
@@ -887,7 +885,7 @@ bool WSocketServerWorker::newClient(AsyncWebServerRequest *request){
     #endif
     _clients.emplace_back(getNextId(), request,
       [this](WSocketClient *c, WSocketClient::event_t e){
-        log_d("client event id:%u state:%u", c->id, c->state());
+        //log_d("client event id:%u state:%u", c->id, c->state());
         // server echo call
         if (e == WSocketClient::event_t::msgRecv) serverEcho(c);
         if (_task_hndlr) xTaskNotifyGive(_task_hndlr);
@@ -983,5 +981,6 @@ void WSocketServerWorker::_taskRunner(){
   vTaskDelete(NULL);
 }
 
-#endif  // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#endif  // (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
+#endif  // defined(ESP32)
 #endif  // __cplusplus >= 201703L
