@@ -6,6 +6,7 @@
 // We target C++17 capable toolchain
 #if __cplusplus >= 201703L
 #include "AsyncWSocket.h"
+#if defined(ESP32) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
 #include "literals.h"
 
 #define WS_MAX_HEADER_SIZE  16
@@ -170,6 +171,9 @@ WSocketClient::WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocke
   _client->onData(        [](void *r, AsyncClient *c, void *buf, size_t len) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onData(buf, len); }, this );
   _client->onPoll(        [](void *r, AsyncClient *c) { (void)c; reinterpret_cast<WSocketClient*>(r)->_keepalive(); reinterpret_cast<WSocketClient*>(r)->_clientSend(); }, this );
   _client->onError(       [](void *r, AsyncClient *c, int8_t error) { (void)c; log_e("err:%d", error); }, this );
+  // bind URL hash
+  setURLHash(request->url().c_str());
+
   delete request;
 }
 
@@ -232,7 +236,7 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       return;
 
     auto sock_space = _client->space();
-    log_d("no ack infl:%u, space:%u, data pending:%u", _in_flight, sock_space, (uint32_t)(_outFrame.len - _outFrame.index));
+    //log_d("no ack infl:%u, space:%u, data pending:%u", _in_flight, sock_space, (uint32_t)(_outFrame.len - _outFrame.index));
     // 
     if (!sock_space)
       return;
@@ -702,10 +706,11 @@ bool WSocketServer::newClient(AsyncWebServerRequest *request){
         else
           c->dequeueMessage(); },   // silently discard incoming messages when there is no callback set
       msgsize, qcap);
+    _clients.back().setOverflowPolicy(_overflow_policy);
+    _clients.back().setKeepAlive(_keepAlivePeriod);
   }
-  _clients.back().setOverflowPolicy(_overflow_policy);
-  _clients.back().setKeepAlive(_keepAlivePeriod);
-  if (eventHandler) eventHandler(&_clients.back(), WSocketClient::event_t::connect);
+  if (eventHandler)
+    eventHandler(&_clients.back(), WSocketClient::event_t::connect);
   return true;
 }
 
@@ -714,6 +719,7 @@ void WSocketServer::handleRequest(AsyncWebServerRequest *request) {
     request->send(400);
     return;
   }
+
   if (_handshakeHandler != nullptr) {
     if (!_handshakeHandler(request)) {
       request->send(401);
@@ -741,8 +747,18 @@ void WSocketServer::handleRequest(AsyncWebServerRequest *request) {
     // ToDo: check protocol
     response->addHeader(WS_STR_PROTOCOL, protocol->value());
   }
+
   request->send(response);
 }
+
+bool WSocketServer::canHandle(AsyncWebServerRequest *request) const {
+  if (request->isWebSocketUpgrade()){
+    auto url = request->url().c_str();
+    auto i = std::find_if(_urlhashes.cbegin(), _urlhashes.cend(), [url](auto const &h){ return h == asyncsrv::hash_djb2a(url); });
+    return (i != _urlhashes.cend());
+  }
+  return false;
+};
 
 WSocketClient* WSocketServer::getClient(uint32_t id) {
   auto iter = std::find_if(_clients.begin(), _clients.end(), [id](const WSocketClient &c) { return c.id == id; });
@@ -784,8 +800,8 @@ WSocketServer::msgall_err_t WSocketServer::pingAll(const char *data, size_t len)
   return cnt == _clients.size() ? msgall_err_t::ok : msgall_err_t::partial;
 }
 
-WSocketClient::err_t WSocketServer::message(uint32_t id, WSMessagePtr m){
-if (WSocketClient *c = getClient(id))
+WSocketClient::err_t WSocketServer::message(uint32_t clientid, WSMessagePtr m){
+if (WSocketClient *c = getClient(clientid))
   return c->enqueueMessage(std::move(m));
 else
   return WSocketClient::err_t::disconnected;
@@ -802,6 +818,20 @@ WSocketServer::msgall_err_t WSocketServer::messageAll(WSMessagePtr m){
   return cnt == _clients.size() ? msgall_err_t::ok : msgall_err_t::partial;
 }
 
+WSocketServer::msgall_err_t WSocketServer::messageToEndpoint(uint32_t hash, WSMessagePtr m){
+  size_t cnt{0}, cntt{0};
+  for (auto &c : _clients){
+    if (c.getURLHash() == hash){
+      ++cntt;
+      if ( c.enqueueMessage(m) == WSocketClient::err_t::ok)
+        ++cnt;
+    }
+  }
+  if (!cnt)
+    return msgall_err_t::none;
+  return cnt == cntt ? msgall_err_t::ok : msgall_err_t::partial;
+}
+
 void WSocketServer::_purgeClients(){
   log_d("purging clients");
   std::lock_guard lock(clientslock);
@@ -810,8 +840,16 @@ void WSocketServer::_purgeClients(){
 }
 
 size_t WSocketServer::activeClientsCount() const {
-  return std::count_if(std::begin(_clients), std::end(_clients), [](const WSocketClient &c) { return c.connection() == WSocketClient::conn_state_t::connected; });
-};
+  return std::count_if(std::begin(_clients), std::end(_clients),
+    [](const WSocketClient &c) { return c.connection() == WSocketClient::conn_state_t::connected; }
+  );
+}
+
+size_t WSocketServer::activeEndpointClientsCount(uint32_t hash) const {
+  return std::count_if(std::begin(_clients), std::end(_clients),
+    [hash](const WSocketClient &c) { return c.connection() == WSocketClient::conn_state_t::connected && c.getURLHash() == hash; }
+  );
+}
 
 void WSocketServer::serverEcho(WSocketClient *c){
   if (!_serverEcho) return;
@@ -824,6 +862,10 @@ void WSocketServer::serverEcho(WSocketClient *c){
       }
     }
   }
+}
+
+void WSocketServer::removeURLendpoint(std::string_view url){
+  _urlhashes.erase(remove_if(_urlhashes.begin(), _urlhashes.end(), [url](auto const &v){ return v == asyncsrv::hash_djb2a(url); }), _urlhashes.end());
 }
 
 
@@ -851,13 +893,14 @@ bool WSocketServerWorker::newClient(AsyncWebServerRequest *request){
         if (_task_hndlr) xTaskNotifyGive(_task_hndlr);
       },
       msgsize, qcap);
-  }
 
-  // create events group where we'll pick events
-  _clients.back().createEventGroupHandle();
-  _clients.back().setOverflowPolicy(getOverflowPolicy());
-  _clients.back().setKeepAlive(_keepAlivePeriod);
-  xEventGroupSetBits(_clients.back().getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect));
+    // create events group where we'll pick events
+    _clients.back().createEventGroupHandle();
+    _clients.back().setOverflowPolicy(getOverflowPolicy());
+    _clients.back().setKeepAlive(_keepAlivePeriod);
+    _clients.back().setURLHash(request->url().c_str());
+    xEventGroupSetBits(_clients.back().getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect));
+  }
   if (_task_hndlr)
     xTaskNotifyGive(_task_hndlr);
   return true;
@@ -895,19 +938,19 @@ void WSocketServerWorker::_taskRunner(){
       // check if this a new client
       uxBits = xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::connect) );
       if ( uxBits & enum2uint32(WSocketClient::event_t::connect) ){
-        _ecb(WSocketClient::event_t::connect, it->id);
+        _ecb(&(*it), WSocketClient::event_t::connect);
       }
 
       // check if 'inbound Q full' flag set
       uxBits = xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::inQfull) );
       if ( uxBits & enum2uint32(WSocketClient::event_t::inQfull) ){
-        _ecb(WSocketClient::event_t::inQfull, it->id);
+        _ecb(&(*it), WSocketClient::event_t::inQfull);
       }
 
       // check for dropped messages flag
       uxBits = xEventGroupClearBits(it->getEventGroupHandle(), enum2uint32(WSocketClient::event_t::msgDropped) );
       if ( uxBits & enum2uint32(WSocketClient::event_t::msgDropped) ){
-        _ecb(WSocketClient::event_t::msgDropped, it->id);
+        _ecb(&(*it), WSocketClient::event_t::msgDropped);
       }
 
       // process all the messages from inbound Q
@@ -918,15 +961,14 @@ void WSocketServerWorker::_taskRunner(){
 
       // check for disconnected client - do not care for group bits, cause if it's deleted, we will destruct the client object
       if (it->connection() == WSocketClient::conn_state_t::disconnected){
-        auto id = it->id;
+        // run a callback
+        _ecb(&(*it), WSocketClient::event_t::disconnect);
         {
           #ifdef ESP32
             std::lock_guard<std::mutex> lock (clientslock);
           #endif
           it = _clients.erase(it);
         }
-        // run a callback
-        _ecb(WSocketClient::event_t::disconnect, id);
       } else {
         // advance iterator
         ++it;
@@ -941,4 +983,5 @@ void WSocketServerWorker::_taskRunner(){
   vTaskDelete(NULL);
 }
 
+#endif  // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 #endif  // __cplusplus >= 201703L

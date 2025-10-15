@@ -3,12 +3,29 @@
 
 // A new experimental implementation of Async WebSockets client/server
 
-#if __cplusplus >= 201703L
 #pragma once
+#if __cplusplus >= 201703L
+#ifndef ESP32
+#warning "WSocket is now supported on ESP32 only"
+#else
+
 
 #include "AsyncWebSocket.h"
 #include "freertos/FreeRTOS.h"
 
+namespace asyncsrv {
+// literals hashing
+// https://learnmoderncpp.com/2020/06/01/strings-as-switch-case-labels/
+
+inline constexpr auto hash_djb2a(const std::string_view sv) {
+    uint32_t hash{ 5381 };
+    for (unsigned char c : sv) {
+      hash = ((hash << 5) + hash) ^ c;
+    }
+    return hash;
+}
+
+}
 
 // forward declaration for WSocketServer
 class WSocketServer;
@@ -380,6 +397,8 @@ private:
   size_t _max_msgsize;
   // cummulative maximum of the data messages held in message queues, both in and out
   size_t _max_qcap;
+  // hashed url bound to client's request
+  uint32_t _urlhash;
 
 public:
 
@@ -443,6 +462,30 @@ public:
   const AsyncClient *client() const {
     return _client;
   }
+
+  /**
+   * @brief bind URL hash to client instance
+   * a hash could be used to differentiate clients attached via various URLs
+   * 
+   * @param url 
+   */
+  void setURLHash(std::string_view url) { _urlhash = asyncsrv::hash_djb2a(url); }
+
+  /**
+   * @brief get URL hash bound to client
+   * 
+   * @return uint32_t 
+   */
+  uint32_t getURLHash() const { return _urlhash; }
+
+  /**
+   * @brief check if client's bound URL matches string
+   * 
+   * @param url 
+   * @return true 
+   * @return false 
+   */
+  bool matchURL(std::string_view url) { return _urlhash == asyncsrv::hash_djb2a(url); }
 
   /**
    * @brief Set inbound queue overflow Policy
@@ -580,8 +623,38 @@ public:
     none            // no clients available, or all outbound queues are full, message discarded
   };
 
-  explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}, size_t msgsize = 8 * 1024, size_t qcap = 4) : _url(url), eventHandler(handler), msgsize(msgsize), qcap(qcap) {}
-  ~WSocketServer() = default;
+  /**
+   * @brief Construct a new WSocketServer object
+   * 
+   * @param url - URL endpoint
+   * @param handler - event callback handler
+   * @param msgsize - max inbound message size (8k by default)
+   * @param qcap - queues size limit
+   */
+  explicit WSocketServer(const char* url, WSocketClient::event_cb_t handler = {}, size_t msgsize = 8 * 1024, size_t qcap = 4) : eventHandler(handler), msgsize(msgsize), qcap(qcap) { _urlhashes.push_back(asyncsrv::hash_djb2a(url)); }
+  virtual ~WSocketServer(){};
+
+  /**
+   * @brief add additional URL to a list of websocket handlers
+   * 
+   * @param url 
+   */
+  void addURLendpoint(std::string_view url){ _urlhashes.push_back(asyncsrv::hash_djb2a(url)); }
+
+  /**
+   * @brief remove URL from a list of websocket handlers
+   * 
+   * @param url 
+   */
+  void removeURLendpoint(std::string_view url);
+
+  /**
+   * @brief clear list of handled URLs
+   * @note new client's won't be able to connect to server unless at least 
+   * one new endpoint added
+   * 
+   */
+  void clearURLendpoints(){ _urlhashes.clear(); }
 
   /**
    * @copydoc WSClient::setOverflowPolicy(overflow_t policy)
@@ -657,6 +730,10 @@ public:
   // return number of active (connected) clients
   size_t activeClientsCount() const;
 
+  // return number of active (connected) clients to specific endpoint
+  size_t activeEndpointClientsCount(std::string_view endpoint) const { return activeEndpointClientsCount(asyncsrv::hash_djb2a(endpoint)); }
+  size_t activeEndpointClientsCount(uint32_t hash) const;
+
   /**
    * @brief Get ptr to client with specified id
    * 
@@ -723,7 +800,25 @@ public:
    * @param m 
    * @return WSocketClient::err_t 
    */
-  WSocketClient::err_t message(uint32_t id, WSMessagePtr m);
+  WSocketClient::err_t message(uint32_t clientid, WSMessagePtr m);
+
+  /**
+   * @brief Send message to all clients bound to specified endpoint
+   * 
+   * @param hash endpoint hash
+   * @param m message
+   * @return WSocketClient::err_t 
+   */
+  msgall_err_t messageToEndpoint(uint32_t hash, WSMessagePtr m);
+
+  /**
+   * @brief Send message to all clients bound to specified endpoint
+   * 
+   * @param urlpath endpoint path
+   * @param m message
+   * @return WSocketClient::err_t 
+   */
+  msgall_err_t messageToEndpoint(std::string_view urlpath, WSMessagePtr m){ return messageToEndpoint(asyncsrv::hash_djb2a(urlpath) , m); };
 
   /**
    * @brief send generic message to all available clients
@@ -747,6 +842,25 @@ public:
     if (hasClient(id))
       return message(id, std::make_shared<WSMessageContainer<std::string>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
     else return WSocketClient::err_t::na;
+  }
+
+  /**
+   * @brief Send text message to all clients in specified endpoint
+   * this template can accept anything that std::string can be made of
+   * 
+   * @tparam Args 
+   * @param hash urlpath hash to send to
+   * @param args 
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  msgall_err_t textToEndpoint(uint32_t hash, Args&&... args){
+    return messageToEndpoint(hash, std::make_shared<WSMessageContainer<std::string>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
+  }
+
+  template<typename... Args>
+  msgall_err_t textToEndpoint(std::string_view urlpath, Args&&... args){
+    return textToEndpoint(asyncsrv::hash_djb2a(urlpath), std::forward<Args>(args)...);
   }
 
   /**
@@ -776,6 +890,25 @@ public:
     if (hasClient(id))
       return message(std::make_shared<WSMessageContainer<String>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
     else return WSocketClient::err_t::na;
+  }
+
+  /**
+   * @brief Send String text message to all clients in specified endpoint
+   * this template can accept anything that Arduino String can be made of
+   * 
+   * @tparam Args
+   * @param hash urlpath hash to send to
+   * @param args Arduino String constructor arguments
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  msgall_err_t stringToEndpoint(uint32_t hash, Args&&... args){
+    return messageToEndpoint(hash, std::make_shared<WSMessageContainer<String>>(WSFrameType_t::text, true, std::forward<Args>(args)...));
+  }
+
+  template<typename... Args>
+  msgall_err_t stringToEndpoint(std::string_view urlpath, Args&&... args){
+    return stringToEndpoint(asyncsrv::hash_djb2a(urlpath), std::forward<Args>(args)...);
   }
 
   /**
@@ -809,6 +942,25 @@ public:
   }
 
   /**
+   * @brief Send binary message to all clients in specified endpoint
+   * this template can accept anything that std::vector can be made of
+   * 
+   * @tparam Args
+   * @param hash urlpath hash to send to
+   * @param args std::vector constructor arguments
+   * @return WSocketClient::err_t 
+   */
+  template<typename... Args>
+  msgall_err_t binaryToEndpoint(uint32_t hash, Args&&... args){
+    return messageToEndpoint(std::make_shared< WSMessageContainer<std::vector<uint8_t>> >(hash, WSFrameType_t::binary, true, std::forward<Args>(args)...));
+  }
+
+  template<typename... Args>
+  msgall_err_t binaryToEndpoint(std::string_view urlpath, Args&&... args){
+    return binaryToEndpoint(std::make_shared< WSMessageContainer<std::vector<uint8_t>> >(asyncsrv::hash_djb2a(urlpath), WSFrameType_t::binary, true, std::forward<Args>(args)...));
+  }
+
+  /**
    * @brief Send binary message all avalable clients
    * this template can accept anything that std::vector can be made of
    * 
@@ -818,18 +970,13 @@ public:
    * @return WSocketClient::err_t 
    */
   template<typename... Args>
-  msgall_err_t binaryAll(uint32_t id, Args&&... args){
+  msgall_err_t binaryAll(Args&&... args){
     return messageAll(std::make_shared< WSMessageContainer<std::vector<uint8_t>> >(WSFrameType_t::binary, true, std::forward<Args>(args)...));
   }
 
   // set webhanshake handler
   void handleHandshake(AwsHandshakeHandler handler) {
     _handshakeHandler = handler;
-  }
-
-  // return bound URL
-  const char *url() const {
-    return _url.c_str();
   }
 
   /**
@@ -842,7 +989,8 @@ public:
   virtual bool newClient(AsyncWebServerRequest* request);
 
 protected:
-  std::string _url;
+  // a list of url hashes this server is bound to
+  std::vector<uint32_t> _urlhashes;
   // WSocketClient events handler
   WSocketClient::event_cb_t eventHandler;
 
@@ -863,7 +1011,7 @@ protected:
 
   void serverEcho(WSocketClient *c);
 
-    /**
+  /**
    * @brief go through clients list and remove those ones that are disconnected and have no messages pending
    * 
    */
@@ -877,7 +1025,7 @@ private:
 
 
   // WebServer methods
-  bool canHandle(AsyncWebServerRequest *request) const override final { return request->isWebSocketUpgrade() && request->url().equals(_url.c_str()); };
+  bool canHandle(AsyncWebServerRequest *request) const override final;
   void handleRequest(AsyncWebServerRequest *request) override final;
 };
 
@@ -888,12 +1036,10 @@ private:
 class WSocketServerWorker : public WSocketServer {
 public:
 
-  // event callback alias
-  using event_cb_t = std::function<void(WSocketClient::event_t event, uint32_t client_id)>;
   // message callback alias
   using msg_cb_t = std::function<void(WSMessagePtr msg, uint32_t client_id)>;
 
-  explicit WSocketServerWorker(const char* url, msg_cb_t msg_handler, event_cb_t event_handler, size_t msgsize = 8 * 1024, size_t qcap = 4)
+  explicit WSocketServerWorker(const char* url, msg_cb_t msg_handler, WSocketClient::event_cb_t event_handler, size_t msgsize = 8 * 1024, size_t qcap = 4)
     : WSocketServer(url, nullptr, msgsize, qcap), _mcb(msg_handler), _ecb(event_handler) {}
 
   ~WSocketServerWorker(){ stop(); };
@@ -925,7 +1071,7 @@ public:
    * 
    * @param handler 
    */
-  void setEventHandler(event_cb_t handler){ _ecb = handler; };
+  void setEventHandler(WSocketClient::event_cb_t handler){ _ecb = handler; };
 
   /**
    * @brief callback for AsyncServer - onboard new ws client
@@ -939,13 +1085,14 @@ public:
 
 private:
   msg_cb_t _mcb;
-  event_cb_t _ecb;
+  WSocketClient::event_cb_t _ecb;
   // worker task that handles messages
   TaskHandle_t    _task_hndlr{nullptr};
   void _taskRunner();
 
 };
 
+#endif  // ESP32
 #else  // __cplusplus >= 201703L
 #warning "WSocket requires C++17, won't build"
 #endif // __cplusplus >= 201703L
