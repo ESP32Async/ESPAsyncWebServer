@@ -883,7 +883,7 @@ public:
     // extract matcher type from _flags
     Type type;
     uint16_t modifiers;
-    _fromFlags(_flags, type, modifiers);
+    std::tie(type, modifiers) = _fromFlags(_flags);
 
     // apply modifiers
     String path = request->url();
@@ -1063,20 +1063,20 @@ private:
   }
 #endif
 
-  static intptr_t _toFlags(Type type, uint16_t modifiers) {
-    intptr_t f = uint32_t(modifiers) << 16 | uint16_t(type);
+  static constexpr intptr_t _toFlags(Type type, uint16_t modifiers) {
     // Use lsb to disambiguate from regex pointer in the case where someone has regex activated but uses a non-regex type.
     // We always do this shift, even if regex is not enabled, to keep the layout identical and also catch programmatic errors earlier.
     // For example a mistake is to set a modifier flag to (1 << 15), which is the msb of the uint16_t.
     // This msb is discarded during this shift operation.
     // So pay attention to not have more than 15 modifier flags.
-    return (f << 1) + 1;
+    return ((uint32_t(modifiers) << 16 | uint16_t(type)) << 1) + 1;
   }
 
-  static void _fromFlags(intptr_t in_flags, Type &out_type, uint16_t &out_modifiers) {
-    in_flags >>= 1;                                   // shift off disambiguation bit;
-    out_type = static_cast<Type>(in_flags & 0xFFFF);  // Type is lower 16 bits
-    out_modifiers = in_flags >> 16;                   // Modifiers are upper 16 bits
+  static constexpr std::tuple<Type, uint16_t> _fromFlags(intptr_t in_flags) {
+    // shift off disambiguation bit
+    // - Type is lower 16 bits
+    // - Modifiers are upper 16 bits
+    return std::make_tuple(static_cast<Type>((in_flags >> 1) & 0xFFFF), (in_flags >> 1) >> 16);
   }
 };
 
