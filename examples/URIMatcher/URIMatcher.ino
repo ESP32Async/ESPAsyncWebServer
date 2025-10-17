@@ -44,7 +44,7 @@ void setup() {
   Serial.println();
   Serial.println("=== AsyncURIMatcher Example ===");
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI || CONFIG_ESP32_WIFI_ENABLED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
   Serial.print("AP IP address: ");
