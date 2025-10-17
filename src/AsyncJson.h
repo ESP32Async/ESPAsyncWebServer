@@ -88,7 +88,7 @@ public:
 
 class AsyncCallbackJsonWebHandler : public AsyncWebHandler {
 protected:
-  String _uri;
+  AsyncURIMatcher _uri;
   WebRequestMethodComposite _method;
   ArJsonRequestHandlerFunction _onRequest;
 #if ARDUINOJSON_VERSION_MAJOR == 6
@@ -98,9 +98,9 @@ protected:
 
 public:
 #if ARDUINOJSON_VERSION_MAJOR == 6
-  AsyncCallbackJsonWebHandler(const String &uri, ArJsonRequestHandlerFunction onRequest = nullptr, size_t maxJsonBufferSize = DYNAMIC_JSON_DOCUMENT_SIZE);
+  AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest = nullptr, size_t maxJsonBufferSize = DYNAMIC_JSON_DOCUMENT_SIZE);
 #else
-  AsyncCallbackJsonWebHandler(const String &uri, ArJsonRequestHandlerFunction onRequest = nullptr);
+  AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest = nullptr);
 #endif
 
   void setMethod(WebRequestMethodComposite method) {
