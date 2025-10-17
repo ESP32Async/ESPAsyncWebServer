@@ -15,7 +15,7 @@
 using namespace asyncsrv;
 
 bool ON_STA_FILTER(AsyncWebServerRequest *request) {
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI || CONFIG_ESP32_WIFI_ENABLED
   return WiFi.localIP() == request->client()->localIP();
 #else
   return false;
@@ -23,7 +23,7 @@ bool ON_STA_FILTER(AsyncWebServerRequest *request) {
 }
 
 bool ON_AP_FILTER(AsyncWebServerRequest *request) {
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI || CONFIG_ESP32_WIFI_ENABLED
   return WiFi.localIP() != request->client()->localIP();
 #else
   return false;
