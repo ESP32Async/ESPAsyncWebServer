@@ -567,6 +567,8 @@ private:
 
   // amount of sent data in-flight, i.e. copied to socket buffer, but not acked yet from lwip side
   size_t _in_flight{0};
+  // counter for consumed data from tcp_pcbs, but delayd ack to hold the window
+  size_t _pending_ack{0};
 
   // keepalive
   unsigned long _keepAlivePeriod{0}, _lastPong;
@@ -606,6 +608,7 @@ private:
   void _onTimeout(uint32_t time);
   void _onDisconnect(AsyncClient *c);
   void _onData(void *pbuf, size_t plen);
+  void _onPoll(AsyncClient *c);
 };
 
 /**
@@ -658,6 +661,7 @@ public:
 
   /**
    * @copydoc WSClient::setOverflowPolicy(overflow_t policy)
+   * @note default is 'disconnect'
    */
   void setOverflowPolicy(WSocketClient::overflow_t policy){ _overflow_policy = policy; }
   WSocketClient::overflow_t getOverflowPolicy() const { return _overflow_policy; }

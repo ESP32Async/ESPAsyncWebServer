@@ -166,11 +166,10 @@ WSocketClient::WSocketClient(uint32_t id, AsyncWebServerRequest *request, WSocke
   _client->setNoDelay(true);
   // set AsyncTCP callbacks
   _client->onAck( [](void *r, AsyncClient *c, size_t len, uint32_t rtt) { (void)c; reinterpret_cast<WSocketClient*>(r)->_clientSend(len); }, this );
-  //_client->onAck( [](void *r, AsyncClient *c, size_t len, uint32_t rtt) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onAck(len, rtt); }, this );
   _client->onDisconnect(  [](void *r, AsyncClient *c) { reinterpret_cast<WSocketClient*>(r)->_onDisconnect(c); }, this );
   _client->onTimeout(     [](void *r, AsyncClient *c, uint32_t time) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onTimeout(time); }, this );
   _client->onData(        [](void *r, AsyncClient *c, void *buf, size_t len) { (void)c; reinterpret_cast<WSocketClient*>(r)->_onData(buf, len); }, this );
-  _client->onPoll(        [](void *r, AsyncClient *c) { (void)c; reinterpret_cast<WSocketClient*>(r)->_keepalive(); reinterpret_cast<WSocketClient*>(r)->_clientSend(); }, this );
+  _client->onPoll(        [](void *r, AsyncClient *c) { reinterpret_cast<WSocketClient*>(r)->_onPoll(c); }, this );
   _client->onError(       [](void *r, AsyncClient *c, int8_t error) { (void)c; log_e("err:%d", error); }, this );
   // bind URL hash
   setURLHash(request->url().c_str());
@@ -212,9 +211,9 @@ void WSocketClient::_clientSend(size_t acked_bytes){
   // Let's ignore polled acks and acks in case when we have more in-flight data then the available socket buff space.
   // That way we could balance on having half the buffer in-flight while another half is filling up and minimizing events in asynctcp's Q
   if (acked_bytes){
-    auto sock_space = _client->space();
     //log_d("ack:%u/%u, sock space:%u", acked_bytes, _in_flight, sock_space);
     _in_flight -= std::min(acked_bytes, _in_flight);
+    auto sock_space = _client->space();
     if (!sock_space){
       return;
     }
@@ -236,10 +235,10 @@ void WSocketClient::_clientSend(size_t acked_bytes){
     if (!lock.try_lock())
       return;
 
-    auto sock_space = _client->space();
+    //auto sock_space = _client->space();
     //log_d("no ack infl:%u, space:%u, data pending:%u", _in_flight, sock_space, (uint32_t)(_outFrame.len - _outFrame.index));
     // 
-    if (!sock_space)
+    if (!_client->space())
       return;
   }
 
@@ -277,7 +276,6 @@ void WSocketClient::_clientSend(size_t acked_bytes){
 
     if (_outFrame.index == _outFrame.len){
       // if we complete writing entire message, send the frame right away
-      // increment in-flight counter and take the credit
       if (!_client->send())
         _client->abort();
 
@@ -296,7 +294,7 @@ void WSocketClient::_clientSend(size_t acked_bytes){
       // no use case for this for now
       //_sendEvent(event_t::msgSent);
     
-      // if there are free in-flight credits and buffer space available try to pull next msg from Q
+      // if there is still buffer space available try to pull next msg from Q
       if (_client->space() > WS_MAX_HEADER_SIZE && _evictOutQueue()){
         // generate header and add to the socket buffer
         _in_flight += webSocketSendHeader(_client, _outFrame);
@@ -369,9 +367,11 @@ void WSocketClient::_onDisconnect(AsyncClient *c) {
 }
 
 void WSocketClient::_onData(void *pbuf, size_t plen) {
-  //log_d("_onData, len:%u\n", plen);
+  //log_d("_onData, 0x%08" PRIx32 " len:%u", (uint32_t)pbuf, plen);
   if (!pbuf || !plen || _connection == conn_state_t::disconnected) return;
   char *data = (char *)pbuf;
+
+  size_t pb_len = plen;
 
   while (plen){
     if (!_inFrame.msg){
@@ -401,6 +401,7 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
 
       // todo: for now assume object will consume all the payload provided
       _inFrame.msg->addChunk(data, payload_len, _inFrame.index);
+      _inFrame.index += payload_len;
       data += payload_len;
       plen -= payload_len;
     }
@@ -461,6 +462,9 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
           // just reply to ping, does user needs this ping message?
           _messageQueueOut.emplace_front( std::make_shared<WSMessageContainer<std::string>>(WSFrameType_t::pong, true, _inFrame.msg->getData()) );
           _inFrame.msg.reset();
+          // send frame is no other message is in progress
+          if (!_outFrame.msg)
+            _clientSend();
           break;
         }
 
@@ -479,6 +483,40 @@ void WSocketClient::_onData(void *pbuf, size_t plen) {
       }
     }
   }
+
+  /*
+    Applying TCP window control here. In case if there are pending messages in the Q
+    we clamp window size gradually to push sending party back. The larger the Q grows
+    then more window is closed. This works pretty well for messages sized about or more
+    than TCP windows size (5,7k default for Arduino). It could prevent Q overflow and
+    sieze incoming data flow without blocking the entie network stack. Mostly usefull
+    with websocket worker where AsyncTCP thread is not blocked by user callbacks.
+  */
+  if (_messageQueueIn.size()){
+    _client->ackLater();
+    size_t reduce_size = pb_len * _messageQueueIn.size() / _max_qcap;
+    _client->ack(pb_len - reduce_size);
+    _pending_ack += reduce_size;
+    //log_d("delay ack:%u, total pending:%u", reduce_size, _pending_ack);
+  }
+}
+
+void WSocketClient::_onPoll(AsyncClient *c){
+  /*
+    Window control - we open window deproportionally to Q size letting data flow a bit
+  */
+  if (_pending_ack){
+    size_t to_keep = _pending_ack * (_messageQueueIn.size() + 1) / _max_qcap;
+    _client->ack(_pending_ack - to_keep);
+    size_t bak = _pending_ack;
+    _pending_ack = to_keep;
+    //log_d("poll ack:%u, left:%u\n", bak - _pending_ack, _pending_ack);
+  }
+  _keepalive();
+  // call send if no other message is in progress and Q is not empty somehow,
+  // otherwise rely on ack events
+  if (!_outFrame.msg && _messageQueueOut.size())
+    _clientSend();
 }
 
 std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, WSMessageFrame& frame){
@@ -522,8 +560,8 @@ std::pair<size_t, uint16_t> WSocketClient::_mkNewFrame(char* data, size_t len, W
   if (masked && len >= offset + 4) {
     // mask bytes order are LSB, so we can copy it as-is
     frame.mask = *reinterpret_cast<uint32_t*>(data + offset);
-    Serial.printf("mask key at %u, :0x", offset);
-    Serial.println(frame.mask, HEX);
+    //Serial.printf("mask key at %u, :0x", offset);
+    //Serial.println(frame.mask, HEX);
     offset += 4;
   }
 
@@ -629,7 +667,9 @@ WSocketClient::err_t WSocketClient::enqueueMessage(WSMessagePtr mptr){
       #endif
       _messageQueueOut.emplace_back( std::move(mptr) );
     }
-    _clientSend();
+    // send frame if no other message is in progress
+    if (!_outFrame.msg)
+      _clientSend();
     return err_t::ok;
   }
 
@@ -637,13 +677,26 @@ WSocketClient::err_t WSocketClient::enqueueMessage(WSMessagePtr mptr){
 }
 
 WSMessagePtr WSocketClient::dequeueMessage(){
-  #ifdef ESP32
-  std::unique_lock<std::recursive_mutex> lock(_inQlock);
-  #endif
   WSMessagePtr msg;
   if (_messageQueueIn.size()){
+    #ifdef ESP32
+    std::unique_lock<std::recursive_mutex> lock(_inQlock);
+    #endif
     msg.swap(_messageQueueIn.front());
     _messageQueueIn.pop_front();
+  }
+  /*
+    Window control - we open window deproportionally to Q size letting data flow once a message is deQ'd
+  */
+  if (_pending_ack){
+    if (!_messageQueueIn.size()){
+      _client->ack(0xffff); // on empty Q we ack whatever is left (max TCP win size)
+    } else {
+      size_t ackpart =_pending_ack * (_max_qcap - _messageQueueIn.size()) / _max_qcap;
+      //log_d("ackdq:%u/%u", ackpart, _pending_ack);
+      _client->ack(ackpart);
+      _pending_ack -= ackpart;
+    }
   }
   return msg;
 }
@@ -671,7 +724,9 @@ WSocketClient::err_t WSocketClient::close(uint16_t code, const char *message){
     _messageQueueOut.emplace_front( std::make_shared<WSMessageClose>(code, message) );
   else
     _messageQueueOut.emplace_front( std::make_shared<WSMessageClose>(code) );
-  _clientSend();
+  // send frame if no other message is in progress
+  if (!_outFrame.msg)
+    _clientSend();
   return err_t::ok;
 }
 
