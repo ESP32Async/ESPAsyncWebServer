@@ -33,8 +33,7 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
     [](void *r, AsyncClient *c, int8_t error) {
       (void)c;
       // async_ws_log_e("AsyncWebServerRequest::_onError");
-      AsyncWebServerRequest *req = (AsyncWebServerRequest *)r;
-      req->_onError(error);
+      static_cast<AsyncWebServerRequest*>(r)->_onError(error);
     },
     this
   );
@@ -42,17 +41,14 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
     [](void *r, AsyncClient *c, size_t len, uint32_t time) {
       (void)c;
       // async_ws_log_e("AsyncWebServerRequest::_onAck");
-      AsyncWebServerRequest *req = (AsyncWebServerRequest *)r;
-      req->_onAck(len, time);
+      static_cast<AsyncWebServerRequest*>(r)->_onAck(len, time);
     },
     this
   );
   c->onDisconnect(
     [](void *r, AsyncClient *c) {
       // async_ws_log_e("AsyncWebServerRequest::_onDisconnect");
-      AsyncWebServerRequest *req = (AsyncWebServerRequest *)r;
-      req->_onDisconnect();
-      delete c;
+      static_cast<AsyncWebServerRequest*>(r)->_onDisconnect();
     },
     this
   );
@@ -60,8 +56,7 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
     [](void *r, AsyncClient *c, uint32_t time) {
       (void)c;
       // async_ws_log_e("AsyncWebServerRequest::_onTimeout");
-      AsyncWebServerRequest *req = (AsyncWebServerRequest *)r;
-      req->_onTimeout(time);
+      static_cast<AsyncWebServerRequest*>(r)->_onTimeout(time);
     },
     this
   );
@@ -69,8 +64,7 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
     [](void *r, AsyncClient *c, void *buf, size_t len) {
       (void)c;
       // async_ws_log_e("AsyncWebServerRequest::_onData");
-      AsyncWebServerRequest *req = (AsyncWebServerRequest *)r;
-      req->_onData(buf, len);
+      static_cast<AsyncWebServerRequest*>(r)->_onData(buf, len);
     },
     this
   );
@@ -78,21 +72,27 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
     [](void *r, AsyncClient *c) {
       (void)c;
       // async_ws_log_e("AsyncWebServerRequest::_onPoll");
-      AsyncWebServerRequest *req = (AsyncWebServerRequest *)r;
-      req->_onPoll();
+      static_cast<AsyncWebServerRequest*>(r)->_onPoll();
     },
     this
   );
 }
 
 AsyncWebServerRequest::~AsyncWebServerRequest() {
-  // async_ws_log_e("AsyncWebServerRequest::~AsyncWebServerRequest");
+  if (_client){
+    // usually it is _client's disconnect triggers object destruct, but for completeness we define behavior
+    // if for some reason *this will be desturcted while client is still connected
+    _client->onDisconnect(nullptr);
+    delete _client;
+    _client = nullptr;
+  }
+
+  if (_response){
+    delete _response;
+    _response = nullptr;
+  }
 
   _this.reset();
-
-  AsyncWebServerResponse *r = _response;
-  _response = NULL;
-  delete r;
 
   if (_tempObject != NULL) {
     free(_tempObject);
@@ -217,30 +217,20 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
 
 void AsyncWebServerRequest::_onPoll() {
   // os_printf("p\n");
-  if (_response != NULL && _client != NULL && _client->canSend()) {
-    if (!_response->_finished()) {
-      _response->_ack(this, 0, 0);
-    } else {
-      AsyncWebServerResponse *r = _response;
-      _response = NULL;
-      delete r;
-
-      _client->close();
-    }
+  if (_response && _client && _client->canSend()) {
+    _response->_ack(this, 0, 0);
   }
 }
 
 void AsyncWebServerRequest::_onAck(size_t len, uint32_t time) {
   // os_printf("a:%u:%u\n", len, time);
-  if (_response != NULL) {
-    if (!_response->_finished()) {
-      _response->_ack(this, len, time);
-    } else if (_response->_finished()) {
-      AsyncWebServerResponse *r = _response;
-      _response = NULL;
-      delete r;
+  if (!_response) return;
 
-      _client->close();
+  if (!_response->_finished()) {
+    _response->_ack(this, len, time);
+    // recheck if response has just completed, close connection
+    if (_response->_finished()) {
+      _client->close(); // this will trigger _onDisconnect() and object destruction
     }
   }
 }
@@ -709,7 +699,7 @@ void AsyncWebServerRequest::_send() {
       send(500, T_text_plain, "Invalid data in handler");
     }
 
-    // here, we either have a response give nfrom user or one of the two above
+    // here, we either have a response given from user or one of the two above
     _client->setRxTimeout(0);
     _response->_respond(this);
     _sent = true;
