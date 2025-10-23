@@ -94,7 +94,7 @@ void setup() {
   // first time: serves the file and cache headers
   // curl -N -v http://192.168.4.1/ --output -
   //
-  // secodn time: serves 304
+  // second time: serves 304
   // curl -N -v -H "if-none-match: 4272" http://192.168.4.1/ --output -
   //
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
