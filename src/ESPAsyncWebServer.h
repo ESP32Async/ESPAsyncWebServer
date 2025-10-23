@@ -1336,8 +1336,10 @@ protected:
   bool _sendContentLength;
   bool _chunked;
   size_t _headLength;
+  // amount of data sent for content part of the response (excluding all headers)
   size_t _sentLength;
   size_t _ackedLength;
+  // amount of response bytes (including all headers) written to sockbuff for delivery
   size_t _writtenLength;
   WebResponseState _state;
 
