@@ -25,6 +25,10 @@
 class AsyncBasicResponse : public AsyncWebServerResponse {
 private:
   String _content;
+  // buffer to accumulate all response headers
+  String _assembled_headers;
+  // amount of headers buffer writtent to sockbuff
+  size_t _assembled_headers_written{0};
 
 public:
   explicit AsyncBasicResponse(int code, const char *contentType = asyncsrv::empty, const char *content = asyncsrv::empty);

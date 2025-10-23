@@ -243,7 +243,6 @@ bool AsyncWebServerResponse::_sourceValid() const {
 }
 void AsyncWebServerResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_END;
-  request->client()->close();
 }
 size_t AsyncWebServerResponse::_ack(AsyncWebServerRequest *request, size_t len, uint32_t time) {
   (void)request;
@@ -270,64 +269,55 @@ AsyncBasicResponse::AsyncBasicResponse(int code, const char *contentType, const 
 
 void AsyncBasicResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_HEADERS;
-  String out;
-  _assembleHead(out, request->version());
-  size_t outLen = out.length();
-  size_t space = request->client()->space();
-  if (!_contentLength && space >= outLen) {
-    _writtenLength += request->client()->write(out.c_str(), outLen);
-    _state = RESPONSE_WAIT_ACK;
-  } else if (_contentLength && space >= outLen + _contentLength) {
-    out += _content;
-    outLen += _contentLength;
-    _writtenLength += request->client()->write(out.c_str(), outLen);
-    _state = RESPONSE_WAIT_ACK;
-  } else if (space && space < outLen) {
-    String partial = out.substring(0, space);
-    _content = out.substring(space) + _content;
-    _contentLength += outLen - space;
-    _writtenLength += request->client()->write(partial.c_str(), partial.length());
-    _state = RESPONSE_CONTENT;
-  } else if (space > outLen && space < (outLen + _contentLength)) {
-    size_t shift = space - outLen;
-    outLen += shift;
-    _sentLength += shift;
-    out += _content.substring(0, shift);
-    _content = _content.substring(shift);
-    _writtenLength += request->client()->write(out.c_str(), outLen);
-    _state = RESPONSE_CONTENT;
-  } else {
-    _content = out + _content;
-    _contentLength += outLen;
-    _state = RESPONSE_CONTENT;
-  }
+  _assembleHead(_assembled_headers, request->version());
+  _ack(request, 0, 0);
 }
 
 size_t AsyncBasicResponse::_ack(AsyncWebServerRequest *request, size_t len, uint32_t time) {
   (void)time;
+
+  // this is not functionally needed in AsyncBasicResponse itself, but kept for compatibility if some of the derived classes are rely on it somehow
   _ackedLength += len;
-  if (_state == RESPONSE_CONTENT) {
-    size_t available = _contentLength - _sentLength;
-    size_t space = request->client()->space();
-    // we can fit in this packet
-    if (space > available) {
-      _writtenLength += request->client()->write(_content.c_str(), available);
-      _content = emptyString;
-      _state = RESPONSE_WAIT_ACK;
-      return available;
+  size_t payloadlen{0};  // amount of data to be written to tcp sockbuff during this call, used as return value of this method
+
+  // send http headers first
+  if (_state == RESPONSE_HEADERS) {
+    // copy headers buffer to sock buffer
+    size_t const pcb_written = request->client()->add(_assembled_headers.c_str() + _assembled_headers_written, _assembled_headers.length() - _assembled_headers_written);
+    _writtenLength += pcb_written;
+    _assembled_headers_written += pcb_written;
+    if (_assembled_headers_written < _assembled_headers.length()){
+      // we were not able to fit all headers in current buff, send this part here and return later for the rest
+      if (!request->client()->send()){
+        // something is wrong, what should we do here?
+        request->client()->close();
+        return 0;
+      }
+      return pcb_written;
     }
-    // send some data, the rest on ack
-    String out = _content.substring(0, space);
-    _content = _content.substring(space);
-    _sentLength += space;
-    _writtenLength += request->client()->write(out.c_str(), space);
-    return space;
-  } else if (_state == RESPONSE_WAIT_ACK) {
-    if (_ackedLength >= _writtenLength) {
+    // otherwise we've added all the (remainder) headers in current buff, go on with content
+    _state = RESPONSE_CONTENT;
+    payloadlen += pcb_written;
+    _assembled_headers = String();  // clear
+  }
+
+  if (_state == RESPONSE_CONTENT) {
+    size_t const pcb_written = request->client()->write(_content.c_str() + _sentLength, _content.length() - _sentLength);
+    _writtenLength += pcb_written;    // total written data (hdrs + body)
+    _sentLength += pcb_written;       // body written data
+    payloadlen += pcb_written;        // data writtent in current buff
+    if (_sentLength >= _content.length()){
+      // we've just sent all the (remainder) data in current buff, complete the response
       _state = RESPONSE_END;
     }
   }
-  return 0;
+
+  // implicit complete
+  if (_state == RESPONSE_WAIT_ACK) {
+    _state = RESPONSE_END;
+  }
+
+  return payloadlen;
 }
 
 /*
