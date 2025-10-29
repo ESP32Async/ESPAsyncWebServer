@@ -444,7 +444,8 @@ public:
   uint32_t _getNextId() {
     return _cNextId++;
   }
-  AsyncWebSocketClient *_newClient(AsyncWebServerRequest *request);
+  // callback function that takes the ownership of the connected client, called from a AsyncWebSocketResponse instance
+  bool newClient(AsyncWebServerRequest *request);
   void _handleDisconnect(AsyncWebSocketClient *client);
   void _handleEvent(AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
   bool canHandle(AsyncWebServerRequest *request) const override final;
@@ -463,10 +464,10 @@ public:
 class AsyncWebSocketResponse : public AsyncWebServerResponse {
 private:
   String _content;
-  AsyncWebSocket *_server;
+  AwsHandshakeHandler _callback;
 
 public:
-  AsyncWebSocketResponse(const String &key, AsyncWebSocket *server);
+  AsyncWebSocketResponse(const String &key, AwsHandshakeHandler cb);
   void _respond(AsyncWebServerRequest *request);
   size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time);
   bool _sourceValid() const {
