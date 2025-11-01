@@ -480,7 +480,7 @@ public:
     return _handler;
   }
 
-  void onConnect(std::function<void(AsyncWebSocket *server, AsyncWebSocketClient *client)> onConnect) {
+  void onConnect(std::function<void(AsyncWebSocket *server, AsyncWebSocketClient *client, AsyncWebServerRequest *request)> onConnect) {
     _onConnect = onConnect;
   }
 
@@ -517,7 +517,7 @@ public:
 
 private:
   // clang-format off
-  std::function<void(AsyncWebSocket *server, AsyncWebSocketClient *client)> _onConnect;
+  std::function<void(AsyncWebSocket *server, AsyncWebSocketClient *client, AsyncWebServerRequest *request)> _onConnect;
   std::function<void(AsyncWebSocket *server, AsyncWebSocketClient *client, uint16_t errorCode, const char *reason, size_t len)> _onError;
   std::function<void(AsyncWebSocket *server, AsyncWebSocketClient *client, const uint8_t *data, size_t len)> _onMessage;
   std::function<void(AsyncWebSocket *server, AsyncWebSocketClient *client, const AwsFrameInfo *frameInfo, const uint8_t *data, size_t len)> _onFragment;
@@ -528,7 +528,7 @@ private:
   AwsEventHandler _handler = [this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
     if (type == WS_EVT_CONNECT) {
       if (_onConnect) {
-        _onConnect(server, client);
+        _onConnect(server, client, (AsyncWebServerRequest *)arg);
       }
     } else if (type == WS_EVT_DISCONNECT) {
       if (_onDisconnect) {

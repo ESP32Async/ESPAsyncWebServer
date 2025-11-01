@@ -44,6 +44,7 @@ static const char *htmlContent PROGMEM = R"(
   <input type="text" id="message" placeholder="Type a message">
   <button onclick='sendMessage()'>Send</button>
   <script>
+    document.cookie = "sessionId=abc123; path=/; domain=192.168.4.1";
     var ws = new WebSocket('ws://192.168.4.1/ws');
     ws.onopen = function() {
       console.log("WebSocket connected");
@@ -81,9 +82,13 @@ void setup() {
     request->send(200, "text/html", (const uint8_t *)htmlContent, htmlContentLength);
   });
 
-  wsHandler.onConnect([](AsyncWebSocket *server, AsyncWebSocketClient *client) {
+  wsHandler.onConnect([](AsyncWebSocket *server, AsyncWebSocketClient *client, AsyncWebServerRequest *request) {
     Serial.printf("Client %" PRIu32 " connected\n", client->id());
-    server->textAll("New client: " + String(client->id()));
+    server->textAll(String("New client: ") + String(client->id()));
+
+    // shows how to get query parameters from the websocket upgrade request
+    Serial.printf("request ptr: %p\n", request);
+    server->textAll(request->getAttribute("user") + " has connected");
   });
 
   wsHandler.onDisconnect([](AsyncWebSocket *server, uint32_t clientId) {
@@ -101,6 +106,20 @@ void setup() {
 
   wsHandler.onFragment([](AsyncWebSocket *server, AsyncWebSocketClient *client, const AwsFrameInfo *frameInfo, const uint8_t *data, size_t len) {
     Serial.printf("Client %" PRIu32 " fragment %" PRIu32 ": %s\n", client->id(), frameInfo->num, (const char *)data);
+  });
+
+  // show how to add a middleware to the WebSocket handler that will verify the websocket upgrade request
+  ws.addMiddleware([](AsyncWebServerRequest *request, ArMiddlewareNext next) {
+    const AsyncWebHeader *cookies = request->getHeader(asyncsrv::T_Cookie);
+    if (cookies && cookies->value().indexOf("sessionId=abc123") != -1) {
+      Serial.println("Client provided valid sessionId cookie");
+      Serial.printf("request ptr: %p\n", request);
+      request->setAttribute("user", "Bob");
+      next();
+    } else {
+      Serial.println("Client did NOT provide valid sessionId cookie");
+      request->send(401, "text/plain", "Unauthorized: Missing or invalid sessionId cookie");
+    }
   });
 
   server.addHandler(&ws);

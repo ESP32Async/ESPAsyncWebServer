@@ -839,6 +839,7 @@ const AsyncWebParameter *AsyncWebServerRequest::getParam(size_t num) const {
 }
 
 const String &AsyncWebServerRequest::getAttribute(const char *name, const String &defaultValue) const {
+  Serial.printf("map size: %d\n", _attributes.size());
   auto it = _attributes.find(name);
   return it != _attributes.end() ? it->second : defaultValue;
 }
