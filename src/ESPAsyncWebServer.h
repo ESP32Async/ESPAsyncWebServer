@@ -12,7 +12,9 @@
 #include <deque>
 #include <functional>
 #include <list>
+#include <memory>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #if __has_include("ArduinoJson.h")

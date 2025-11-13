@@ -6,7 +6,9 @@
 #include "WebResponseImpl.h"
 #include "AsyncWebServerLogging.h"
 #include "literals.h"
+
 #include <cstring>
+#include <utility>
 
 static inline bool isParamChar(char c) {
   return ((c) && ((c) != '{') && ((c) != '[') && ((c) != '&') && ((c) != '='));

@@ -4,8 +4,6 @@
 #include "AsyncWebSocket.h"
 #include "AsyncWebServerLogging.h"
 
-#include <cstring>
-
 #include <libb64/cencode.h>
 
 #if defined(ESP32)
@@ -20,6 +18,10 @@
 #elif defined(LIBRETINY)
 #include <mbedtls/sha1.h>
 #endif
+
+#include <cstring>
+#include <memory>
+#include <utility>
 
 using namespace asyncsrv;
 

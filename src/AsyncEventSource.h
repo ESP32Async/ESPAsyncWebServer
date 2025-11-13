@@ -44,6 +44,9 @@
 #endif
 #endif
 
+#include <memory>
+#include <utility>
+
 class AsyncEventSource;
 class AsyncEventSourceResponse;
 class AsyncEventSourceClient;

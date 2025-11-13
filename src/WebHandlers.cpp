@@ -5,6 +5,8 @@
 #include "WebHandlerImpl.h"
 #include "AsyncWebServerLogging.h"
 
+#include <utility>
+
 using namespace asyncsrv;
 
 AsyncWebHandler &AsyncWebHandler::setFilter(ArRequestFilterFunction fn) {
