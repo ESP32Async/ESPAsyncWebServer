@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
 
-#ifndef ASYNCWEBSOCKET_H_
-#define ASYNCWEBSOCKET_H_
+#pragma once
 
 #include <Arduino.h>
 
@@ -32,6 +31,9 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncWebServerLogging.h>
 
+#include <cstdio>
+#include <deque>
+#include <list>
 #include <memory>
 
 #ifdef ESP8266
@@ -454,8 +456,8 @@ public:
   AsyncWebSocketClient *_newClient(AsyncWebServerRequest *request);
   void _handleDisconnect(AsyncWebSocketClient *client);
   void _handleEvent(AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-  bool canHandle(AsyncWebServerRequest *request) const override final;
-  void handleRequest(AsyncWebServerRequest *request) override final;
+  bool canHandle(AsyncWebServerRequest *request) const final;
+  void handleRequest(AsyncWebServerRequest *request) final;
 
   //  messagebuffer functions/objects.
   AsyncWebSocketMessageBuffer *makeBuffer(size_t size = 0);
@@ -567,5 +569,3 @@ private:
     }
   };
 };
-
-#endif /* ASYNCWEBSOCKET_H_ */

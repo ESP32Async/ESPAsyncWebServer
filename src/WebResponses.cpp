@@ -5,6 +5,10 @@
 #include "WebResponseImpl.h"
 #include "AsyncWebServerLogging.h"
 
+#include <algorithm>
+#include <memory>
+#include <utility>
+
 #ifndef CONFIG_LWIP_TCP_WND_DEFAULT
 // as it is defined for esp32's LWIP
 #define CONFIG_LWIP_TCP_WND_DEFAULT 5760

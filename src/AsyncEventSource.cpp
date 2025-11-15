@@ -4,6 +4,10 @@
 #include "AsyncEventSource.h"
 #include "AsyncWebServerLogging.h"
 
+#include <algorithm>
+#include <memory>
+#include <utility>
+
 #define ASYNC_SSE_NEW_LINE_CHAR (char)0xa
 
 using namespace asyncsrv;

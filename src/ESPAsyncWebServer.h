@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
 
-#ifndef _ESPAsyncWebServer_H_
-#define _ESPAsyncWebServer_H_
+#pragma once
 
 #include <Arduino.h>
 #include <FS.h>
@@ -12,7 +11,10 @@
 #include <deque>
 #include <functional>
 #include <list>
+#include <memory>
+#include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #if __has_include("ArduinoJson.h")
@@ -45,14 +47,14 @@
 #error Platform not supported
 #endif
 
-#include "literals.h"
-
 #include "AsyncWebServerVersion.h"
 #define ASYNCWEBSERVER_FORK_ESP32Async
 
 #ifdef ASYNCWEBSERVER_REGEX
 #include <regex>
 #endif
+
+#include "./literals.h"
 
 // See https://github.com/ESP32Async/ESPAsyncWebServer/commit/3d3456e9e81502a477f6498c44d0691499dda8f9#diff-646b25b11691c11dce25529e3abce843f0ba4bd07ab75ec9eee7e72b06dbf13fR388-R392
 // This setting slowdown chunk serving but avoids crashing or deadlocks in the case where slow chunk responses are created, like file serving form SD Card
@@ -1584,5 +1586,3 @@ public:
 #if ASYNC_JSON_SUPPORT == 1
 #include <AsyncJson.h>
 #endif
-
-#endif /* _AsyncWebServer_H_ */

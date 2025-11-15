@@ -4,8 +4,6 @@
 #include "AsyncWebSocket.h"
 #include "AsyncWebServerLogging.h"
 
-#include <cstring>
-
 #include <libb64/cencode.h>
 
 #if defined(ESP32)
@@ -20,6 +18,12 @@
 #elif defined(LIBRETINY)
 #include <mbedtls/sha1.h>
 #endif
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <utility>
 
 using namespace asyncsrv;
 
@@ -48,10 +52,10 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
   uint8_t headLen = 2;
   if (len && mask) {
     headLen += 4;
-    mbuf[0] = rand() % 0xFF;
-    mbuf[1] = rand() % 0xFF;
-    mbuf[2] = rand() % 0xFF;
-    mbuf[3] = rand() % 0xFF;
+    mbuf[0] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+    mbuf[1] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+    mbuf[2] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+    mbuf[3] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
   }
   if (len > 125) {
     headLen += 2;

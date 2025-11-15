@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
 
-#ifndef CHUNKPRINT_H
-#define CHUNKPRINT_H
+#pragma once
 
 #include <Print.h>
 
@@ -20,4 +19,3 @@ public:
     return this->Print::write(buffer, size);
   }
 };
-#endif

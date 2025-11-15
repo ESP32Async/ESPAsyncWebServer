@@ -4,6 +4,8 @@
 #include "WebAuthentication.h"
 #include <ESPAsyncWebServer.h>
 
+#include <list>
+
 AsyncMiddlewareChain::~AsyncMiddlewareChain() {
   for (AsyncMiddleware *m : _middlewares) {
     if (m->_freeOnRemoval) {

@@ -5,8 +5,13 @@
 #include "WebAuthentication.h"
 #include "WebResponseImpl.h"
 #include "AsyncWebServerLogging.h"
-#include "literals.h"
+
+#include <algorithm>
 #include <cstring>
+#include <memory>
+#include <utility>
+
+#include "./literals.h"
 
 static inline bool isParamChar(char c) {
   return ((c) && ((c) != '{') && ((c) != '[') && ((c) != '&') && ((c) != '='));

@@ -113,14 +113,14 @@ public:
     _onRequest = fn;
   }
 
-  bool canHandle(AsyncWebServerRequest *request) const override final;
-  void handleRequest(AsyncWebServerRequest *request) override final;
+  bool canHandle(AsyncWebServerRequest *request) const final;
+  void handleRequest(AsyncWebServerRequest *request) final;
   void handleUpload(
     __unused AsyncWebServerRequest *request, __unused const String &filename, __unused size_t index, __unused uint8_t *data, __unused size_t len,
     __unused bool final
-  ) override final {}
-  void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) override final;
-  bool isRequestHandlerTrivial() const override final {
+  ) final {}
+  void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) final;
+  bool isRequestHandlerTrivial() const final {
     return !_onRequest;
   }
 };

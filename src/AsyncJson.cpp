@@ -4,6 +4,8 @@
 #include "AsyncJson.h"
 #include "AsyncWebServerLogging.h"
 
+#include <utility>
+
 #if ASYNC_JSON_SUPPORT == 1
 
 // Json content type response classes

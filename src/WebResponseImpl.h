@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
 
-#ifndef ASYNCWEBSERVERRESPONSEIMPL_H_
-#define ASYNCWEBSERVERRESPONSEIMPL_H_
+#pragma once
 
 #ifdef Arduino_h
 // arduino is not compatible with std::vector
 #undef min
 #undef max
 #endif
-#include "literals.h"
 #include <cbuf.h>
+
 #include <memory>
 #include <vector>
+
+#include "./literals.h"
 
 #ifndef CONFIG_LWIP_TCP_MSS
 // as it is defined for ESP32's Arduino LWIP
@@ -34,11 +35,11 @@ public:
   explicit AsyncBasicResponse(int code, const char *contentType = asyncsrv::empty, const char *content = asyncsrv::empty);
   AsyncBasicResponse(int code, const String &contentType, const String &content = emptyString)
     : AsyncBasicResponse(code, contentType.c_str(), content.c_str()) {}
-  void _respond(AsyncWebServerRequest *request) override final;
-  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override final {
+  void _respond(AsyncWebServerRequest *request) final;
+  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) final {
     return write_send_buffs(request, len, time);
   };
-  bool _sourceValid() const override final {
+  bool _sourceValid() const final {
     return true;
   }
 
@@ -97,8 +98,8 @@ protected:
 public:
   AsyncAbstractResponse(AwsTemplateProcessor callback = nullptr);
   virtual ~AsyncAbstractResponse() {}
-  void _respond(AsyncWebServerRequest *request) override final;
-  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override final {
+  void _respond(AsyncWebServerRequest *request) final;
+  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) final {
     return write_send_buffs(request, len, time);
   };
   virtual bool _sourceValid() const {
@@ -134,10 +135,10 @@ public:
   ~AsyncFileResponse() {
     _content.close();
   }
-  bool _sourceValid() const override final {
+  bool _sourceValid() const final {
     return !!(_content);
   }
-  size_t _fillBuffer(uint8_t *buf, size_t maxLen) override final;
+  size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
 };
 
 class AsyncStreamResponse : public AsyncAbstractResponse {
@@ -148,10 +149,10 @@ public:
   AsyncStreamResponse(Stream &stream, const char *contentType, size_t len, AwsTemplateProcessor callback = nullptr);
   AsyncStreamResponse(Stream &stream, const String &contentType, size_t len, AwsTemplateProcessor callback = nullptr)
     : AsyncStreamResponse(stream, contentType.c_str(), len, callback) {}
-  bool _sourceValid() const override final {
+  bool _sourceValid() const final {
     return !!(_content);
   }
-  size_t _fillBuffer(uint8_t *buf, size_t maxLen) override final;
+  size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
 };
 
 class AsyncCallbackResponse : public AsyncAbstractResponse {
@@ -163,10 +164,10 @@ public:
   AsyncCallbackResponse(const char *contentType, size_t len, AwsResponseFiller callback, AwsTemplateProcessor templateCallback = nullptr);
   AsyncCallbackResponse(const String &contentType, size_t len, AwsResponseFiller callback, AwsTemplateProcessor templateCallback = nullptr)
     : AsyncCallbackResponse(contentType.c_str(), len, callback, templateCallback) {}
-  bool _sourceValid() const override final {
+  bool _sourceValid() const final {
     return !!(_content);
   }
-  size_t _fillBuffer(uint8_t *buf, size_t maxLen) override final;
+  size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
 };
 
 class AsyncChunkedResponse : public AsyncAbstractResponse {
@@ -178,10 +179,10 @@ public:
   AsyncChunkedResponse(const char *contentType, AwsResponseFiller callback, AwsTemplateProcessor templateCallback = nullptr);
   AsyncChunkedResponse(const String &contentType, AwsResponseFiller callback, AwsTemplateProcessor templateCallback = nullptr)
     : AsyncChunkedResponse(contentType.c_str(), callback, templateCallback) {}
-  bool _sourceValid() const override final {
+  bool _sourceValid() const final {
     return !!(_content);
   }
-  size_t _fillBuffer(uint8_t *buf, size_t maxLen) override final;
+  size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
 };
 
 class AsyncProgmemResponse : public AsyncAbstractResponse {
@@ -194,10 +195,10 @@ public:
   AsyncProgmemResponse(int code, const char *contentType, const uint8_t *content, size_t len, AwsTemplateProcessor callback = nullptr);
   AsyncProgmemResponse(int code, const String &contentType, const uint8_t *content, size_t len, AwsTemplateProcessor callback = nullptr)
     : AsyncProgmemResponse(code, contentType.c_str(), content, len, callback) {}
-  bool _sourceValid() const override final {
+  bool _sourceValid() const final {
     return true;
   }
-  size_t _fillBuffer(uint8_t *buf, size_t maxLen) override final;
+  size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
 };
 
 class AsyncResponseStream : public AsyncAbstractResponse, public Print {
@@ -207,10 +208,10 @@ private:
 public:
   AsyncResponseStream(const char *contentType, size_t bufferSize);
   AsyncResponseStream(const String &contentType, size_t bufferSize) : AsyncResponseStream(contentType.c_str(), bufferSize) {}
-  bool _sourceValid() const override final {
+  bool _sourceValid() const final {
     return (_state < RESPONSE_END);
   }
-  size_t _fillBuffer(uint8_t *buf, size_t maxLen) override final;
+  size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
   size_t write(const uint8_t *data, size_t len);
   size_t write(uint8_t data);
   /**
@@ -221,5 +222,3 @@ public:
   }
   using Print::write;
 };
-
-#endif /* ASYNCWEBSERVERRESPONSEIMPL_H_ */

@@ -5,6 +5,9 @@
 #include "WebHandlerImpl.h"
 #include "AsyncWebServerLogging.h"
 
+#include <cstdio>
+#include <utility>
+
 using namespace asyncsrv;
 
 AsyncWebHandler &AsyncWebHandler::setFilter(ArRequestFilterFunction fn) {
@@ -76,7 +79,7 @@ AsyncStaticWebHandler &AsyncStaticWebHandler::setLastModified(struct tm *last_mo
   char result[30];
 #ifdef ESP8266
   auto formatP = PSTR("%a, %d %b %Y %H:%M:%S GMT");
-  char format[strlen_P(formatP) + 1];
+  char format[strlen_P(formatP) + 1];  // NOLINT(runtime/arrays)
   strcpy_P(format, formatP);
 #else
   static constexpr const char *format = "%a, %d %b %Y %H:%M:%S GMT";

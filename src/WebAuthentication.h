@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
 
-#ifndef WEB_AUTHENTICATION_H_
-#define WEB_AUTHENTICATION_H_
+#pragma once
 
 #include "Arduino.h"
 
@@ -19,5 +18,3 @@ String generateDigestHash(const char *username, const char *password, const char
 String generateBasicHash(const char *username, const char *password);
 
 String genRandomMD5();
-
-#endif

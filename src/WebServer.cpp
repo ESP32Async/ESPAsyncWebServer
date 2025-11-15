@@ -4,6 +4,9 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
+#include <string>
+#include <utility>
+
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY)
 #include <WiFi.h>
 #elif defined(ESP8266)

@@ -8,9 +8,10 @@
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 #include <MD5Builder.h>
 #else
-#include "md5.h"
+#include <md5.h>
 #endif
-#include "literals.h"
+
+#include "./literals.h"
 
 using namespace asyncsrv;
 
@@ -84,7 +85,7 @@ String genRandomMD5() {
 #ifdef ESP8266
   uint32_t r = RANDOM_REG32;
 #else
-  uint32_t r = rand();
+  uint32_t r = rand();  // NOLINT(runtime/threadsafe_fn)
 #endif
   char *out = (char *)malloc(33);
   if (out == NULL || !getMD5((uint8_t *)(&r), 4, out)) {
