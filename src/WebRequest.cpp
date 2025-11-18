@@ -317,6 +317,24 @@ bool AsyncWebServerRequest::_parseReqHead() {
     _method = HTTP_HEAD;
   } else if (m == T_OPTIONS) {
     _method = HTTP_OPTIONS;
+  } else if(m == "PROPFIND"){
+    _method = HTTP_PROPFIND;
+  } else if(m == "LOCK"){
+    _method = HTTP_LOCK;
+  } else if(m == "UNLOCK"){
+    _method = HTTP_UNLOCK;
+  } else if(m == "PROPPATCH"){
+    _method = HTTP_PROPPATCH;
+  } else if(m == "MKCOL"){
+    _method = HTTP_MKCOL;
+  } else if(m == "MOVE"){
+    _method = HTTP_MOVE;
+  } else if(m == "COPY"){
+    _method = HTTP_COPY;
+  } else if(m == "RESERVED"){
+    _method = HTTP_RESERVED;
+  } else if(m == "ANY"){
+    _method = HTTP_ANY;
   } else {
     return false;
   }
@@ -1156,6 +1174,30 @@ const char *AsyncWebServerRequest::methodToString() const {
   }
   if (_method & HTTP_OPTIONS) {
     return T_OPTIONS;
+  }
+  if (_method & HTTP_PROPFIND) {
+      return "PROPFIND";
+  }
+  if (_method & HTTP_LOCK) {
+      return "LOCK";
+  }
+  if (_method & HTTP_UNLOCK) {
+      return "UNLOCK";
+  }
+  if (_method & HTTP_PROPPATCH) {
+      return "PROPPATCH";
+  }
+  if (_method & HTTP_MKCOL) {
+      return "MKCOL";
+  }
+  if (_method & HTTP_MOVE) {
+      return "MOVE";
+  }
+  if (_method & HTTP_COPY) {
+      return "COPY";
+  }
+  if (_method & HTTP_RESERVED) {
+      return "RESERVED";
   }
   return T_UNKNOWN;
 }
