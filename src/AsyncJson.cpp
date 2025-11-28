@@ -61,6 +61,9 @@ size_t AsyncJsonResponse::_fillBuffer(uint8_t *data, size_t len) {
 #else
   serializeJson(_root, dest);
 #endif
+  if (_isValid) {
+    return std::min(len, _contentLength - _sentLength);
+  }
   return len;
 }
 
@@ -89,6 +92,9 @@ size_t PrettyAsyncJsonResponse::_fillBuffer(uint8_t *data, size_t len) {
 #else
   serializeJsonPretty(_root, dest);
 #endif
+  if (_isValid) {
+    return std::min(len, _contentLength - _sentLength);
+  }
   return len;
 }
 
@@ -106,6 +112,9 @@ size_t AsyncMessagePackResponse::setLength() {
 size_t AsyncMessagePackResponse::_fillBuffer(uint8_t *data, size_t len) {
   ChunkPrint dest(data, _sentLength, len);
   serializeMsgPack(_root, dest);
+  if (_isValid) {
+    return std::min(len, _contentLength - _sentLength);
+  }
   return len;
 }
 
