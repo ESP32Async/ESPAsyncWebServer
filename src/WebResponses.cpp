@@ -266,7 +266,7 @@ AsyncBasicResponse::AsyncBasicResponse(int code, const char *contentType, const 
       _contentType = T_text_plain;
     }
   }
-  addHeader(T_Connection, T_close, false);
+  // addHeader(T_Connection, T_close, false);
 }
 
 void AsyncBasicResponse::_respond(AsyncWebServerRequest *request) {
@@ -336,7 +336,7 @@ AsyncAbstractResponse::AsyncAbstractResponse(AwsTemplateProcessor callback) : _c
 }
 
 void AsyncAbstractResponse::_respond(AsyncWebServerRequest *request) {
-  addHeader(T_Connection, T_close, false);
+  // addHeader(T_Connection, T_close, false);
   _assembleHead(_assembled_headers, request->version());
   _state = RESPONSE_HEADERS;
   write_send_buffs(request, 0, 0);
