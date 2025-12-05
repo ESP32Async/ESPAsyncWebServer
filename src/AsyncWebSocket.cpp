@@ -515,7 +515,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       _pinfo.index = 0;
       _pinfo.final = (fdata[0] & 0x80) != 0;
       _pinfo.opcode = fdata[0] & 0x0F;
-      _pinfo.masked = (fdata[1] & 0x80) != 0;
+      _pinfo.masked = ((fdata[1] & 0x80) != 0) ? 1 : 0;
       _pinfo.len = fdata[1] & 0x7F;
 
       // async_ws_log_d("WS[%" PRIu32 "]: _onData: %" PRIu32, _clientId, plen);
@@ -536,12 +536,20 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         data += 8;
         plen -= 8;
       }
+    }
 
-      if (_pinfo.masked
-          && plen >= 4) {  // if ws.close() is called, Safari sends a close frame with plen 2 and masked bit set. We must not decrement plen which is already 0.
-        memcpy(_pinfo.mask, data, 4);
-        data += 4;
-        plen -= 4;
+    if (_pinfo.masked > 0 && _pinfo.masked < 5) {
+      // Handle fragmented mask data - Safari may split the 4-byte mask across multiple packets
+      while (_pinfo.masked < 5) {
+        if (plen == 0) {
+          //wait for more data
+          _pstate = 1;
+          return;
+        }
+        _pinfo.mask[_pinfo.masked - 1] = data[0];
+        data += 1;
+        plen -= 1;
+        _pinfo.masked++;
       }
     }
 
