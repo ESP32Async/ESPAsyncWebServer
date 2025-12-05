@@ -515,12 +515,15 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       _pinfo.index = 0;
       _pinfo.final = (fdata[0] & 0x80) != 0;
       _pinfo.opcode = fdata[0] & 0x0F;
-      _pinfo.masked = (fdata[1] & 0x80) != 0;
+      _pinfo.masked = ((fdata[1] & 0x80) != 0) ? 1 : 0;
       _pinfo.len = fdata[1] & 0x7F;
 
-      // async_ws_log_d("WS[%" PRIu32 "]: _onData: %" PRIu32, _clientId, plen);
-      // async_ws_log_d("WS[%" PRIu32 "]: _status = %" PRIu32, _clientId, _status);
-      // async_ws_log_d("WS[%" PRIu32 "]: _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index, _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len);
+      // async_ws_log_w("WS[%" PRIu32 "]: _onData: %" PRIu32, _clientId, plen);
+      // async_ws_log_w("WS[%" PRIu32 "]: _status = %" PRIu32, _clientId, _status);
+      // async_ws_log_w(
+      //   "WS[%" PRIu32 "]: _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index,
+      //   _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
+      // );
 
       data += 2;
       plen -= 2;
@@ -536,17 +539,49 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         data += 8;
         plen -= 8;
       }
+    }
 
-      if (_pinfo.masked
-          && plen >= 4) {  // if ws.close() is called, Safari sends a close frame with plen 2 and masked bit set. We must not decrement plen which is already 0.
-        memcpy(_pinfo.mask, data, 4);
-        data += 4;
-        plen -= 4;
+    if (_pinfo.masked) {
+      // Read mask bytes (may be fragmented across packets in Safari)
+      size_t mask_offset = 0;
+
+      // If we're resuming from a previous fragmented read, check _pinfo.index
+      if (_pstate == 1 && _pinfo.index < 4) {
+        mask_offset = _pinfo.index;
+      }
+
+      // Read as many mask bytes as available
+      while (mask_offset < 4 && plen > 0) {
+        _pinfo.mask[mask_offset++] = *data++;
+        plen--;
+      }
+
+      // Check if we have all 4 mask bytes
+      if (mask_offset < 4) {
+        // Incomplete mask
+        if (_pinfo.opcode == WS_DISCONNECT && plen == 0) {
+          // Safari close frame edge case: masked bit set but no mask data
+          // async_ws_log_w("WS[%" PRIu32 "]: close frame with incomplete mask, treating as unmasked", _clientId);
+          _pinfo.masked = 0;
+          _pinfo.index = 0;
+        } else {
+          // Wait for more data
+          // async_ws_log_w("WS[%" PRIu32 "]: waiting for more mask data: read=%zu/4", _clientId, mask_offset);
+          _pinfo.index = mask_offset;  // Save progress
+          _pstate = 1;
+          return;
+        }
+      } else {
+        // All mask bytes received
+        // async_ws_log_w("WS[%" PRIu32 "]: mask complete", _clientId);
+        _pinfo.index = 0;  // Reset index for payload processing
       }
     }
 
     const size_t datalen = std::min((size_t)(_pinfo.len - _pinfo.index), plen);
     const auto datalast = data[datalen];
+
+    // async_ws_log_w("WS[%" PRIu32 "]: _processing data: datalen=%" PRIu32 ", plen=%" PRIu32, _clientId, datalen, plen);
 
     if (_pinfo.masked) {
       for (size_t i = 0; i < datalen; i++) {
@@ -606,7 +641,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         }
       }
     } else {
-      // os_printf("frame error: len: %u, index: %llu, total: %llu\n", datalen, _pinfo.index, _pinfo.len);
+      // async_ws_log_w("frame error: len: %u, index: %llu, total: %llu\n", datalen, _pinfo.index, _pinfo.len);
       // what should we do?
       break;
     }
