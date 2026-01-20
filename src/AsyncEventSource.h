@@ -272,6 +272,10 @@ public:
   // close all connected clients
   void close();
 
+  // Cleanup internal resources.
+  // Has to be called periodically in the loop
+  void cleanup();
+
   /**
      * @brief set on-connect callback for the client
      * used to deliver messages to client on first connect
