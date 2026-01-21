@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
-#ifndef ASYNCWEBSOCKET_H_
-#define ASYNCWEBSOCKET_H_
+#pragma once
 
 #include <Arduino.h>
 
@@ -32,6 +31,9 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncWebServerLogging.h>
 
+#include <cstdio>
+#include <deque>
+#include <list>
 #include <memory>
 
 #ifdef ESP8266
@@ -211,6 +213,9 @@ private:
   AsyncWebSocket *_server;
   uint32_t _clientId;
   AwsClientStatus _status;
+  uint8_t _pstate;
+  uint32_t _lastMessageTime;
+  uint32_t _keepAlivePeriod;
 #ifdef ESP32
   mutable std::recursive_mutex _lock;
 #endif
@@ -218,11 +223,7 @@ private:
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool closeWhenFull = true;
 
-  uint8_t _pstate;
   AwsFrameInfo _pinfo;
-
-  uint32_t _lastMessageTime;
-  uint32_t _keepAlivePeriod;
 
   bool _queueControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false);
   bool _queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
@@ -232,7 +233,15 @@ private:
 public:
   void *_tempObject;
 
-  AsyncWebSocketClient(AsyncWebServerRequest *request, AsyncWebSocket *server);
+  AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *server);
+
+  /**
+   * @brief Construct a new Async Web Socket Client object
+   * @note constructor would take the ownership of of AsyncTCP's client pointer from `request` parameter and call delete on it!
+   * @param request
+   * @param server
+   */
+  AsyncWebSocketClient(AsyncWebServerRequest *request, AsyncWebSocket *server) : AsyncWebSocketClient(request->clientRelease(), server){};
   ~AsyncWebSocketClient();
 
   // client id increments for the given server
@@ -447,8 +456,8 @@ public:
   AsyncWebSocketClient *_newClient(AsyncWebServerRequest *request);
   void _handleDisconnect(AsyncWebSocketClient *client);
   void _handleEvent(AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-  bool canHandle(AsyncWebServerRequest *request) const override final;
-  void handleRequest(AsyncWebServerRequest *request) override final;
+  bool canHandle(AsyncWebServerRequest *request) const final;
+  void handleRequest(AsyncWebServerRequest *request) final;
 
   //  messagebuffer functions/objects.
   AsyncWebSocketMessageBuffer *makeBuffer(size_t size = 0);
@@ -464,11 +473,16 @@ class AsyncWebSocketResponse : public AsyncWebServerResponse {
 private:
   String _content;
   AsyncWebSocket *_server;
+  AsyncWebServerRequest *_request;
+  // this call back will switch AsyncTCP client to WebSocket
+  void _switchClient();
 
 public:
   AsyncWebSocketResponse(const String &key, AsyncWebSocket *server);
   void _respond(AsyncWebServerRequest *request);
-  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time);
+  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override {
+    return 0;
+  };
   bool _sourceValid() const {
     return true;
   }
@@ -555,5 +569,3 @@ private:
     }
   };
 };
-
-#endif /* ASYNCWEBSOCKET_H_ */

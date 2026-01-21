@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#pragma once
+
 #include <Arduino.h>
 #if ESP_IDF_VERSION_MAJOR < 5
-
-#ifndef SHA1Builder_h
-#define SHA1Builder_h
 
 #include <Stream.h>
 #include <WString.h>
@@ -38,7 +37,5 @@ public:
   void calculate();
   void getBytes(uint8_t *output);
 };
-
-#endif  // SHA1Builder_h
 
 #endif  // ESP_IDF_VERSION_MAJOR < 5

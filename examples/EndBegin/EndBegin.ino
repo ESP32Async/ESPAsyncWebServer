@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // https://github.com/ESP32Async/ESPAsyncWebServer/discussions/23
@@ -24,7 +24,7 @@ static AsyncWebServer server(80);
 void setup() {
   Serial.begin(115200);
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
@@ -39,6 +39,10 @@ void setup() {
 
   Serial.println("end()");
   server.end();
+
+  Serial.println("waiting before restarting server...");
+  delay(100);
+
   server.begin();
   Serial.println("begin() - run: curl -v http://192.168.4.1/ => should succeed");
 }

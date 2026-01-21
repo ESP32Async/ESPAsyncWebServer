@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 #include "AsyncEventSource.h"
 #include "AsyncWebServerLogging.h"
+
+#include <algorithm>
+#include <memory>
+#include <utility>
 
 #define ASYNC_SSE_NEW_LINE_CHAR (char)0xa
 
@@ -143,7 +147,7 @@ size_t AsyncEventSourceMessage::send(AsyncClient *client) {
 
 // Client
 
-AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, AsyncEventSource *server) : _client(request->client()), _server(server) {
+AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, AsyncEventSource *server) : _client(request->clientRelease()), _server(server) {
 
   if (request->hasHeader(T_Last_Event_ID)) {
     _lastId = atoi(request->getHeader(T_Last_Event_ID)->value().c_str());
@@ -181,9 +185,9 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, A
   );
 
   _server->_addClient(this);
-  delete request;
-
   _client->setNoDelay(true);
+  // delete AsyncWebServerRequest object (and bound response) since we have the ownership on client connection now
+  delete request;
 }
 
 AsyncEventSourceClient::~AsyncEventSourceClient() {
@@ -285,7 +289,7 @@ void AsyncEventSourceClient::_onPoll() {
 
 void AsyncEventSourceClient::_onTimeout(uint32_t time __attribute__((unused))) {
   if (_client) {
-    _client->close(true);
+    _client->close();
   }
 }
 
@@ -470,8 +474,7 @@ void AsyncEventSource::_adjust_inflight_window() {
 
 /*  Response  */
 
-AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server) {
-  _server = server;
+AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server) : _server(server) {
   _code = 200;
   _contentType = T_text_event_stream;
   _sendContentLength = false;
@@ -482,13 +485,24 @@ AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server) {
 void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
   String out;
   _assembleHead(out, request->version());
+  // unbind client's onAck callback from AsyncWebServerRequest's, we will destroy it on next callback and steal the client,
+  // can't do it now 'cause now we are in AsyncWebServerRequest::_onAck 's stack actually
+  // here we are loosing time on one RTT delay, but with current design we can't get rid of Req/Resp objects other way
+  _request = request;
+  request->client()->onAck(
+    [](void *r, AsyncClient *c, size_t len, uint32_t time) {
+      if (len) {
+        static_cast<AsyncEventSourceResponse *>(r)->_switchClient();
+      }
+    },
+    this
+  );
   request->client()->write(out.c_str(), _headLength);
   _state = RESPONSE_WAIT_ACK;
 }
 
-size_t AsyncEventSourceResponse::_ack(AsyncWebServerRequest *request, size_t len, uint32_t time __attribute__((unused))) {
-  if (len) {
-    new AsyncEventSourceClient(request, _server);
-  }
-  return 0;
-}
+void AsyncEventSourceResponse::_switchClient() {
+  // AsyncEventSourceClient c-tor will take the ownership of AsyncTCP's client connection
+  new AsyncEventSourceClient(_request, _server);
+  // AsyncEventSourceClient c-tor would also delete _request and *this
+};

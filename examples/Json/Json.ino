@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // Shows how to send and receive Json data
@@ -19,27 +19,21 @@
 
 #include <ESPAsyncWebServer.h>
 
-#if __has_include("ArduinoJson.h")
-#include <ArduinoJson.h>
-#include <AsyncJson.h>
-#include <AsyncMessagePack.h>
-#endif
-
 static AsyncWebServer server(80);
 
-#if __has_include("ArduinoJson.h")
+#if ASYNC_JSON_SUPPORT == 1
 static AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/json2");
 #endif
 
 void setup() {
   Serial.begin(115200);
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
 
-#if __has_include("ArduinoJson.h")
+#if ASYNC_JSON_SUPPORT == 1
   //
   // sends JSON using AsyncJsonResponse
   //
@@ -62,8 +56,8 @@ void setup() {
     JsonDocument doc;
     JsonObject root = doc.to<JsonObject>();
     root["foo"] = "bar";
-    serializeJson(root, *response);
-    Serial.println();
+    // serializeJson(root, Serial);
+    // Serial.println();
     request->send(response);
   });
 
@@ -92,12 +86,38 @@ void setup() {
   });
 
   server.addHandler(handler);
+
+  // New Json API since 3.8.2, which works for both Json and MessagePack bodies
+  // curl -v -X POST -H 'Content-Type: application/json' -d '{"name":"You"}' http://192.168.4.1/json3
+
+  server.on("/json3", HTTP_POST, [](AsyncWebServerRequest *request, JsonVariant &json) {
+    Serial.printf("Body request : ");
+    serializeJson(json, Serial);
+    Serial.println();
+    AsyncJsonResponse *response = new AsyncJsonResponse();
+    JsonObject root = response->getRoot().to<JsonObject>();
+    root["hello"] = json.as<JsonObject>()["name"];
+    response->setLength();
+    request->send(response);
+  });
 #endif
 
   server.begin();
 }
 
-// not needed
+static uint32_t lastHeapTime = 0;
+static uint32_t lastHeap = 0;
+
 void loop() {
-  delay(100);
+#ifdef ESP32
+  uint32_t now = millis();
+  if (now - lastHeapTime >= 500) {
+    uint32_t heap = ESP.getFreeHeap();
+    if (heap != lastHeap) {
+      lastHeap = heap;
+      async_ws_log_w("Free heap: %" PRIu32, heap);
+    }
+    lastHeapTime = now;
+  }
+#endif
 }

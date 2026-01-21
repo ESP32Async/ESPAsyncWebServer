@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // WebSocket example
@@ -19,16 +19,57 @@
 
 #include <ESPAsyncWebServer.h>
 
+static const char *htmlContent PROGMEM = R"(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebSocket</title>
+</head>
+<body>
+  <h1>WebSocket Example</h1>
+  <p>Open your browser console!</p>
+  <input type="text" id="message" placeholder="Type a message">
+  <button onclick='sendMessage()'>Send</button>
+  <script>
+    var ws = new WebSocket('ws://192.168.4.1/ws');
+    ws.onopen = function() {
+      console.log("WebSocket connected");
+    };
+    ws.onmessage = function(event) {
+      console.log("WebSocket message: " + event.data);
+    };
+    ws.onclose = function() {
+      console.log("WebSocket closed");
+    };
+    ws.onerror = function(error) {
+      console.log("WebSocket error: " + error);
+    };
+    function sendMessage() {
+      var message = document.getElementById("message").value;
+      ws.send(message);
+      console.log("WebSocket sent: " + message);
+    }
+  </script>
+</body>
+</html>
+  )";
+static const size_t htmlContentLength = strlen_P(htmlContent);
+
 static AsyncWebServer server(80);
 static AsyncWebSocket ws("/ws");
 
 void setup() {
   Serial.begin(115200);
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
+
+  // serves root html page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/html", (const uint8_t *)htmlContent, htmlContentLength);
+  });
 
   //
   // Run in terminal 1: websocat ws://192.168.4.1/ws => should stream data
@@ -66,6 +107,7 @@ void setup() {
         if (info->opcode == WS_TEXT) {
           data[len] = 0;
           Serial.printf("ws text: %s\n", (char *)data);
+          client->ping();
         }
       }
     }

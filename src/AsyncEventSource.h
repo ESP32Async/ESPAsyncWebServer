@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
-#ifndef ASYNCEVENTSOURCE_H_
-#define ASYNCEVENTSOURCE_H_
+#pragma once
 
 #include <Arduino.h>
 
@@ -43,6 +42,10 @@
 #include <../src/Hash.h>
 #endif
 #endif
+
+#include <list>
+#include <memory>
+#include <utility>
 
 class AsyncEventSource;
 class AsyncEventSourceResponse;
@@ -141,6 +144,13 @@ private:
   void _runQueue();
 
 public:
+  /**
+   * @brief Construct a new Async Event Source Client object
+   * @note constructor would take the ownership of of AsyncTCP's client pointer from `request` parameter and call delete on it!
+   *
+   * @param request
+   * @param server
+   */
   AsyncEventSourceClient(AsyncWebServerRequest *request, AsyncEventSource *server);
   ~AsyncEventSourceClient();
 
@@ -305,21 +315,24 @@ public:
   // system callbacks (do not call from user code!)
   void _addClient(AsyncEventSourceClient *client);
   void _handleDisconnect(AsyncEventSourceClient *client);
-  bool canHandle(AsyncWebServerRequest *request) const override final;
-  void handleRequest(AsyncWebServerRequest *request) override final;
+  bool canHandle(AsyncWebServerRequest *request) const final;
+  void handleRequest(AsyncWebServerRequest *request) final;
 };
 
 class AsyncEventSourceResponse : public AsyncWebServerResponse {
 private:
   AsyncEventSource *_server;
+  AsyncWebServerRequest *_request;
+  // this call back will switch AsyncTCP client to SSE
+  void _switchClient();
 
 public:
   AsyncEventSourceResponse(AsyncEventSource *server);
   void _respond(AsyncWebServerRequest *request);
-  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time);
+  size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override {
+    return 0;
+  };
   bool _sourceValid() const {
     return true;
   }
 };
-
-#endif /* ASYNCEVENTSOURCE_H_ */

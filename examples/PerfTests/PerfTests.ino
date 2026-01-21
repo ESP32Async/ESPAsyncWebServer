@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // Perf tests
@@ -91,7 +91,7 @@ static volatile size_t requests = 0;
 void setup() {
   Serial.begin(115200);
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
@@ -118,9 +118,8 @@ void setup() {
 
   // HTTP endpoint
   //
-  // > brew install autocannon
-  // > autocannon -c 10 -w 10 -d 20 http://192.168.4.1
-  // > autocannon -c 16 -w 16 -d 20 http://192.168.4.1
+  // > autocannon -c 16 -w 16 -d 20 --renderStatusCodes  http://192.168.4.1/
+  // > ab -c 16 -t 20 http://192.168.4.1/
   //
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     // need to cast to uint8_t*
@@ -141,6 +140,11 @@ void setup() {
   // - l=10000 is the length of the response
   //
   // time curl -N -v -G -d 'd=2000' -d 'l=10000'  http://192.168.4.1/slow.html --output -
+  //
+  // THIS CODE WILL CRASH BECAUSE OF THE WATCHDOG.
+  // IF YOU REALLY NEED TO DO THIS, YOU MUST DISABLE THE TWDT
+  //
+  // CORRECT WAY IS TO USE SSE OR WEBSOCKETS TO DO THE COSTLY PROCESSING ASYNC.
   //
   server.on("/slow.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     requests = requests + 1;
@@ -168,7 +172,6 @@ void setup() {
   // SSS endpoint
   //
   // launch 16 concurrent workers for 30 seconds
-  // > for i in {1..10}; do ( count=$(gtimeout 30 curl -s -N -H "Accept: text/event-stream" http://192.168.4.1/events 2>&1 | grep -c "^data:"); echo "Total: $count events, $(echo "$count / 4" | bc -l) events / second" ) & done;
   // > for i in {1..16}; do ( count=$(gtimeout 30 curl -s -N -H "Accept: text/event-stream" http://192.168.4.1/events 2>&1 | grep -c "^data:"); echo "Total: $count events, $(echo "$count / 4" | bc -l) events / second" ) & done;
   //
   // With AsyncTCP, with 16 workers: a lot of "Event message queue overflow: discard message", no crash

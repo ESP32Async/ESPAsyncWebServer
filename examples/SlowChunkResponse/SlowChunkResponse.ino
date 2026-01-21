@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // Simulate a slow response in a chunk response (like file download from SD Card)
@@ -89,7 +89,7 @@ static size_t charactersIndex = 0;
 void setup() {
   Serial.begin(115200);
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
@@ -113,6 +113,11 @@ void setup() {
   // - l=10000 is the length of the response
   //
   // time curl -N -v -G -d 'd=2000' -d 'l=10000'  http://192.168.4.1/slow.html --output -
+  //
+  // THIS CODE WILL CRASH BECAUSE OF THE WATCHDOG.
+  // IF YOU REALLY NEED TO DO THIS, YOU MUST DISABLE THE TWDT
+  //
+  // CORRECT WAY IS TO USE SSE OR WEBSOCKETS TO DO THE COSTLY PROCESSING ASYNC.
   //
   server.on("/slow.html", HTTP_GET, [](AsyncWebServerRequest *request) {
     uint32_t d = request->getParam("d")->value().toInt();

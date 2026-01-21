@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // Chunk response with caching example
@@ -86,7 +86,7 @@ static const size_t htmlContentLength = strlen_P(htmlContent);
 void setup() {
   Serial.begin(115200);
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
@@ -94,11 +94,11 @@ void setup() {
   // first time: serves the file and cache headers
   // curl -N -v http://192.168.4.1/ --output -
   //
-  // secodn time: serves 304
+  // second time: serves 304
   // curl -N -v -H "if-none-match: 4272" http://192.168.4.1/ --output -
   //
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String etag = String(htmlContentLength);
+    String etag = "\"" + String(htmlContentLength) + "\"";  // RFC9110: ETag must be enclosed in double quotes
 
     if (request->header(asyncsrv::T_INM) == etag) {
       request->send(304);

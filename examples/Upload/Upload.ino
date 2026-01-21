@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 //
 // Demo text, binary and file upload
@@ -31,7 +31,7 @@ void setup() {
     LittleFS.begin();
   }
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
   WiFi.softAP("esp-captive");
 #endif
@@ -63,6 +63,7 @@ void setup() {
         if (!buffer->reserve(size)) {
           delete buffer;
           request->abort();
+          return;
         }
         request->_tempObject = buffer;
       }
@@ -100,6 +101,7 @@ void setup() {
 
         if (!request->_tempFile) {
           request->send(400, "text/plain", "File not available for writing");
+          return;
         }
       }
       if (len) {
@@ -141,6 +143,7 @@ void setup() {
 
       // first pass ?
       if (!index) {
+        // Note: using content type to determine size is not reliable!
         size_t size = request->header("Content-Length").toInt();
         if (!size) {
           request->send(400, "text/plain", "No Content-Length");
@@ -150,6 +153,7 @@ void setup() {
           if (!buffer) {
             // not enough memory
             request->abort();
+            return;
           } else {
             request->_tempObject = buffer;
           }
