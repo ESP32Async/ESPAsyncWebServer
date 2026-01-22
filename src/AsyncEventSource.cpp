@@ -209,7 +209,12 @@ bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
   std::lock_guard<std::recursive_mutex> lock(_lockmq);
 #endif
 
-  _messageQueue.emplace_back(message, len);
+  if (_client) {
+    _messageQueue.emplace_back(message, len);
+  } else {
+    _messageQueue.clear();
+    return false;
+  }
 
   /*
     throttle queue run
@@ -219,10 +224,6 @@ bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
   */
   if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
     _runQueue();
-
-  } else if (!_client) {
-    _messageQueue.clear();
-    return false;
   }
 
   return true;
@@ -239,7 +240,12 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
   std::lock_guard<std::recursive_mutex> lock(_lockmq);
 #endif
 
-  _messageQueue.emplace_back(std::move(msg));
+  if (_client) {
+    _messageQueue.emplace_back(std::move(msg));
+  } else {
+    _messageQueue.clear();
+    return false;
+  }
 
   /*
     throttle queue run
@@ -249,12 +255,7 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
   */
   if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
     _runQueue();
-
-  } else if (!_client) {
-    _messageQueue.clear();
-    return false;
   }
-
   return true;
 }
 
@@ -343,7 +344,7 @@ void AsyncEventSourceClient::_runQueue() {
   }
 
   // flush socket
-  if (total_bytes_written && _client) {
+  if (_client && total_bytes_written) {
     _client->send();
   }
 }
