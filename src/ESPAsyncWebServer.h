@@ -1367,7 +1367,8 @@ protected:
   static bool headerMustBePresentOnce(const String &name);
 
 public:
-  static const char *responseCodeToString(int code);
+  // Return type changes based on platform (const char* or __FlashStringHelper*)
+  static STR_RETURN_TYPE responseCodeToString(int code);
 
 public:
   AsyncWebServerResponse();
