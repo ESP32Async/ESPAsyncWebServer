@@ -10,16 +10,16 @@
 
 // Platform-specific string storage and return type
 #ifdef ARDUINO_ARCH_ESP8266
-  // On ESP8266, use PROGMEM storage and return __FlashStringHelper*
-  #include <pgmspace.h>
-  #define DECLARE_STR(name, value) static const char name##_PROGMEM[] PROGMEM = value
-  #define STR(name) (reinterpret_cast<const __FlashStringHelper*>(name##_PROGMEM))
-  #define STR_RETURN_TYPE const __FlashStringHelper*
+// On ESP8266, use PROGMEM storage and return __FlashStringHelper*
+#include <pgmspace.h>
+#define DECLARE_STR(name, value) static const char name##_PROGMEM[] PROGMEM = value
+#define STR(name)                (reinterpret_cast<const __FlashStringHelper *>(name##_PROGMEM))
+#define STR_RETURN_TYPE          const __FlashStringHelper *
 #else
-  // On other platforms, use regular constexpr for compile-time optimization
-  #define DECLARE_STR(name, value) static constexpr const char *name = value
-  #define STR(name) name
-  #define STR_RETURN_TYPE const char*
+// On other platforms, use regular constexpr for compile-time optimization
+#define DECLARE_STR(name, value) static constexpr const char *name = value
+#define STR(name)                name
+#define STR_RETURN_TYPE          const char *
 #endif
 
 namespace asyncsrv {
