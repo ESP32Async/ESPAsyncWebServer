@@ -81,7 +81,6 @@
 
 /**
  * ESP8266 specific configurations
- * Note: __FUNCTION__ is stored in flash on ESP8266, so we use FPSTR() to handle it properly
  */
 #elif defined(ESP8266)
 #include <ets_sys.h>
