@@ -101,6 +101,7 @@ static constexpr const char T_uri[] = "uri";
 static constexpr const char T_username[] = "username";
 static constexpr const char T_WS[] = "websocket";
 static constexpr const char T_WWW_AUTH[] = "WWW-Authenticate";
+static constexpr const char T_X_Expected_Entity_Length[] = "X-Expected-Entity-Length";
 
 // HTTP Methods
 static constexpr const char T_ANY[] = "ANY";
@@ -183,6 +184,7 @@ DECLARE_STR(T_HTTP_CODE_203, "Non-Authoritative Information");
 DECLARE_STR(T_HTTP_CODE_204, "No Content");
 DECLARE_STR(T_HTTP_CODE_205, "Reset Content");
 DECLARE_STR(T_HTTP_CODE_206, "Partial Content");
+DECLARE_STR(T_HTTP_CODE_207, "Multi Status");
 DECLARE_STR(T_HTTP_CODE_300, "Multiple Choices");
 DECLARE_STR(T_HTTP_CODE_301, "Moved Permanently");
 DECLARE_STR(T_HTTP_CODE_302, "Found");
