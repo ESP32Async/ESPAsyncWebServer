@@ -3,6 +3,25 @@
 
 #pragma once
 
+// Include WString.h for F() macro support on Arduino platforms
+#ifdef ARDUINO
+#include <WString.h>
+#endif
+
+// Platform-specific string storage and return type
+#ifdef ARDUINO_ARCH_ESP8266
+// On ESP8266, use PROGMEM storage and return __FlashStringHelper*
+#include <pgmspace.h>
+#define DECLARE_STR(name, value) static const char name##_PROGMEM[] PROGMEM = value
+#define STR(name)                (reinterpret_cast<const __FlashStringHelper *>(name##_PROGMEM))
+#define STR_RETURN_TYPE          const __FlashStringHelper *
+#else
+// On other platforms, use regular constexpr for compile-time optimization
+#define DECLARE_STR(name, value) static constexpr const char *name = value
+#define STR(name)                name
+#define STR_RETURN_TYPE          const char *
+#endif
+
 namespace asyncsrv {
 
 static constexpr const char empty[] = "";
@@ -154,49 +173,49 @@ static constexpr const char T_text_xml[] = "text/xml";
 static constexpr const char T_video_mp4[] = "video/mp4";
 static constexpr const char T_video_webm[] = "video/webm";
 
-// Response codes
-static constexpr const char T_HTTP_CODE_100[] = "Continue";
-static constexpr const char T_HTTP_CODE_101[] = "Switching Protocols";
-static constexpr const char T_HTTP_CODE_200[] = "OK";
-static constexpr const char T_HTTP_CODE_201[] = "Created";
-static constexpr const char T_HTTP_CODE_202[] = "Accepted";
-static constexpr const char T_HTTP_CODE_203[] = "Non-Authoritative Information";
-static constexpr const char T_HTTP_CODE_204[] = "No Content";
-static constexpr const char T_HTTP_CODE_205[] = "Reset Content";
-static constexpr const char T_HTTP_CODE_206[] = "Partial Content";
-static constexpr const char T_HTTP_CODE_300[] = "Multiple Choices";
-static constexpr const char T_HTTP_CODE_301[] = "Moved Permanently";
-static constexpr const char T_HTTP_CODE_302[] = "Found";
-static constexpr const char T_HTTP_CODE_303[] = "See Other";
-static constexpr const char T_HTTP_CODE_304[] = "Not Modified";
-static constexpr const char T_HTTP_CODE_305[] = "Use Proxy";
-static constexpr const char T_HTTP_CODE_307[] = "Temporary Redirect";
-static constexpr const char T_HTTP_CODE_400[] = "Bad Request";
-static constexpr const char T_HTTP_CODE_401[] = "Unauthorized";
-static constexpr const char T_HTTP_CODE_402[] = "Payment Required";
-static constexpr const char T_HTTP_CODE_403[] = "Forbidden";
-static constexpr const char T_HTTP_CODE_404[] = "Not Found";
-static constexpr const char T_HTTP_CODE_405[] = "Method Not Allowed";
-static constexpr const char T_HTTP_CODE_406[] = "Not Acceptable";
-static constexpr const char T_HTTP_CODE_407[] = "Proxy Authentication Required";
-static constexpr const char T_HTTP_CODE_408[] = "Request Time-out";
-static constexpr const char T_HTTP_CODE_409[] = "Conflict";
-static constexpr const char T_HTTP_CODE_410[] = "Gone";
-static constexpr const char T_HTTP_CODE_411[] = "Length Required";
-static constexpr const char T_HTTP_CODE_412[] = "Precondition Failed";
-static constexpr const char T_HTTP_CODE_413[] = "Request Entity Too Large";
-static constexpr const char T_HTTP_CODE_414[] = "Request-URI Too Large";
-static constexpr const char T_HTTP_CODE_415[] = "Unsupported Media Type";
-static constexpr const char T_HTTP_CODE_416[] = "Requested Range Not Satisfiable";
-static constexpr const char T_HTTP_CODE_417[] = "Expectation Failed";
-static constexpr const char T_HTTP_CODE_429[] = "Too Many Requests";
-static constexpr const char T_HTTP_CODE_500[] = "Internal Server Error";
-static constexpr const char T_HTTP_CODE_501[] = "Not Implemented";
-static constexpr const char T_HTTP_CODE_502[] = "Bad Gateway";
-static constexpr const char T_HTTP_CODE_503[] = "Service Unavailable";
-static constexpr const char T_HTTP_CODE_504[] = "Gateway Time-out";
-static constexpr const char T_HTTP_CODE_505[] = "HTTP Version Not Supported";
-static constexpr const char T_HTTP_CODE_ANY[] = "Unknown code";
+// Response codes - using DECLARE_STR macro for platform-specific storage
+DECLARE_STR(T_HTTP_CODE_100, "Continue");
+DECLARE_STR(T_HTTP_CODE_101, "Switching Protocols");
+DECLARE_STR(T_HTTP_CODE_200, "OK");
+DECLARE_STR(T_HTTP_CODE_201, "Created");
+DECLARE_STR(T_HTTP_CODE_202, "Accepted");
+DECLARE_STR(T_HTTP_CODE_203, "Non-Authoritative Information");
+DECLARE_STR(T_HTTP_CODE_204, "No Content");
+DECLARE_STR(T_HTTP_CODE_205, "Reset Content");
+DECLARE_STR(T_HTTP_CODE_206, "Partial Content");
+DECLARE_STR(T_HTTP_CODE_300, "Multiple Choices");
+DECLARE_STR(T_HTTP_CODE_301, "Moved Permanently");
+DECLARE_STR(T_HTTP_CODE_302, "Found");
+DECLARE_STR(T_HTTP_CODE_303, "See Other");
+DECLARE_STR(T_HTTP_CODE_304, "Not Modified");
+DECLARE_STR(T_HTTP_CODE_305, "Use Proxy");
+DECLARE_STR(T_HTTP_CODE_307, "Temporary Redirect");
+DECLARE_STR(T_HTTP_CODE_400, "Bad Request");
+DECLARE_STR(T_HTTP_CODE_401, "Unauthorized");
+DECLARE_STR(T_HTTP_CODE_402, "Payment Required");
+DECLARE_STR(T_HTTP_CODE_403, "Forbidden");
+DECLARE_STR(T_HTTP_CODE_404, "Not Found");
+DECLARE_STR(T_HTTP_CODE_405, "Method Not Allowed");
+DECLARE_STR(T_HTTP_CODE_406, "Not Acceptable");
+DECLARE_STR(T_HTTP_CODE_407, "Proxy Authentication Required");
+DECLARE_STR(T_HTTP_CODE_408, "Request Time-out");
+DECLARE_STR(T_HTTP_CODE_409, "Conflict");
+DECLARE_STR(T_HTTP_CODE_410, "Gone");
+DECLARE_STR(T_HTTP_CODE_411, "Length Required");
+DECLARE_STR(T_HTTP_CODE_412, "Precondition Failed");
+DECLARE_STR(T_HTTP_CODE_413, "Request Entity Too Large");
+DECLARE_STR(T_HTTP_CODE_414, "Request-URI Too Large");
+DECLARE_STR(T_HTTP_CODE_415, "Unsupported Media Type");
+DECLARE_STR(T_HTTP_CODE_416, "Requested Range Not Satisfiable");
+DECLARE_STR(T_HTTP_CODE_417, "Expectation Failed");
+DECLARE_STR(T_HTTP_CODE_429, "Too Many Requests");
+DECLARE_STR(T_HTTP_CODE_500, "Internal Server Error");
+DECLARE_STR(T_HTTP_CODE_501, "Not Implemented");
+DECLARE_STR(T_HTTP_CODE_502, "Bad Gateway");
+DECLARE_STR(T_HTTP_CODE_503, "Service Unavailable");
+DECLARE_STR(T_HTTP_CODE_504, "Gateway Time-out");
+DECLARE_STR(T_HTTP_CODE_505, "HTTP Version Not Supported");
+DECLARE_STR(T_HTTP_CODE_ANY, "Unknown code");
 
 static constexpr const char *T_only_once_headers[] = {
   T_Accept_Ranges,     T_Content_Length,   T_Content_Type, T_Connection, T_CORS_ACAC, T_CORS_ACAH,     T_CORS_ACAM, T_CORS_ACAO,

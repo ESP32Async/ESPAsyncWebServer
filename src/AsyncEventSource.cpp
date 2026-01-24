@@ -209,7 +209,12 @@ bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
   std::lock_guard<std::recursive_mutex> lock(_lockmq);
 #endif
 
-  _messageQueue.emplace_back(message, len);
+  if (_client) {
+    _messageQueue.emplace_back(message, len);
+  } else {
+    _messageQueue.clear();
+    return false;
+  }
 
   /*
     throttle queue run
@@ -217,7 +222,7 @@ bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
     forcing Q run will only eat more heap ram and blow the buffer, let's just keep data in our own queue
     the queue will be processed at least on each onAck()/onPoll() call from AsyncTCP
   */
-  if (_messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2 && _client->canSend()) {
+  if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
     _runQueue();
   }
 
@@ -235,7 +240,12 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
   std::lock_guard<std::recursive_mutex> lock(_lockmq);
 #endif
 
-  _messageQueue.emplace_back(std::move(msg));
+  if (_client) {
+    _messageQueue.emplace_back(std::move(msg));
+  } else {
+    _messageQueue.clear();
+    return false;
+  }
 
   /*
     throttle queue run
@@ -243,7 +253,7 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
     forcing Q run will only eat more heap ram and blow the buffer, let's just keep data in our own queue
     the queue will be processed at least on each onAck()/onPoll() call from AsyncTCP
   */
-  if (_messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2 && _client->canSend()) {
+  if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
     _runQueue();
   }
   return true;
@@ -334,7 +344,7 @@ void AsyncEventSourceClient::_runQueue() {
   }
 
   // flush socket
-  if (total_bytes_written) {
+  if (_client && total_bytes_written) {
     _client->send();
   }
 }
@@ -410,17 +420,13 @@ size_t AsyncEventSource::avgPacketsWaiting() const {
 #ifdef ESP32
   std::lock_guard<std::recursive_mutex> lock(_client_queue_lock);
 #endif
-  if (!_clients.size()) {
-    return 0;
-  }
-
   for (const auto &c : _clients) {
     if (c->connected()) {
       aql += c->packetsWaiting();
       ++nConnectedClients;
     }
   }
-  return ((aql) + (nConnectedClients / 2)) / (nConnectedClients);  // round up
+  return nConnectedClients == 0 ? 0 : ((aql) + (nConnectedClients / 2)) / (nConnectedClients);  // round up
 }
 
 AsyncEventSource::SendStatus AsyncEventSource::send(const char *message, const char *event, uint32_t id, uint32_t reconnect) {
@@ -431,10 +437,12 @@ AsyncEventSource::SendStatus AsyncEventSource::send(const char *message, const c
   size_t hits = 0;
   size_t miss = 0;
   for (const auto &c : _clients) {
-    if (c->write(shared_msg)) {
-      ++hits;
-    } else {
-      ++miss;
+    if (c->connected()) {
+      if (c->write(shared_msg)) {
+        ++hits;
+      } else {
+        ++miss;
+      }
     }
   }
   return hits == 0 ? DISCARDED : (miss == 0 ? ENQUEUED : PARTIALLY_ENQUEUED);
@@ -462,11 +470,15 @@ void AsyncEventSource::handleRequest(AsyncWebServerRequest *request) {
   request->send(new AsyncEventSourceResponse(this));
 }
 
+// list iteration protected by caller's lock
 void AsyncEventSource::_adjust_inflight_window() {
-  if (_clients.size()) {
-    size_t inflight = SSE_MAX_INFLIGH / _clients.size();
+  const size_t clientCount = count();
+  if (clientCount) {
+    size_t inflight = SSE_MAX_INFLIGH / clientCount;
     for (const auto &c : _clients) {
-      c->set_max_inflight_bytes(inflight);
+      if (c->connected()) {
+        c->set_max_inflight_bytes(inflight);
+      }
     }
     // Serial.printf("adjusted inflight to: %u\n", inflight);
   }

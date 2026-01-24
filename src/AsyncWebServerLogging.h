@@ -98,31 +98,31 @@
 #endif
 // error
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_ERROR
-#define async_ws_log_e(format, ...) ets_printf(String(F("E async_ws %s() %d: " format)).c_str(), __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_e(format, ...) Serial.printf_P(PSTR("E async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_e(format, ...)
 #endif
 // warn
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_WARN
-#define async_ws_log_w(format, ...) ets_printf(String(F("W async_ws %s() %d: " format)).c_str(), __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_w(format, ...) Serial.printf_P(PSTR("W async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_w(format, ...)
 #endif
 // info
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_INFO
-#define async_ws_log_i(format, ...) ets_printf(String(F("I async_ws %s() %d: " format)).c_str(), __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_i(format, ...) Serial.printf_P(PSTR("I async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_i(format, ...)
 #endif
 // debug
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_DEBUG
-#define async_ws_log_d(format, ...) ets_printf(String(F("D async_ws %s() %d: " format)).c_str(), __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_d(format, ...) Serial.printf_P(PSTR("D async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_d(format, ...)
 #endif
 // verbose
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_VERBOSE
-#define async_ws_log_v(format, ...) ets_printf(String(F("V async_ws %s() %d: " format)).c_str(), __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_v(format, ...) Serial.printf_P(PSTR("V async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_v(format, ...)
 #endif

@@ -25,50 +25,50 @@ using namespace asyncsrv;
  *
  */
 
-const char *AsyncWebServerResponse::responseCodeToString(int code) {
+STR_RETURN_TYPE AsyncWebServerResponse::responseCodeToString(int code) {
   switch (code) {
-    case 100: return T_HTTP_CODE_100;
-    case 101: return T_HTTP_CODE_101;
-    case 200: return T_HTTP_CODE_200;
-    case 201: return T_HTTP_CODE_201;
-    case 202: return T_HTTP_CODE_202;
-    case 203: return T_HTTP_CODE_203;
-    case 204: return T_HTTP_CODE_204;
-    case 205: return T_HTTP_CODE_205;
-    case 206: return T_HTTP_CODE_206;
-    case 300: return T_HTTP_CODE_300;
-    case 301: return T_HTTP_CODE_301;
-    case 302: return T_HTTP_CODE_302;
-    case 303: return T_HTTP_CODE_303;
-    case 304: return T_HTTP_CODE_304;
-    case 305: return T_HTTP_CODE_305;
-    case 307: return T_HTTP_CODE_307;
-    case 400: return T_HTTP_CODE_400;
-    case 401: return T_HTTP_CODE_401;
-    case 402: return T_HTTP_CODE_402;
-    case 403: return T_HTTP_CODE_403;
-    case 404: return T_HTTP_CODE_404;
-    case 405: return T_HTTP_CODE_405;
-    case 406: return T_HTTP_CODE_406;
-    case 407: return T_HTTP_CODE_407;
-    case 408: return T_HTTP_CODE_408;
-    case 409: return T_HTTP_CODE_409;
-    case 410: return T_HTTP_CODE_410;
-    case 411: return T_HTTP_CODE_411;
-    case 412: return T_HTTP_CODE_412;
-    case 413: return T_HTTP_CODE_413;
-    case 414: return T_HTTP_CODE_414;
-    case 415: return T_HTTP_CODE_415;
-    case 416: return T_HTTP_CODE_416;
-    case 417: return T_HTTP_CODE_417;
-    case 429: return T_HTTP_CODE_429;
-    case 500: return T_HTTP_CODE_500;
-    case 501: return T_HTTP_CODE_501;
-    case 502: return T_HTTP_CODE_502;
-    case 503: return T_HTTP_CODE_503;
-    case 504: return T_HTTP_CODE_504;
-    case 505: return T_HTTP_CODE_505;
-    default:  return T_HTTP_CODE_ANY;
+    case 100: return STR(T_HTTP_CODE_100);
+    case 101: return STR(T_HTTP_CODE_101);
+    case 200: return STR(T_HTTP_CODE_200);
+    case 201: return STR(T_HTTP_CODE_201);
+    case 202: return STR(T_HTTP_CODE_202);
+    case 203: return STR(T_HTTP_CODE_203);
+    case 204: return STR(T_HTTP_CODE_204);
+    case 205: return STR(T_HTTP_CODE_205);
+    case 206: return STR(T_HTTP_CODE_206);
+    case 300: return STR(T_HTTP_CODE_300);
+    case 301: return STR(T_HTTP_CODE_301);
+    case 302: return STR(T_HTTP_CODE_302);
+    case 303: return STR(T_HTTP_CODE_303);
+    case 304: return STR(T_HTTP_CODE_304);
+    case 305: return STR(T_HTTP_CODE_305);
+    case 307: return STR(T_HTTP_CODE_307);
+    case 400: return STR(T_HTTP_CODE_400);
+    case 401: return STR(T_HTTP_CODE_401);
+    case 402: return STR(T_HTTP_CODE_402);
+    case 403: return STR(T_HTTP_CODE_403);
+    case 404: return STR(T_HTTP_CODE_404);
+    case 405: return STR(T_HTTP_CODE_405);
+    case 406: return STR(T_HTTP_CODE_406);
+    case 407: return STR(T_HTTP_CODE_407);
+    case 408: return STR(T_HTTP_CODE_408);
+    case 409: return STR(T_HTTP_CODE_409);
+    case 410: return STR(T_HTTP_CODE_410);
+    case 411: return STR(T_HTTP_CODE_411);
+    case 412: return STR(T_HTTP_CODE_412);
+    case 413: return STR(T_HTTP_CODE_413);
+    case 414: return STR(T_HTTP_CODE_414);
+    case 415: return STR(T_HTTP_CODE_415);
+    case 416: return STR(T_HTTP_CODE_416);
+    case 417: return STR(T_HTTP_CODE_417);
+    case 429: return STR(T_HTTP_CODE_429);
+    case 500: return STR(T_HTTP_CODE_500);
+    case 501: return STR(T_HTTP_CODE_501);
+    case 502: return STR(T_HTTP_CODE_502);
+    case 503: return STR(T_HTTP_CODE_503);
+    case 504: return STR(T_HTTP_CODE_504);
+    case 505: return STR(T_HTTP_CODE_505);
+    default:  return STR(T_HTTP_CODE_ANY);
   }
 }
 
