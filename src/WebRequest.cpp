@@ -41,8 +41,8 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
   : _client(c), _server(s), _handler(NULL), _response(NULL), _onDisconnectfn(NULL), _temp(), _parseState(PARSE_REQ_START), _version(0), _method(HTTP_ANY),
     _url(), _host(), _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP), _authMethod(AsyncAuthType::AUTH_NONE), _isMultipart(false),
     _isPlainPost(false), _expectingContinue(false), _contentLength(0), _parsedLength(0), _multiParseState(0), _boundaryPosition(0), _itemStartIndex(0),
-    _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0), _itemBufferIndex(0), _itemIsFile(false), _tempObject(NULL),
-    _chunkedParseState(CHUNK_NONE) {
+    _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0), _itemBufferIndex(0), _itemIsFile(false),
+    _chunkedParseState(CHUNK_NONE), _tempObject(NULL) {
   c->onError(
     [](void *r, AsyncClient *c, int8_t error) {
       (void)c;
@@ -326,23 +326,21 @@ bool AsyncWebServerRequest::_parseReqHead() {
     _method = HTTP_HEAD;
   } else if (m == T_OPTIONS) {
     _method = HTTP_OPTIONS;
-  } else if(m == "PROPFIND"){
+  } else if (m == "PROPFIND") {
     _method = HTTP_PROPFIND;
-  } else if(m == "LOCK"){
+  } else if (m == "LOCK") {
     _method = HTTP_LOCK;
-  } else if(m == "UNLOCK"){
+  } else if (m == "UNLOCK") {
     _method = HTTP_UNLOCK;
-  } else if(m == "PROPPATCH"){
+  } else if (m == "PROPPATCH") {
     _method = HTTP_PROPPATCH;
-  } else if(m == "MKCOL"){
+  } else if (m == "MKCOL") {
     _method = HTTP_MKCOL;
-  } else if(m == "MOVE"){
+  } else if (m == "MOVE") {
     _method = HTTP_MOVE;
-  } else if(m == "COPY"){
+  } else if (m == "COPY") {
     _method = HTTP_COPY;
-  } else if(m == "RESERVED"){
-    _method = HTTP_RESERVED;
-  } else if(m == "ANY"){
+  } else if (m == "ANY") {
     _method = HTTP_ANY;
   } else {
     return false;
@@ -1276,28 +1274,25 @@ const char *AsyncWebServerRequest::methodToString() const {
     return T_OPTIONS;
   }
   if (_method & HTTP_PROPFIND) {
-      return "PROPFIND";
+    return "PROPFIND";
   }
   if (_method & HTTP_LOCK) {
-      return "LOCK";
+    return "LOCK";
   }
   if (_method & HTTP_UNLOCK) {
-      return "UNLOCK";
+    return "UNLOCK";
   }
   if (_method & HTTP_PROPPATCH) {
-      return "PROPPATCH";
+    return "PROPPATCH";
   }
   if (_method & HTTP_MKCOL) {
-      return "MKCOL";
+    return "MKCOL";
   }
   if (_method & HTTP_MOVE) {
-      return "MOVE";
+    return "MOVE";
   }
   if (_method & HTTP_COPY) {
-      return "COPY";
-  }
-  if (_method & HTTP_RESERVED) {
-      return "RESERVED";
+    return "COPY";
   }
   return T_UNKNOWN;
 }

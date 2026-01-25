@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Copyright 2016-2025 Hristo Gochkov, Mathieu Carbou, Emil Muratov
-// Copyright 2026 Mitch Bradley
+// Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Mitch Bradley
 
 //
 // - WebDAV Server to access LittleFS files
@@ -11,7 +10,6 @@
 #if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #include <WiFi.h>
-#include <ESPmDNS.h>
 #elif defined(ESP8266)
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
@@ -20,65 +18,55 @@
 #include <WiFi.h>
 #endif
 
-#include <WiFiConfig.h>
-
-#include <map>
-
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 
 using namespace asyncsrv;
 
 // Tests:
-// Note: The '-4' curl argument prevents long IPv6 mDNS resolution timeouts
-//       The tests will work without it, but will take several seconds to start.
-//       If you use the dotted decimal IP address, the -4 is unnecessary.
 //
 // Get the OPTIONS that the WebDAV server supports
-//   curl -4 -v -X OPTIONS http://davtest.local
+//   curl -v -X OPTIONS http://192.168.4.1
 //   ** Note: The -v is necessary to see the option values because they
 //   ** in the Allow: response header instead of the body.
 // List a directory with PROPFIND
-//   curl -4 -X PROPFIND -H 'Depth: 1' http://davtest.local/
+//   curl -X PROPFIND -H 'Depth: 1' http://192.168.4.1/
 // List a directory with pretty-printed output
-//   curl -4 -X PROPFIND -H 'Depth: 1' http://davtest.local/ | xmllint --format -
+//   curl -X PROPFIND -H 'Depth: 1' http://192.168.4.1/ | xmllint --format -
 // List a directory showing only the names
-//   curl -4 -X PROPFIND -H 'Depth: 1' http://davtest.local/ | xmllint --format - | grep href
+//   curl -X PROPFIND -H 'Depth: 1' http://192.168.4.1/ | xmllint --format - | grep href
 // Upload a file  with PUT
-//   curl -4 -T myfile.txt http://davtest.local/
+//   curl -T myfile.txt http://192.168.4.1/
 // Upload a file with PUT using chunked encoding
-//   curl -4 -T bigfile.txt -H 'Transfer-Encoding: chunked' http://davtest.local/
+//   curl -T bigfile.txt -H 'Transfer-Encoding: chunked' http://192.168.4.1/
 //   ** Note: If the file will not fit in the available space, the server
 //   ** does not know that in advance due to the lack of a Content-Length header.
 //   ** The transfer will proceed until the filesystem fills up, then the transfer
-//   ** will fail and the partial file will be deleted.
+//   ** will fail and the partial file will be deleted.  This works correctly with
+//   ** recent versions (e.g. pioarduino) of the arduinoespressif32 framework, but
+//   ** fails with the stale 3.20017.241212+sha.dcc1105b version due to a LittleFS
+//   ** bug that has since been fixed.
 // Immediately reject a chunked PUT that will not fit in available space
-//   curl -4 -T bigfile.txt -H 'Transfer-Encoding: chunked' -H 'X-Expected-Entity-Length: 99999999' http://davtest.local/
+//   curl -T bigfile.txt -H 'Transfer-Encoding: chunked' -H 'X-Expected-Entity-Length: 99999999' http://192.168.4.1/
 //   ** Note: MacOS WebDAVFS supplies the X-Expected-Entity-Length header with its
 //   ** chunked PUTs
 // Download a file with GET (result to stdout)
-//   curl -4 http://davtest.local/myfile.txt
+//   curl http://192.168.4.1/myfile.txt
 // Delete a file with DELETE
-//   curl -4 -X DELETED http://davtest.local/myfile.txt
+//   curl -X DELETE http://192.168.4.1/myfile.txt
 // Create a subdirectory with MKCOL
-//   curl -4 -X MKCOL http://davtest.local/TheSubdir
+//   curl -X MKCOL http://192.168.4.1/TheSubdir
 // Upload a file to subdirectory
-//   curl -4 -T anotherfile.txt http://davtest.local/TheSubdir/
+//   curl -T anotherfile.txt http://192.168.4.1/TheSubdir/
 //   ** Note: without the trailing / the request will fail
 // Lock a file against other access
-//   curl -4 -X LOCK http://davtest.local/myfile.txt
+//   curl -X LOCK http://192.168.4.1/myfile.txt
 //   ** Note: Locks return a token but otherwise do nothing
 //   ** other than making MacOS WebDAVFS happy
 // Unlock a previously-locked file
-//   curl -4 -X UNLOCK http://davtest.local/myfile.txt
+//   curl -X UNLOCK http://192.168.4.1/myfile.txt
 // Rename oldfile.txt to newfile.txt
-//   curl -4 -X MOVE -H 'Destination: http://davtest.local/newfile.txt' http://davtest.local/oldfile.txt
-
-#ifndef ESP32
-// this example is only for the ESP32
-void setup() {}
-void loop() {}
-#else
+//   curl -X MOVE -H 'Destination: http://192.168.4.1/newfile.txt' http://192.168.4.1/oldfile.txt
 
 struct mime_type {
   const char *suffix;
@@ -147,10 +135,6 @@ bool WebDAV::canHandle(AsyncWebServerRequest *request) const {
   return request->url().startsWith(_url.c_str());
 }
 
-static const char* rootname = "/";
-static const char* slashstr = "/";
-static const char  slash    = '/';
-
 // Mac command to prevent .DS_Store files:
 //  defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool TRUE
 // Mac metadata files:
@@ -185,7 +169,6 @@ void WebDAV::handleRequest(AsyncWebServerRequest *request) {
 
   if (request->method() == HTTP_MKCOL) {
     // does the file/dir already exist?
-    int status;
     if (_fs.exists(path)) {
       // Already exists
       // I think there is an "Overwrite: {T,F}" header; we should handle it
@@ -202,7 +185,12 @@ void WebDAV::handleRequest(AsyncWebServerRequest *request) {
     // MacOS WebDAVFS does that, then later LOCKs the file
     // and issues a subsequent PUT with body contents.
 
-    File file = _fs.open(path, FILE_WRITE, true);
+#ifdef ESP32
+    File file = _fs.open(path, "w", true);
+#else
+    File file = _fs.open(path, "w");
+#endif
+
     if (file) {
       file.close();
       request->send(201);  // Created
@@ -229,7 +217,7 @@ void WebDAV::handleRequest(AsyncWebServerRequest *request) {
   }
 
   if (request->method() == HTTP_HEAD) {
-    File file = _fs.open(path);
+    File file = _fs.open(path, "r");
 
     // HEAD is like GET without a body, but with Content-Length
     AsyncWebServerResponse *response = request->beginResponse(200, getContentType(path), "");  // AsyncBasicResponse
@@ -280,7 +268,7 @@ void WebDAV::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
   if (request->method() == HTTP_MOVE) {
-    const AsyncWebHeader *destinationHeader = request->getHeader("destination");
+    const AsyncWebHeader *destinationHeader = request->getHeader("Destination");
     if (!destinationHeader || destinationHeader->value().isEmpty()) {
       request->send(400, "text/plain", "Missing destination header");
       return;
@@ -307,8 +295,7 @@ void WebDAV::handleRequest(AsyncWebServerRequest *request) {
   }
   if (request->method() == HTTP_DELETE) {
     // delete file or dir
-    bool result;
-    File file = _fs.open(path);
+    File file = _fs.open(path, "r");
 
     if (!file) {
       request->send(404);
@@ -327,77 +314,87 @@ void WebDAV::handleRequest(AsyncWebServerRequest *request) {
   handleNotFound(request);
 }
 
-    void WebDAV::handleBody(AsyncWebServerRequest *request, unsigned char *data, size_t len, size_t index, size_t total) {
-      // The other requests with a body are LOCK and PROPFIND, where the body data is the XML
-      // schema for their replies.  For now, we just ignore that data and hardcode the reply
-      // schema.  It might be useful to decode the schema to, for example, omit some reply fields,
-      // but that doesn't appear to be necessary at the moment.
-      if (request->method() == HTTP_PUT) {
-        auto state = static_cast<RequestState *>(request->_tempObject);
-        if (index == 0) {
-          // parse the url to a proper path
-          String path = request->url();
+void WebDAV::handleBody(AsyncWebServerRequest *request, unsigned char *data, size_t len, size_t index, size_t total) {
+  // The other requests with a body are LOCK and PROPFIND, where the body data is the XML
+  // schema for their replies.  For now, we just ignore that data and hardcode the reply
+  // schema.  It might be useful to decode the schema to, for example, omit some reply fields,
+  // but that doesn't appear to be necessary at the moment.
+  if (request->method() == HTTP_PUT) {
+    auto state = static_cast<RequestState *>(request->_tempObject);
+    if (index == 0) {
+      // parse the url to a proper path
+      String path = request->url();
 
-          state = new RequestState{File()};
-          request->_tempObject = static_cast<void *>(state);
+      state = new RequestState{File()};
+      request->_tempObject = static_cast<void *>(state);
 
-          if (total) {
-            // Ideally this would be _fs.totalBytes() - _fs.usedBytes()
-            // but the Arduino FS class does not have totalBytes()
-            // and usedBytes().  They exist in the SDFS and LittleFS
-            // classes, but with different return types (uint64_t for
-            // SDFS and uint32_t for LittleFS).
-            // This should be abstracted somewhere but I have to draw
-            // the line somewhere with this test code.
-            size_t avail = LittleFS.totalBytes() - LittleFS.usedBytes();
-            avail -= 4096;  // Reserve a block for overhead
-            if (total > avail) {
-              Serial.printf("PUT %d bytes will not fit in available space (%d).\n", total, avail);
-              request->send(507);  // Insufficient storage
-              return;
-            }
-          }
-          Serial.print("PUT: Opening ");
-          Serial.println(path);
-
-          File file = _fs.open(path, FILE_WRITE, true);
-          if (!file) {
-            request->send(500);
-            return;
-          }
-          if (file.isDirectory()) {
-            file.close();
-            Serial.println("Cannot PUT to a directory");
-            request->send(403);
-            return;
-          }
-          // If we already returned, the File object in request->_tempObject
-          // is the default-contructed one.  The presence of
-
-          std::swap(state->outFile, file);
-          // Now request->_tempObject contains the actual file object which owns it,
-          // and default-constructed File() object is in file, which will
-          // go out of scope
-        }
-        if (state && state->outFile) {
-          Serial.printf("write %d at %d\n", len, index);
-          auto actual = state->outFile.write(data, len);
-          if (actual != len) {
-            Serial.println("WebDAV write failed.  Deleting file.");
-
-            // Replace the File object in state with a null one
-            File file{};
-            std::swap(state->outFile, file);
-            file.close();
-
-            String path = request->url();
-            _fs.remove(path);
-            request->send(507);  // Insufficient storage
-            return;
-          }
+      if (total) {
+        // Ideally this would be _fs.totalBytes() - _fs.usedBytes()
+        // but the Arduino FS class does not have totalBytes()
+        // and usedBytes().  They exist in the SDFS and LittleFS
+        // classes, but with different return types (uint64_t for
+        // SDFS and uint32_t for LittleFS).
+        // This should be abstracted somewhere but I have to draw
+        // the line somewhere with this test code.
+#ifdef ESP32
+        size_t avail = LittleFS.totalBytes() - LittleFS.usedBytes();
+#else
+        FSInfo info;
+        _fs.info(info);
+        auto avail = info.totalBytes - info.usedBytes;
+#endif
+        avail -= 4096;  // Reserve a block for overhead
+        if (total > avail) {
+          Serial.printf("PUT %d bytes will not fit in available space (%d).\n", total, avail);
+          request->send(507);  // Insufficient storage
+          return;
         }
       }
+      Serial.print("PUT: Opening ");
+      Serial.println(path);
+
+#ifdef ESP32
+      File file = _fs.open(path, "w", true);
+#else
+      File file = _fs.open(path, "w");
+#endif
+      if (!file) {
+        request->send(500);
+        return;
+      }
+      if (file.isDirectory()) {
+        file.close();
+        Serial.println("Cannot PUT to a directory");
+        request->send(403);
+        return;
+      }
+      // If we already returned, the File object in request->_tempObject
+      // is the default-contructed one.  The presence of
+
+      std::swap(state->outFile, file);
+      // Now request->_tempObject contains the actual file object which owns it,
+      // and default-constructed File() object is in file, which will
+      // go out of scope
     }
+    if (state && state->outFile) {
+      Serial.printf("write %d at %d\n", len, index);
+      auto actual = state->outFile.write(data, len);
+      if (actual != len) {
+        Serial.println("WebDAV write failed.  Deleting file.");
+
+        // Replace the File object in state with a null one
+        File file{};
+        std::swap(state->outFile, file);
+        file.close();
+
+        String path = request->url();
+        _fs.remove(path);
+        request->send(507);  // Insufficient storage
+        return;
+      }
+    }
+  }
+}
 
     bool WebDAV::acceptsEncoding(AsyncWebServerRequest *request, const char *encoding) {
       if (request->hasHeader("Accept-Encoding")) {
@@ -418,6 +415,7 @@ bool WebDAV::acceptsType(AsyncWebServerRequest *request, const char *type) {
 void WebDAV::handlePropfind(const String &path, AsyncWebServerRequest *request) {
   auto depth = 0;
 
+  [[maybe_unused]]
   bool noroot = false;
 
   const AsyncWebHeader *depthHeader = request->getHeader("Depth");
@@ -450,7 +448,7 @@ void WebDAV::handlePropfind(const String &path, AsyncWebServerRequest *request) 
 }
 
 void WebDAV::handleGet(const String &path, AsyncWebServerRequest *request) {
-  File file = _fs.open(path);
+  File file = _fs.open(path, "r");
 
   if (!file) {
     Serial.printf("%s not found\n", path.c_str());
@@ -459,21 +457,20 @@ void WebDAV::handleGet(const String &path, AsyncWebServerRequest *request) {
   }
 
   AsyncWebServerResponse *response =
-    request->beginResponse(getContentType(path), file.size(), [file, request](uint8_t *buffer, size_t maxLen, size_t total) mutable -> size_t {
+    request->beginResponse(getContentType(path), file.size(), [file, request](uint8_t *buffer, size_t maxLen, size_t filled) mutable -> size_t {
       if (!file) {
         request->client()->close();
         return 0;  //RESPONSE_TRY_AGAIN; // This only works for ChunkedResponse
       }
-      if (total >= file.size() || request->method() != HTTP_GET) {
-        file.close();
-        return 0;
+
+      int actual = 0;
+      if (maxLen) {
+        actual = file.read(buffer, maxLen);
       }
-      int bytes = min(file.size(), maxLen);
-      int actual = file.read(buffer, bytes);  // return 0 even when no bytes were loaded
-      if (bytes == 0 || (bytes + total) >= file.size()) {
+      if (actual == 0) {
         file.close();
       }
-      return bytes;
+      return actual;
     });
 
   request->onDisconnect([request, file]() mutable {
@@ -524,7 +521,7 @@ void WebDAV::sendItem(AsyncResponseStream *response, bool is_dir, const String &
 }
 
 void WebDAV::sendPropResponse(AsyncResponseStream *response, int level, const String &path) {
-  File file = _fs.open(path);
+  File file = _fs.open(path, "r");
   bool is_dir = file.isDirectory();
   size_t size = file.size();
 
@@ -538,9 +535,17 @@ void WebDAV::sendPropResponse(AsyncResponseStream *response, int level, const St
 
   if (is_dir && level--) {
     String name;
+#ifdef ESP32
     while ((name = file.getNextFileName()) != "") {
       sendPropResponse(response, level, name);
     }
+#else
+    File f;
+    while ((f = file.openNextFile())) {
+      sendPropResponse(response, level, f.name());
+      f.close();
+    }
+#endif
   }
 }
 
@@ -549,48 +554,28 @@ static AsyncHeaderFreeMiddleware *headerFilter;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Setting up WiFi");
 
-#ifdef STA_SSID
-  Serial.println("Using STA mode");
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
-  WiFi.begin(STA_SSID, STA_PASSWORD);
-  Serial.print("Connecting to WiFi ..");
-
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.print('.');
-  }
-  Serial.println(WiFi.localIP());
-
-#else
-  IPAddress local_IP(192, 168, AP_SUBNET, 1);
-  IPAddress gateway(192, 168, AP_SUBNET, 1);
-  IPAddress subnet(255, 255, 255, 0);
-  WiFi.softAPConfig(local_IP, gateway, subnet);
+#if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID);
-  Serial.print("Starting AP ");
-  Serial.print(AP_SSID);
-  Serial.print(" ");
-  Serial.println(WiFi.softAPIP());
+  WiFi.softAP("esp-captive");
 #endif
 
-#ifdef MDNS_NAME
-  // Initialize mDNS
-  if (!MDNS.begin(MDNS_NAME)) {
-    Serial.println("Error setting up MDNS responder!");
-    while (1) {
-      delay(1000);
-    }
-  }
-  Serial.printf("mDNS on: %s.local\n", MDNS_NAME);
-
-  // Add service to mDNS
-  MDNS.addService("http", "tcp", 80);
+#ifdef ESP32
+  LittleFS.begin(true);
+  auto total = LittleFS.totalBytes();
+  auto used = LittleFS.usedBytes();
+#else
+  LittleFS.begin();
+  FSInfo info;
+  LittleFS.info(info);
+  auto total = info.totalBytes;
+  auto used = info.usedBytes;
 #endif
+
+  Serial.print("LittleFS uses ");
+  Serial.print(used);
+  Serial.print(" of ");
+  Serial.println(total);
 
   headerFilter = new AsyncHeaderFreeMiddleware();
 
@@ -599,16 +584,8 @@ void setup() {
 
   server.addMiddlewares({headerFilter});
 
-  LittleFS.begin(true);
-  Serial.print("LittleFS uses ");
-  Serial.print(LittleFS.usedBytes());
-  Serial.print(" of ");
-  Serial.println(LittleFS.totalBytes());
-
   auto flash_dav = new WebDAV("/", LittleFS);
   server.addHandler(flash_dav);
-
-  //  server.on("/", HTTP_ANY, handle_roo);
 
   server.begin();
 }
@@ -616,5 +593,3 @@ void setup() {
 void loop() {
   delay(100);
 }
-
-#endif
