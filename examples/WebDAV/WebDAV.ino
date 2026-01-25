@@ -161,180 +161,171 @@ static const char  slash    = '/';
 //  ._* (metadata for the file *)
 //  .hidden
 
-    std::map<int, String> reqNames = {
-    { 1, "GET" },         { 2, "POST" },     { 4, "DELETE" },     { 8, "PUT" },     { 16, "PATCH" },
-    { 32, "HEAD" },       { 64, "OPTIONS" }, { 128, "PROPFIND" }, { 256, "LOCK" },  { 512, "UNLOCK" },
-    { 1024, "PROPATCH" }, { 2048, "MKCOL" }, { 4096, "MOVE" },    { 8192, "COPY" }, { 16384, "RESERVED" },
-};
-
-    void WebDAV::handleRequest(AsyncWebServerRequest *request) {
-      // If request->_tempObject is not null, handleBody already
-      // did the necessary work for a PUT operation
-      auto state = static_cast<RequestState *>(request->_tempObject);
-      if (state) {
-        if (state->outFile) {
-          // The file was already opened and written in handleBody so
-          // we are done.  We will handle PUT without body data below.
-          state->outFile.close();
-          request->send(201);  // Created
-        }
-        delete state;
-        request->_tempObject = nullptr;
-        return;
-      }
-
-      String path = request->url();
-
-      Serial.print(reqNames.find(request->method())->second);
-      Serial.print(" ");
-      Serial.println(path);
-
-      if (request->method() == HTTP_MKCOL) {
-        Serial.println("MKCOL");
-        // does the file/dir already exist?
-        int status;
-        if (_fs.exists(path)) {
-          // Already exists
-          // I think there is an "Overwrite: {T,F}" header; we should handle it
-          request->send(405);
-        } else {
-          request->send(_fs.mkdir(path) ? 201 : 405);
-        }
-        return;
-      }
-
-      if (request->method() == HTTP_PUT) {
-        // This PUT code executes if the body was empty, which
-        // can happen if the client creates a zero-length file.
-        // MacOS WebDAVFS does that, then later LOCKs the file
-        // and issues a subsequent PUT with body contents.
-
-        File file = _fs.open(path, FILE_WRITE, true);
-        if (file) {
-          file.close();
-          request->send(201);  // Created
-          return;
-        }
-        request->send(403);
-        return;
-      }
-
-      if (request->method() == HTTP_OPTIONS) {
-        AsyncWebServerResponse *response = request->beginResponse(200);
-        response->addHeader("Dav", "1,2");
-        response->addHeader("Ms-Author-Via", "DAV");
-        response->addHeader("Allow", "PROPFIND,OPTIONS,DELETE,MOVE,HEAD,POST,PUT,GET");
-        request->send(response);
-        return;
-      }
-
-      // If we are not creating the resource it must already exist
-      if (!_fs.exists(path)) {
-        Serial.printf("%s does not exist\n", path.c_str());
-        request->send(404, "Resource does not exist");
-        return;
-      }
-
-      if (request->method() == HTTP_HEAD) {
-        File file = _fs.open(path);
-
-        // HEAD is like GET without a body, but with Content-Length
-        AsyncWebServerResponse *response = request->beginResponse(200, getContentType(path), "");  // AsyncBasicResponse
-        response->setContentLength(file.size());
-
-        request->send(response);
-        return;
-      }
-
-      if (request->method() == HTTP_GET) {
-        return handleGet(path, request);
-      }
-
-      if (request->method() == HTTP_PROPFIND) {
-        handlePropfind(path, request);
-        return;
-      }
-
-      if (request->method() == HTTP_LOCK) {
-        Serial.println("LOCK");
-
-        String lockroot("http://");
-        lockroot += request->host();
-        lockroot += path;
-
-        AsyncResponseStream *response = request->beginResponseStream("application/xml; charset=utf-8");
-        response->setCode(200);
-        response->addHeader("Lock-Token", "urn:uuid:26e57cb3-834d-191a-00de-000042bdecf9");
-
-        response->print("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
-        response->print("<D:prop xmlns:D=\"DAV:\">");
-        response->print("<D:lockdiscovery>");
-        response->print("<D:activelock>");
-        response->print("<D:locktype><write/></D:locktype>");
-        response->print("<D:lockscope><exclusive/></D:lockscope>");
-        response->print("<D:locktoken><D:href>urn:uuid:26e57cb3-834d-191a-00de-000042bdecf9</D:href></D:locktoken>");
-        response->printf("<D:lockroot><D:href>%s</D:href></D:lockroot>", lockroot.c_str());
-        response->print("<D:depth>infinity</D:depth>");
-        response->printf("<D:owner><a:href xmlns:a=\"DAV:\">%s</a:href></D:owner>", "todo");
-        response->print("<D:timeout>Second-3600</D:timeout>");
-        response->print("</D:activelock>");
-        response->print("</D:lockdiscovery>");
-        response->print("</D:prop>");
-
-        request->send(response);
-        return;
-      }
-      if (request->method() == HTTP_UNLOCK) {
-        request->send(204);  // No Content
-        return;
-      }
-      if (request->method() == HTTP_MOVE) {
-        const AsyncWebHeader *destinationHeader = request->getHeader("destination");
-        if (!destinationHeader || destinationHeader->value().isEmpty()) {
-          request->send(400, "text/plain", "Missing destination header");
-          return;
-        }
-
-        // Should handle "Overwrite: {T,F}" header
-        String newpath = urlToUri(destinationHeader->value());
-        Serial.printf("Renaming %s to %s\n", path.c_str(), newpath.c_str());
-
-        if (_fs.exists(newpath)) {
-          Serial.printf("Destination file %s already exists\n", newpath.c_str());
-          request->send(500, "text/plain", "Destination file exists");
-        } else {
-          if (_fs.rename(path, newpath)) {
-            Serial.println("Rename succeeded");
-            request->send(201);
-          } else {
-            Serial.println("Rename failed");
-            request->send(500, "text/plain", "Unable to move");
-          }
-        }
-
-        return;
-      }
-      if (request->method() == HTTP_DELETE) {
-        // delete file or dir
-        bool result;
-        File file = _fs.open(path);
-
-        if (!file) {
-          request->send(404);
-        } else {
-          if (file.isDirectory()) {
-            file.close();
-            request->send(_fs.rmdir(path) ? 200 : 201);
-          } else {
-            file.close();
-            request->send(_fs.remove(path) ? 200 : 201);
-          }
-        }
-        return;
-      }
-
-      handleNotFound(request);
+void WebDAV::handleRequest(AsyncWebServerRequest *request) {
+  // If request->_tempObject is not null, handleBody already
+  // did the necessary work for a PUT operation
+  auto state = static_cast<RequestState *>(request->_tempObject);
+  if (state) {
+    if (state->outFile) {
+      // The file was already opened and written in handleBody so
+      // we are done.  We will handle PUT without body data below.
+      state->outFile.close();
+      request->send(201);  // Created
     }
+    delete state;
+    request->_tempObject = nullptr;
+    return;
+  }
+
+  String path = request->url();
+
+  Serial.print(request->methodToString());
+  Serial.print(" ");
+  Serial.println(path);
+
+  if (request->method() == HTTP_MKCOL) {
+    // does the file/dir already exist?
+    int status;
+    if (_fs.exists(path)) {
+      // Already exists
+      // I think there is an "Overwrite: {T,F}" header; we should handle it
+      request->send(405);
+    } else {
+      request->send(_fs.mkdir(path) ? 201 : 405);
+    }
+    return;
+  }
+
+  if (request->method() == HTTP_PUT) {
+    // This PUT code executes if the body was empty, which
+    // can happen if the client creates a zero-length file.
+    // MacOS WebDAVFS does that, then later LOCKs the file
+    // and issues a subsequent PUT with body contents.
+
+    File file = _fs.open(path, FILE_WRITE, true);
+    if (file) {
+      file.close();
+      request->send(201);  // Created
+      return;
+    }
+    request->send(403);
+    return;
+  }
+
+  if (request->method() == HTTP_OPTIONS) {
+    AsyncWebServerResponse *response = request->beginResponse(200);
+    response->addHeader("Dav", "1,2");
+    response->addHeader("Ms-Author-Via", "DAV");
+    response->addHeader("Allow", "PROPFIND,OPTIONS,DELETE,MOVE,HEAD,POST,PUT,GET");
+    request->send(response);
+    return;
+  }
+
+  // If we are not creating the resource it must already exist
+  if (!_fs.exists(path)) {
+    Serial.printf("%s does not exist\n", path.c_str());
+    request->send(404, "Resource does not exist");
+    return;
+  }
+
+  if (request->method() == HTTP_HEAD) {
+    File file = _fs.open(path);
+
+    // HEAD is like GET without a body, but with Content-Length
+    AsyncWebServerResponse *response = request->beginResponse(200, getContentType(path), "");  // AsyncBasicResponse
+    response->setContentLength(file.size());
+
+    request->send(response);
+    return;
+  }
+
+  if (request->method() == HTTP_GET) {
+    return handleGet(path, request);
+  }
+
+  if (request->method() == HTTP_PROPFIND) {
+    handlePropfind(path, request);
+    return;
+  }
+
+  if (request->method() == HTTP_LOCK) {
+    String lockroot("http://");
+    lockroot += request->host();
+    lockroot += path;
+
+    AsyncResponseStream *response = request->beginResponseStream("application/xml; charset=utf-8");
+    response->setCode(200);
+    response->addHeader("Lock-Token", "urn:uuid:26e57cb3-834d-191a-00de-000042bdecf9");
+
+    response->print("<?xml version=\"1.0\" encoding=\"utf-8\"?>");
+    response->print("<D:prop xmlns:D=\"DAV:\">");
+    response->print("<D:lockdiscovery>");
+    response->print("<D:activelock>");
+    response->print("<D:locktype><write/></D:locktype>");
+    response->print("<D:lockscope><exclusive/></D:lockscope>");
+    response->print("<D:locktoken><D:href>urn:uuid:26e57cb3-834d-191a-00de-000042bdecf9</D:href></D:locktoken>");
+    response->printf("<D:lockroot><D:href>%s</D:href></D:lockroot>", lockroot.c_str());
+    response->print("<D:depth>infinity</D:depth>");
+    response->printf("<D:owner><a:href xmlns:a=\"DAV:\">%s</a:href></D:owner>", "todo");
+    response->print("<D:timeout>Second-3600</D:timeout>");
+    response->print("</D:activelock>");
+    response->print("</D:lockdiscovery>");
+    response->print("</D:prop>");
+
+    request->send(response);
+    return;
+  }
+  if (request->method() == HTTP_UNLOCK) {
+    request->send(204);  // No Content
+    return;
+  }
+  if (request->method() == HTTP_MOVE) {
+    const AsyncWebHeader *destinationHeader = request->getHeader("destination");
+    if (!destinationHeader || destinationHeader->value().isEmpty()) {
+      request->send(400, "text/plain", "Missing destination header");
+      return;
+    }
+
+    // Should handle "Overwrite: {T,F}" header
+    String newpath = urlToUri(destinationHeader->value());
+    Serial.printf("Renaming %s to %s\n", path.c_str(), newpath.c_str());
+
+    if (_fs.exists(newpath)) {
+      Serial.printf("Destination file %s already exists\n", newpath.c_str());
+      request->send(500, "text/plain", "Destination file exists");
+    } else {
+      if (_fs.rename(path, newpath)) {
+        Serial.println("Rename succeeded");
+        request->send(201);
+      } else {
+        Serial.println("Rename failed");
+        request->send(500, "text/plain", "Unable to move");
+      }
+    }
+
+    return;
+  }
+  if (request->method() == HTTP_DELETE) {
+    // delete file or dir
+    bool result;
+    File file = _fs.open(path);
+
+    if (!file) {
+      request->send(404);
+    } else {
+      if (file.isDirectory()) {
+        file.close();
+        request->send(_fs.rmdir(path) ? 200 : 201);
+      } else {
+        file.close();
+        request->send(_fs.remove(path) ? 200 : 201);
+      }
+    }
+    return;
+  }
+
+  handleNotFound(request);
+}
 
     void WebDAV::handleBody(AsyncWebServerRequest *request, unsigned char *data, size_t len, size_t index, size_t total) {
       // The other requests with a body are LOCK and PROPFIND, where the body data is the XML
