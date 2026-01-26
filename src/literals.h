@@ -101,6 +101,7 @@ static constexpr const char T_uri[] = "uri";
 static constexpr const char T_username[] = "username";
 static constexpr const char T_WS[] = "websocket";
 static constexpr const char T_WWW_AUTH[] = "WWW-Authenticate";
+static constexpr const char T_X_Expected_Entity_Length[] = "X-Expected-Entity-Length";
 
 // HTTP Methods
 static constexpr const char T_ANY[] = "ANY";
@@ -111,6 +112,13 @@ static constexpr const char T_DELETE[] = "DELETE";
 static constexpr const char T_PATCH[] = "PATCH";
 static constexpr const char T_HEAD[] = "HEAD";
 static constexpr const char T_OPTIONS[] = "OPTIONS";
+static constexpr const char T_PROPFIND[] = "PROPFIND";
+static constexpr const char T_LOCK[] = "LOCK";
+static constexpr const char T_UNLOCK[] = "UNLOCK";
+static constexpr const char T_PROPPATCH[] = "PROPPATCH";
+static constexpr const char T_MKCOL[] = "MKCOL";
+static constexpr const char T_MOVE[] = "MOVE";
+static constexpr const char T_COPY[] = "COPY";
 static constexpr const char T_UNKNOWN[] = "UNKNOWN";
 
 // Req content types
@@ -183,6 +191,7 @@ DECLARE_STR(T_HTTP_CODE_203, "Non-Authoritative Information");
 DECLARE_STR(T_HTTP_CODE_204, "No Content");
 DECLARE_STR(T_HTTP_CODE_205, "Reset Content");
 DECLARE_STR(T_HTTP_CODE_206, "Partial Content");
+DECLARE_STR(T_HTTP_CODE_207, "Multi Status");
 DECLARE_STR(T_HTTP_CODE_300, "Multiple Choices");
 DECLARE_STR(T_HTTP_CODE_301, "Moved Permanently");
 DECLARE_STR(T_HTTP_CODE_302, "Found");
@@ -215,6 +224,7 @@ DECLARE_STR(T_HTTP_CODE_502, "Bad Gateway");
 DECLARE_STR(T_HTTP_CODE_503, "Service Unavailable");
 DECLARE_STR(T_HTTP_CODE_504, "Gateway Time-out");
 DECLARE_STR(T_HTTP_CODE_505, "HTTP Version Not Supported");
+DECLARE_STR(T_HTTP_CODE_507, "Insufficient Storage");
 DECLARE_STR(T_HTTP_CODE_ANY, "Unknown code");
 
 static constexpr const char *T_only_once_headers[] = {
