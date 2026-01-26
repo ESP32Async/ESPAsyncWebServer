@@ -280,6 +280,12 @@ private:
   size_t _itemBufferIndex;
   bool _itemIsFile;
 
+  size_t _chunkStartIndex;  // Offset from start of the chunked data stream
+  size_t _chunkOffset;      // Offset into the current chunk
+  size_t _chunkSize;        // Size of the current chunk
+  uint8_t _chunkedParseState;
+  bool _parseChunkedBytes(uint8_t *data, size_t len);
+
   void _onPoll();
   void _onAck(size_t len, uint32_t time);
   void _onError(int8_t error);
