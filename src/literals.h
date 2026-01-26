@@ -111,6 +111,13 @@ static constexpr const char T_DELETE[] = "DELETE";
 static constexpr const char T_PATCH[] = "PATCH";
 static constexpr const char T_HEAD[] = "HEAD";
 static constexpr const char T_OPTIONS[] = "OPTIONS";
+static constexpr const char T_PROPFIND[] = "PROPFIND";
+static constexpr const char T_LOCK[] = "LOCK";
+static constexpr const char T_UNLOCK[] = "UNLOCK";
+static constexpr const char T_PROPPATCH[] = "PROPPATCH";
+static constexpr const char T_MKCOL[] = "MKCOL";
+static constexpr const char T_MOVE[] = "MOVE";
+static constexpr const char T_COPY[] = "COPY";
 static constexpr const char T_UNKNOWN[] = "UNKNOWN";
 
 // Req content types
@@ -183,6 +190,7 @@ DECLARE_STR(T_HTTP_CODE_203, "Non-Authoritative Information");
 DECLARE_STR(T_HTTP_CODE_204, "No Content");
 DECLARE_STR(T_HTTP_CODE_205, "Reset Content");
 DECLARE_STR(T_HTTP_CODE_206, "Partial Content");
+DECLARE_STR(T_HTTP_CODE_207, "Multi Status");
 DECLARE_STR(T_HTTP_CODE_300, "Multiple Choices");
 DECLARE_STR(T_HTTP_CODE_301, "Moved Permanently");
 DECLARE_STR(T_HTTP_CODE_302, "Found");
