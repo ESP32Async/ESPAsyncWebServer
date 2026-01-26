@@ -101,7 +101,6 @@ static constexpr const char T_uri[] = "uri";
 static constexpr const char T_username[] = "username";
 static constexpr const char T_WS[] = "websocket";
 static constexpr const char T_WWW_AUTH[] = "WWW-Authenticate";
-static constexpr const char T_X_Expected_Entity_Length[] = "X-Expected-Entity-Length";
 
 // HTTP Methods
 static constexpr const char T_ANY[] = "ANY";
@@ -224,7 +223,6 @@ DECLARE_STR(T_HTTP_CODE_502, "Bad Gateway");
 DECLARE_STR(T_HTTP_CODE_503, "Service Unavailable");
 DECLARE_STR(T_HTTP_CODE_504, "Gateway Time-out");
 DECLARE_STR(T_HTTP_CODE_505, "HTTP Version Not Supported");
-DECLARE_STR(T_HTTP_CODE_507, "Insufficient Storage");
 DECLARE_STR(T_HTTP_CODE_ANY, "Unknown code");
 
 static constexpr const char *T_only_once_headers[] = {
