@@ -1476,7 +1476,8 @@ public:
     // ESPAsyncTCP and RPAsyncTCP methods are not corrected declared with const for immutable ones.
     return static_cast<tcp_state>(const_cast<AsyncWebServer *>(this)->_server.status());
 #else
-    return static_cast<tcp_state>(_server.status());
+    // ESP32: Same const-correctness workaround needed for AsyncTCP
+    return static_cast<tcp_state>(const_cast<AsyncWebServer *>(this)->_server.status());
 #endif
   }
 
