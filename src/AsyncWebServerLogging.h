@@ -101,13 +101,13 @@
 #endif
 // helper macro to copy PROGMEM format string to stack and call ets_printf
 // level is a char literal ('E', 'W', etc.) to avoid RAM usage from string literals
-#define _ASYNC_WS_LOG(level, format, ...) \
-  do { \
+#define _ASYNC_WS_LOG(level, format, ...)                               \
+  do {                                                                  \
     static const char __fmt[] PROGMEM = "%c async_ws %d: " format "\n"; \
-    char __buf[64]; \
-    strncpy_P(__buf, __fmt, sizeof(__buf) - 1); \
-    __buf[sizeof(__buf) - 1] = '\0'; \
-    ets_printf(__buf, level, __LINE__, ##__VA_ARGS__); \
+    char __buf[64];                                                     \
+    strncpy_P(__buf, __fmt, sizeof(__buf) - 1);                         \
+    __buf[sizeof(__buf) - 1] = '\0';                                    \
+    ets_printf(__buf, level, __LINE__, ##__VA_ARGS__);                  \
   } while (0)
 // error
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_ERROR
