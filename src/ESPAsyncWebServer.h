@@ -85,14 +85,21 @@ typedef enum http_method WebRequestMethod;
 #else
 #ifndef WEBSERVER_H
 typedef enum {
-  HTTP_GET = 0b00000001,
-  HTTP_POST = 0b00000010,
-  HTTP_DELETE = 0b00000100,
-  HTTP_PUT = 0b00001000,
-  HTTP_PATCH = 0b00010000,
-  HTTP_HEAD = 0b00100000,
-  HTTP_OPTIONS = 0b01000000,
-  HTTP_ANY = 0b01111111,
+  HTTP_GET       = 0b0000000000000001,
+  HTTP_POST      = 0b0000000000000010,
+  HTTP_DELETE    = 0b0000000000000100,
+  HTTP_PUT       = 0b0000000000001000,
+  HTTP_PATCH     = 0b0000000000010000,
+  HTTP_HEAD      = 0b0000000000100000,
+  HTTP_OPTIONS   = 0b0000000001000000,
+  HTTP_PROPFIND  = 0b0000000010000000,
+  HTTP_LOCK      = 0b0000000100000000,
+  HTTP_UNLOCK    = 0b0000001000000000,
+  HTTP_PROPPATCH = 0b0000010000000000,
+  HTTP_MKCOL     = 0b0000100000000000,
+  HTTP_MOVE      = 0b0001000000000000,
+  HTTP_COPY      = 0b0010000000000000,
+  HTTP_ANY       = 0b0011111111111111,
 } WebRequestMethod;
 #endif
 #endif
@@ -114,7 +121,7 @@ public:
 #define RESPONSE_TRY_AGAIN          0xFFFFFFFF
 #define RESPONSE_STREAM_BUFFER_SIZE 1460
 
-typedef uint8_t WebRequestMethodComposite;
+typedef uint16_t WebRequestMethodComposite;
 typedef std::function<void(void)> ArDisconnectHandler;
 
 /*
@@ -279,6 +286,12 @@ private:
   uint8_t *_itemBuffer;
   size_t _itemBufferIndex;
   bool _itemIsFile;
+
+  size_t _chunkStartIndex;  // Offset from start of the chunked data stream
+  size_t _chunkOffset;      // Offset into the current chunk
+  size_t _chunkSize;        // Size of the current chunk
+  uint8_t _chunkedParseState;
+  bool _parseChunkedBytes(uint8_t *data, size_t len);
 
   void _onPoll();
   void _onAck(size_t len, uint32_t time);
