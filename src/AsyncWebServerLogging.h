@@ -81,9 +81,12 @@
 
 /**
  * ESP8266 specific configurations
+ * Uses ets_printf to avoid dependency on global Serial object.
+ * Format strings are stored in PROGMEM and copied to a stack buffer.
  */
 #elif defined(ESP8266)
 #include <ets_sys.h>
+#include <pgmspace.h>
 // define log levels
 #define ASYNC_WS_LOG_NONE    0 /*!< No log output */
 #define ASYNC_WS_LOG_ERROR   1 /*!< Critical errors, software module can not recover on its own */
@@ -96,33 +99,42 @@
 #ifndef ASYNCWEBSERVER_LOG_LEVEL
 #define ASYNCWEBSERVER_LOG_LEVEL ASYNC_WS_LOG_INFO
 #endif
+// helper macro to copy PROGMEM format string to stack and call ets_printf
+// level is a char literal ('E', 'W', etc.) to avoid RAM usage from string literals
+#define _ASYNC_WS_LOG(level, format, ...)                               \
+  do {                                                                  \
+    static const char __fmt[] PROGMEM = "%c async_ws %d: " format "\n"; \
+    char __buf[sizeof(__fmt)];                                          \
+    strcpy_P(__buf, __fmt);                                             \
+    ets_printf(__buf, level, __LINE__, ##__VA_ARGS__);                  \
+  } while (0)
 // error
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_ERROR
-#define async_ws_log_e(format, ...) Serial.printf_P(PSTR("E async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
+#define async_ws_log_e(format, ...) _ASYNC_WS_LOG('E', format, ##__VA_ARGS__)
 #else
 #define async_ws_log_e(format, ...)
 #endif
 // warn
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_WARN
-#define async_ws_log_w(format, ...) Serial.printf_P(PSTR("W async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
+#define async_ws_log_w(format, ...) _ASYNC_WS_LOG('W', format, ##__VA_ARGS__)
 #else
 #define async_ws_log_w(format, ...)
 #endif
 // info
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_INFO
-#define async_ws_log_i(format, ...) Serial.printf_P(PSTR("I async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
+#define async_ws_log_i(format, ...) _ASYNC_WS_LOG('I', format, ##__VA_ARGS__)
 #else
 #define async_ws_log_i(format, ...)
 #endif
 // debug
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_DEBUG
-#define async_ws_log_d(format, ...) Serial.printf_P(PSTR("D async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
+#define async_ws_log_d(format, ...) _ASYNC_WS_LOG('D', format, ##__VA_ARGS__)
 #else
 #define async_ws_log_d(format, ...)
 #endif
 // verbose
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_VERBOSE
-#define async_ws_log_v(format, ...) Serial.printf_P(PSTR("V async_ws %d: " format "\n"), __LINE__, ##__VA_ARGS__)
+#define async_ws_log_v(format, ...) _ASYNC_WS_LOG('V', format, ##__VA_ARGS__)
 #else
 #define async_ws_log_v(format, ...)
 #endif
