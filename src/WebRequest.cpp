@@ -29,11 +29,21 @@ enum {
   PARSE_REQ_FAIL = 4
 };
 
+enum {
+  CHUNK_NONE = 0,   // Body transfer encoding is not chunked
+  CHUNK_LENGTH,     // Getting chunk length - HHHH[;...] CR LF
+  CHUNK_EXTENSION,  // Getting chunk extension - ;... CR LF
+  CHUNK_DATA,       // Handling chunk data
+  CHUNK_ERROR,      // Invalid chunk header
+  CHUNK_END,        // Getting chunk end marker  - CR LF
+};
+
 AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
   : _client(c), _server(s), _handler(NULL), _response(NULL), _onDisconnectfn(NULL), _temp(), _parseState(PARSE_REQ_START), _version(0), _method(HTTP_ANY),
     _url(), _host(), _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP), _authMethod(AsyncAuthType::AUTH_NONE), _isMultipart(false),
     _isPlainPost(false), _expectingContinue(false), _contentLength(0), _parsedLength(0), _multiParseState(0), _boundaryPosition(0), _itemStartIndex(0),
-    _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0), _itemBufferIndex(0), _itemIsFile(false), _tempObject(NULL) {
+    _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0), _itemBufferIndex(0), _itemIsFile(false), _chunkStartIndex(0),
+    _chunkOffset(0), _chunkSize(0), _chunkedParseState(CHUNK_NONE), _chunkedLastChar(0), _tempObject(NULL) {
   c->onError(
     [](void *r, AsyncClient *c, int8_t error) {
       (void)c;
@@ -164,6 +174,14 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         }
       }
     } else if (_parseState == PARSE_REQ_BODY) {
+      if (_chunkedParseState != CHUNK_NONE) {
+        if (_parseChunkedBytes((uint8_t *)buf, len)) {
+          _parseState = PARSE_REQ_END;
+          _runMiddlewareChain();
+          _send();
+        }
+        break;
+      }
       // A handler should be already attached at this point in _parseLine function.
       // If handler does nothing (_onRequest is NULL), we don't need to really parse the body.
       const bool needParse = _handler && !_handler->isRequestHandlerTrivial();
@@ -334,6 +352,130 @@ bool AsyncWebServerRequest::_parseReqHead() {
   return true;
 }
 
+// Returns true when done
+bool AsyncWebServerRequest::_parseChunkedBytes(uint8_t *buf, size_t len) {
+  for (size_t i = 0; i < len;) {
+    if (_chunkedParseState == CHUNK_DATA) {
+      // In DATA state, we pass the bytes off to handleBody as a group
+
+      // In order to avoid allocating an extra buffer, the data
+      // blocks that we pass on do not necessarily correspond to
+      // whole chunks.  We just send however much we already have,
+      // anticipating that more will arrive later.  handleBody()
+      // cannot assume that it receives entire chunks at once.
+      // That should not be a problem because we do not attach
+      // any semantic meaning to chunks.  That might change if
+      // we were to support chunk extensions, but that seems
+      // unlikely since RFC9112 suggests that they are only
+      // useful for very specialized purposes.
+      size_t curLen = std::min(_chunkSize - _chunkOffset, len - i);
+
+      // On the final zero-length chunk, _chunkSize - _chunkOffset
+      // will be zero, so we will call handleBody with a zero size,
+      // marking the end of the data stream.
+
+      if (_handler) {
+        _handler->handleBody(this, buf + i, curLen, _chunkStartIndex, _contentLength);
+      }
+      _chunkOffset += curLen;
+      _chunkStartIndex += curLen;
+      i += curLen;
+      if (_chunkOffset == _chunkSize) {
+        _chunkedParseState = CHUNK_END;
+      }
+    } else {
+      // In other states we process the bytes one by one
+      uint8_t data = buf[i++];
+
+      auto last_was_cr = _chunkedLastChar == '\r';
+      _chunkedLastChar = data;
+
+      if (_chunkedParseState == CHUNK_LENGTH) {
+        // Incrementally decode a hex number
+        if (data >= '0' && data <= '9') {
+          if (_chunkSize >= 0x1000000) {
+            _chunkedParseState = CHUNK_ERROR;
+          } else {
+            _chunkSize = (_chunkSize * 16) + (data - '0');
+          }
+        } else if (data >= 'A' && data <= 'F') {
+          if (_chunkSize >= 0x1000000) {
+            _chunkedParseState = CHUNK_ERROR;
+          } else {
+            _chunkSize = (_chunkSize * 16) + (data - 'A' + 10);
+          }
+        } else if (data >= 'a' && data <= 'f') {
+          if (_chunkSize >= 0x1000000) {
+            _chunkedParseState = CHUNK_ERROR;
+          } else {
+            _chunkSize = (_chunkSize * 16) + (data - 'a' + 10);
+          }
+        } else if (data == ';') {
+          _chunkedParseState = CHUNK_EXTENSION;
+        } else if (data == '\r') {
+          // Wait for LF
+        } else if (data == '\n') {
+          if (last_was_cr) {
+            _chunkOffset = 0;
+            _chunkedParseState = CHUNK_DATA;
+
+          } else {
+            _chunkedParseState = CHUNK_ERROR;
+          }
+        } else {
+          // Invalid hex character
+          _chunkedParseState = CHUNK_ERROR;
+        }
+      } else if (_chunkedParseState == CHUNK_EXTENSION) {
+        // Chunk extensions appear after a semicolon.
+        // We ignore them because their use cases are
+        // specialized and obscure.
+        if (data == '\r') {
+          // Wait for LF
+        } else if (data == '\n') {
+          if (last_was_cr) {
+            _chunkOffset = 0;
+            _chunkedParseState = CHUNK_DATA;
+          } else {
+            _chunkedParseState = CHUNK_ERROR;
+          }
+        }
+      } else if (_chunkedParseState == CHUNK_END) {
+        if (data == '\r') {
+          // Wait for LF
+        } else if (data == '\n') {
+          if (last_was_cr) {
+            // A zero length chunk marks the end of the chunk stream
+            if (_chunkSize == 0) {
+              // If we needed to support trailers, we would switch to
+              // TRAILER state, but since we have no use case for them,
+              // we just stop processing the body.
+              return true;
+            }
+            _chunkSize = 0;
+            _chunkedParseState = CHUNK_LENGTH;
+          } else {
+            _chunkedParseState = CHUNK_ERROR;
+          }
+        }
+      }
+
+      if (_chunkedParseState == CHUNK_ERROR) {
+        // If there was an error when parsing the chunk length, the
+        // rest of the data stream is unreliable.  Ideally we should
+        // close the connection, but that risks leaving things dangling
+        // (e.g. an open file), so it is probably best to just ignore
+        // the rest of the data and give handleRequest a chance to
+        // clean up.
+        _chunkSize = 0;
+        abort();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool AsyncWebServerRequest::_parseReqHeader() {
   AsyncWebHeader header = AsyncWebHeader::parse(_temp);
   if (header) {
@@ -348,7 +490,10 @@ bool AsyncWebServerRequest::_parseReqHeader() {
         _boundary.replace(String('"'), String());
         _isMultipart = true;
       }
-    } else if (name.equalsIgnoreCase(T_Content_Length)) {
+    } else if (name.equalsIgnoreCase(T_Content_Length) || name.equalsIgnoreCase(T_X_Expected_Entity_Length)) {
+      // MacOS WebDAVFS uses X-Expected-Entity-Length to indicate the
+      // total length of a chunked request body.  It is useful to
+      // determine if a PUT can possibly fit in the available space.
       _contentLength = atoi(value.c_str());
     } else if (name.equalsIgnoreCase(T_EXPECT) && value.equalsIgnoreCase(T_100_CONTINUE)) {
       _expectingContinue = true;
@@ -384,6 +529,28 @@ bool AsyncWebServerRequest::_parseReqHeader() {
       if (substr != NULL) {
         // WebEvent request can be uniquely identified by header:  [Accept: text/event-stream]
         _reqconntype = RCT_EVENT;
+      }
+    } else if (name.equalsIgnoreCase(T_Transfer_Encoding)) {
+      String lowcase(value);
+      lowcase.toLowerCase();
+      String key;
+
+      while (lowcase.length()) {
+        auto pos = lowcase.indexOf(',');
+        if (pos >= 0) {
+          key = lowcase.substring(0, pos);
+          lowcase = lowcase.substring(pos + 1);
+        } else {
+          key = lowcase;
+          lowcase = "";
+        }
+        key.trim();
+        if (key == "chunked") {
+          _chunkSize = 0;
+          _chunkStartIndex = 0;
+          _chunkedParseState = CHUNK_LENGTH;
+          break;
+        }
       }
     }
     _headers.emplace_back(std::move(header));
@@ -680,7 +847,7 @@ void AsyncWebServerRequest::_parseLine() {
         String response(T_HTTP_100_CONT);
         _client->write(response.c_str(), response.length());
       }
-      if (_contentLength) {
+      if (_contentLength || _chunkedParseState != CHUNK_NONE) {
         _parseState = PARSE_REQ_BODY;
       } else {
         _parseState = PARSE_REQ_END;
