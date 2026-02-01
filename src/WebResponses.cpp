@@ -68,6 +68,7 @@ STR_RETURN_TYPE AsyncWebServerResponse::responseCodeToString(int code) {
     case 503: return STR(T_HTTP_CODE_503);
     case 504: return STR(T_HTTP_CODE_504);
     case 505: return STR(T_HTTP_CODE_505);
+    case 507: return STR(T_HTTP_CODE_507);
     default:  return STR(T_HTTP_CODE_ANY);
   }
 }

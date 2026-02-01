@@ -200,6 +200,17 @@ void AsyncCallbackJsonWebHandler::handleBody(AsyncWebServerRequest *request, uin
     }
 
     if (index == 0) {
+      if (total == 0) {
+        // If total is 0, it is probably a chunked request without an
+        // X-Expected-Entity-Length header.  In that case there is
+        // no way to know the actual length in advance.  The best
+        // way to handle this would be to use a String instead of
+        // a fixed-length buffer, but for now we just reject.
+        async_ws_log_e("AsyncJson cannot handle chunked requests without X-Expected-Entity-Length");
+        request->abort();
+        return;
+      }
+
       // this check allows request->_tempObject to be initialized from a middleware
       if (request->_tempObject == NULL) {
         request->_tempObject = calloc(total + 1, sizeof(uint8_t));  // null-terminated string
