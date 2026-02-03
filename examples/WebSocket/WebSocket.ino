@@ -101,13 +101,50 @@ void setup() {
 
     } else if (type == WS_EVT_DATA) {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
-      Serial.printf("index: %" PRIu64 ", len: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 "\n", info->index, info->len, info->final, info->opcode);
-      String msg = "";
+      Serial.printf(
+        "index: %" PRIu64 ", len: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", framelen: %d\n", info->index, info->len, info->final, info->opcode, len
+      );
+
+      // complete frame
       if (info->final && info->index == 0 && info->len == len) {
         if (info->opcode == WS_TEXT) {
           data[len] = 0;
           Serial.printf("ws text: %s\n", (char *)data);
           client->ping();
+        }
+
+      } else {
+        // incomplete frame
+        if (info->index == 0) {
+          if (info->num == 0) {
+            Serial.printf(
+              "ws[%s][%" PRIu32 "] [%" PRIu32 "] MSG START %s\n", server->url(), client->id(), info->num, (info->message_opcode == WS_TEXT) ? "text" : "binary"
+            );
+          }
+          Serial.printf("ws[%s][%" PRIu32 "] [%" PRIu32 "] FRAME START len=%" PRIu64 "\n", server->url(), client->id(), info->num, info->len);
+        }
+
+        Serial.printf(
+          "ws[%s][%" PRIu32 "] [%" PRIu32 "] FRAME %s, index=%" PRIu64 ", len=%" PRIu32 "]: ", server->url(), client->id(), info->num,
+          (info->message_opcode == WS_TEXT) ? "text" : "binary", info->index, (uint32_t)len
+        );
+
+        if (info->message_opcode == WS_TEXT) {
+          data[len] = 0;
+          Serial.printf("%s\n", (char *)data);
+        } else {
+          for (size_t i = 0; i < len; i++) {
+            Serial.printf("%02x ", data[i]);
+          }
+          Serial.printf("\n");
+        }
+
+        if ((info->index + len) == info->len) {
+          Serial.printf("ws[%s][%" PRIu32 "] [%" PRIu32 "] FRAME END\n", server->url(), client->id(), info->num);
+
+          if (info->final) {
+            Serial.printf("ws[%s][%" PRIu32 "] [%" PRIu32 "] MSG END\n", server->url(), client->id(), info->num);
+          }
         }
       }
     }
@@ -131,7 +168,7 @@ void setup() {
 }
 
 static uint32_t lastWS = 0;
-static uint32_t deltaWS = 100;
+static uint32_t deltaWS = 500;
 
 static uint32_t lastHeap = 0;
 
