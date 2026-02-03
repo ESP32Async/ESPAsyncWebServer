@@ -25,6 +25,10 @@
 #include <memory>
 #include <utility>
 
+#define STATE_FRAME_START 0
+#define STATE_FRAME_MASK  1
+#define STATE_FRAME_DATA  2
+
 using namespace asyncsrv;
 
 size_t webSocketSendFrameWindow(AsyncClient *client) {
@@ -226,8 +230,8 @@ const char *AWSC_PING_PAYLOAD = "ESPAsyncWebServer-PING";
 const size_t AWSC_PING_PAYLOAD_LEN = 22;
 
 AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *server)
-  : _client(client), _server(server), _clientId(_server->_getNextId()), _status(WS_CONNECTED), _pstate(0), _lastMessageTime(millis()), _keepAlivePeriod(0),
-    _tempObject(NULL) {
+  : _client(client), _server(server), _clientId(_server->_getNextId()), _status(WS_CONNECTED), _pstate(STATE_FRAME_START), _lastMessageTime(millis()),
+    _keepAlivePeriod(0), _tempObject(NULL) {
 
   _client->setRxTimeout(0);
   _client->onError(
@@ -508,8 +512,11 @@ void AsyncWebSocketClient::_onDisconnect() {
 void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
   _lastMessageTime = millis();
   uint8_t *data = (uint8_t *)pbuf;
+
   while (plen > 0) {
-    if (!_pstate) {
+    async_ws_log_v("WS[%" PRIu32 "]: _onData: plen=%" PRIu32 ", _pstate=%" PRIu8 ", _status=%" PRIu8, _clientId, plen, _pstate, static_cast<uint8_t>(_status));
+
+    if (_pstate == STATE_FRAME_START) {
       const uint8_t *fdata = data;
 
       _pinfo.index = 0;
@@ -517,13 +524,6 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       _pinfo.opcode = fdata[0] & 0x0F;
       _pinfo.masked = ((fdata[1] & 0x80) != 0) ? 1 : 0;
       _pinfo.len = fdata[1] & 0x7F;
-
-      // async_ws_log_w("WS[%" PRIu32 "]: _onData: %" PRIu32, _clientId, plen);
-      // async_ws_log_w("WS[%" PRIu32 "]: _status = %" PRIu32, _clientId, _status);
-      // async_ws_log_w(
-      //   "WS[%" PRIu32 "]: _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index,
-      //   _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
-      // );
 
       data += 2;
       plen -= 2;
@@ -541,47 +541,52 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       }
     }
 
-    if (_pinfo.masked) {
-      // Read mask bytes (may be fragmented across packets in Safari)
-      size_t mask_offset = 0;
+    async_ws_log_v(
+      "WS[%" PRIu32 "]: _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _clientId, _pinfo.index,
+      _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
+    );
 
-      // If we're resuming from a previous fragmented read, check _pinfo.index
-      if (_pstate == 1 && _pinfo.index < 4) {
-        mask_offset = _pinfo.index;
-      }
-
-      // Read as many mask bytes as available
-      while (mask_offset < 4 && plen > 0) {
-        _pinfo.mask[mask_offset++] = *data++;
-        plen--;
-      }
-
-      // Check if we have all 4 mask bytes
-      if (mask_offset < 4) {
-        // Incomplete mask
-        if (_pinfo.opcode == WS_DISCONNECT && plen == 0) {
-          // Safari close frame edge case: masked bit set but no mask data
-          // async_ws_log_w("WS[%" PRIu32 "]: close frame with incomplete mask, treating as unmasked", _clientId);
+    // Handle fragmented mask data - Safari may split the 4-byte mask across multiple packets
+    // _pinfo.masked is 1 if we need to start reading mask bytes
+    // _pinfo.masked is 2, 3, or 4 if we have partially read the mask
+    // _pinfo.masked is 5 if the mask is complete
+    while (_pinfo.masked && _pstate <= STATE_FRAME_MASK && _pinfo.masked < 5) {
+      // check if we have some data
+      if (plen == 0) {
+        // Safari close frame edge case: masked bit set but no mask data
+        if (_pinfo.opcode == WS_DISCONNECT) {
+          async_ws_log_v("WS[%" PRIu32 "]: close frame with incomplete mask, treating as unmasked", _clientId);
           _pinfo.masked = 0;
           _pinfo.index = 0;
-        } else {
-          // Wait for more data
-          // async_ws_log_w("WS[%" PRIu32 "]: waiting for more mask data: read=%zu/4", _clientId, mask_offset);
-          _pinfo.index = mask_offset;  // Save progress
-          _pstate = 1;
-          return;
+          _pinfo.len = 0;
+          _pstate = STATE_FRAME_START;
+          break;
         }
-      } else {
-        // All mask bytes received
-        // async_ws_log_w("WS[%" PRIu32 "]: mask complete", _clientId);
-        _pinfo.index = 0;  // Reset index for payload processing
+
+        //wait for more data
+        _pstate = STATE_FRAME_MASK;
+        async_ws_log_v("WS[%" PRIu32 "]: waiting for more mask data: read=%" PRIu8 "/4", _clientId, _pinfo.masked - 1);
+        return;
       }
+
+      // accumulate mask bytes
+      _pinfo.mask[_pinfo.masked - 1] = data[0];
+      data += 1;
+      plen -= 1;
+      _pinfo.masked++;
+    }
+
+    // all mask bytes read if we were reading them
+    _pstate = STATE_FRAME_DATA;
+
+    // restore masked to 1 for backward compatibility
+    if (_pinfo.masked >= 5) {
+      async_ws_log_v("WS[%" PRIu32 "]: mask read complete", _clientId);
+      _pinfo.masked = 1;
     }
 
     const size_t datalen = std::min((size_t)(_pinfo.len - _pinfo.index), plen);
-    const auto datalast = data[datalen];
-
-    // async_ws_log_w("WS[%" PRIu32 "]: _processing data: datalen=%" PRIu32 ", plen=%" PRIu32, _clientId, datalen, plen);
+    const auto datalast = datalen ? data[datalen] : 0;
 
     if (_pinfo.masked) {
       for (size_t i = 0; i < datalen; i++) {
@@ -590,7 +595,8 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
     }
 
     if ((datalen + _pinfo.index) < _pinfo.len) {
-      _pstate = 1;
+      _pstate = STATE_FRAME_DATA;
+      async_ws_log_v("WS[%" PRIu32 "]: processing next fragment index=%" PRIu64 ", len=%" PRIu32 "", _clientId, _pinfo.index, (uint32_t)datalen);
 
       if (_pinfo.index == 0) {
         if (_pinfo.opcode) {
@@ -598,14 +604,21 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           _pinfo.num = 0;
         }
       }
+
       if (datalen > 0) {
         _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, datalen);
       }
 
+      // track index for next fragment
       _pinfo.index += datalen;
+
     } else if ((datalen + _pinfo.index) == _pinfo.len) {
-      _pstate = 0;
+      _pstate = STATE_FRAME_START;
+      async_ws_log_v("WS[%" PRIu32 "]: processing final fragment index=%" PRIu64 ", len=%" PRIu32 "", _clientId, _pinfo.index, (uint32_t)datalen);
+
       if (_pinfo.opcode == WS_DISCONNECT) {
+        async_ws_log_v("WS[%" PRIu32 "]: processing disconnect", _clientId);
+
         if (datalen) {
           uint16_t reasonCode = (uint16_t)(data[0] << 8) + data[1];
           char *reasonString = (char *)(data + 2);
@@ -625,14 +638,20 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           }
           _queueControl(WS_DISCONNECT, data, datalen);
         }
+
       } else if (_pinfo.opcode == WS_PING) {
+        async_ws_log_v("WS[%" PRIu32 "]: processing ping", _clientId);
         _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
         _queueControl(WS_PONG, data, datalen);
+
       } else if (_pinfo.opcode == WS_PONG) {
+        async_ws_log_v("WS[%" PRIu32 "]: processing pong", _clientId);
         if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
           _server->_handleEvent(this, WS_EVT_PONG, NULL, NULL, 0);
         }
+
       } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
+        async_ws_log_v("WS[%" PRIu32 "]: processing data frame num=%" PRIu32 "", _clientId, _pinfo.num);
         _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, datalen);
         if (_pinfo.final) {
           _pinfo.num = 0;
@@ -640,9 +659,18 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           _pinfo.num += 1;
         }
       }
+
     } else {
-      // async_ws_log_w("frame error: len: %u, index: %llu, total: %llu\n", datalen, _pinfo.index, _pinfo.len);
-      // what should we do?
+      // unexpected frame error, close connection
+      _pstate = STATE_FRAME_START;
+
+      async_ws_log_v("frame error: len: %u, index: %llu, total: %llu\n", datalen, _pinfo.index, _pinfo.len);
+
+      _status = WS_DISCONNECTING;
+      if (_client) {
+        _client->ackLater();
+      }
+      _queueControl(WS_DISCONNECT, data, datalen);
       break;
     }
 
