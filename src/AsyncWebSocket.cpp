@@ -485,10 +485,10 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
         _client->close();
       }
 
-      async_ws_log_e("Too many messages queued: closing connection");
+      async_ws_log_w("Too many messages queued: closing connection");
 
     } else {
-      async_ws_log_e("Too many messages queued: discarding new message");
+      async_ws_log_w("Too many messages queued: discarding new message");
     }
 
     return false;

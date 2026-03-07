@@ -200,7 +200,7 @@ AsyncEventSourceClient::~AsyncEventSourceClient() {
 
 bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
   if (_messageQueue.size() >= SSE_MAX_QUEUED_MESSAGES) {
-    async_ws_log_e("Event message queue overflow: discard message");
+    async_ws_log_w("Event message queue overflow: discard message");
     return false;
   }
 
@@ -231,7 +231,7 @@ bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
 
 bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
   if (_messageQueue.size() >= SSE_MAX_QUEUED_MESSAGES) {
-    async_ws_log_e("Event message queue overflow: discard message");
+    async_ws_log_w("Event message queue overflow: discard message");
     return false;
   }
 

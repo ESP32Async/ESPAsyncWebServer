@@ -151,7 +151,7 @@ void AsyncCallbackJsonWebHandler::handleRequest(AsyncWebServerRequest *request) 
     // POST / PUT / ... requests:
     // check if JSON body is too large, if it is, don't deserialize
     if (request->contentLength() > _maxContentLength) {
-      async_ws_log_e("Content length exceeds maximum allowed");
+      async_ws_log_w("Content length exceeds maximum allowed");
       request->send(413);
       return;
     }
@@ -206,7 +206,7 @@ void AsyncCallbackJsonWebHandler::handleBody(AsyncWebServerRequest *request, uin
         // no way to know the actual length in advance.  The best
         // way to handle this would be to use a String instead of
         // a fixed-length buffer, but for now we just reject.
-        async_ws_log_e("AsyncJson cannot handle chunked requests without X-Expected-Entity-Length");
+        async_ws_log_w("AsyncJson cannot handle chunked requests without X-Expected-Entity-Length");
         request->abort();
         return;
       }

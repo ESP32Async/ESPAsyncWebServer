@@ -218,7 +218,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     //File is a gz, get etag from CRC in trailer
     if (!AsyncWebServerRequest::_getEtag(request->_tempFile, etag)) {
       // File is corrupted or invalid
-      async_ws_log_e("File is corrupted or invalid: %s", tempFileName);
+      async_ws_log_w("File is corrupted or invalid: %s", tempFileName);
       request->send(404);
       return;
     }
