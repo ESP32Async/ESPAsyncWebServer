@@ -300,7 +300,7 @@ void AsyncCallbackWebHandler::setUri(AsyncURIMatcher uri) {
 }
 
 bool AsyncCallbackWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  if (!_onRequest || !request->isHTTP() || !(_method & request->method())) {
+  if (!_onRequest || !request->isHTTP() || !request->isMethod(_method)) {
     return false;
   }
   return _uri.matches(request);

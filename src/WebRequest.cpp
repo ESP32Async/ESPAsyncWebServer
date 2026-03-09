@@ -1314,46 +1314,46 @@ const char *AsyncWebServerRequest::methodToString() const {
   if (_method == HTTP_ANY) {
     return T_ANY;
   }
-  if (_method & HTTP_GET) {
+  if (isMethod(HTTP_GET)) {
     return T_GET;
   }
-  if (_method & HTTP_POST) {
+  if (isMethod(HTTP_POST)) {
     return T_POST;
   }
-  if (_method & HTTP_DELETE) {
+  if (isMethod(HTTP_DELETE)) {
     return T_DELETE;
   }
-  if (_method & HTTP_PUT) {
+  if (isMethod(HTTP_PUT)) {
     return T_PUT;
   }
-  if (_method & HTTP_PATCH) {
+  if (isMethod(HTTP_PATCH)) {
     return T_PATCH;
   }
-  if (_method & HTTP_HEAD) {
+  if (isMethod(HTTP_HEAD)) {
     return T_HEAD;
   }
-  if (_method & HTTP_OPTIONS) {
+  if (isMethod(HTTP_OPTIONS)) {
     return T_OPTIONS;
   }
-  if (_method & HTTP_PROPFIND) {
+  if (isMethod(HTTP_PROPFIND)) {
     return T_PROPFIND;
   }
-  if (_method & HTTP_LOCK) {
+  if (isMethod(HTTP_LOCK)) {
     return T_LOCK;
   }
-  if (_method & HTTP_UNLOCK) {
+  if (isMethod(HTTP_UNLOCK)) {
     return T_UNLOCK;
   }
-  if (_method & HTTP_PROPPATCH) {
+  if (isMethod(HTTP_PROPPATCH)) {
     return T_PROPPATCH;
   }
-  if (_method & HTTP_MKCOL) {
+  if (isMethod(HTTP_MKCOL)) {
     return T_MKCOL;
   }
-  if (_method & HTTP_MOVE) {
+  if (isMethod(HTTP_MOVE)) {
     return T_MOVE;
   }
-  if (_method & HTTP_COPY) {
+  if (isMethod(HTTP_COPY)) {
     return T_COPY;
   }
   return T_UNKNOWN;

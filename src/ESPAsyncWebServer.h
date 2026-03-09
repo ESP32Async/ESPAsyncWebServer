@@ -41,8 +41,6 @@
 #include <ESPAsyncTCP.h>
 #elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 #include <RPAsyncTCP.h>
-#include <HTTP_Method.h>
-#include <http_parser.h>
 #else
 #error Platform not supported
 #endif
@@ -80,10 +78,6 @@ class AsyncCallbackWebHandler;
 class AsyncResponseStream;
 class AsyncMiddlewareChain;
 
-#if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
-typedef enum http_method WebRequestMethod;
-#else
-#ifndef WEBSERVER_H
 typedef enum {
   HTTP_GET = 0b0000000000000001,
   HTTP_POST = 0b0000000000000010,
@@ -102,8 +96,6 @@ typedef enum {
   HTTP_RESERVED = 0b0100000000000000,
   HTTP_ANY = 0b0111111111111111,
 } WebRequestMethod;
-#endif
-#endif
 
 #ifndef HAVE_FS_FILE_OPEN_MODE
 namespace fs {
@@ -346,6 +338,9 @@ public:
   }
   WebRequestMethodComposite method() const {
     return _method;
+  }
+  bool isMethod(WebRequestMethodComposite method) const {
+    return (_method & method) != 0;
   }
   const String &url() const {
     return _url;
