@@ -314,35 +314,8 @@ bool AsyncWebServerRequest::_parseReqHead() {
   String u = _temp.substring(m.length() + 1, index);
   _temp = _temp.substring(index + 1);
 
-  if (m == T_GET) {
-    _method = AsyncWebRequestMethod::HTTP_GET;
-  } else if (m == T_POST) {
-    _method = AsyncWebRequestMethod::HTTP_POST;
-  } else if (m == T_DELETE) {
-    _method = AsyncWebRequestMethod::HTTP_DELETE;
-  } else if (m == T_PUT) {
-    _method = AsyncWebRequestMethod::HTTP_PUT;
-  } else if (m == T_PATCH) {
-    _method = AsyncWebRequestMethod::HTTP_PATCH;
-  } else if (m == T_HEAD) {
-    _method = AsyncWebRequestMethod::HTTP_HEAD;
-  } else if (m == T_OPTIONS) {
-    _method = AsyncWebRequestMethod::HTTP_OPTIONS;
-  } else if (m == T_PROPFIND) {
-    _method = AsyncWebRequestMethod::HTTP_PROPFIND;
-  } else if (m == T_LOCK) {
-    _method = AsyncWebRequestMethod::HTTP_LOCK;
-  } else if (m == T_UNLOCK) {
-    _method = AsyncWebRequestMethod::HTTP_UNLOCK;
-  } else if (m == T_PROPPATCH) {
-    _method = AsyncWebRequestMethod::HTTP_PROPPATCH;
-  } else if (m == T_MKCOL) {
-    _method = AsyncWebRequestMethod::HTTP_MKCOL;
-  } else if (m == T_MOVE) {
-    _method = AsyncWebRequestMethod::HTTP_MOVE;
-  } else if (m == T_COPY) {
-    _method = AsyncWebRequestMethod::HTTP_COPY;
-  } else {
+  _method = stringToMethod(m);
+  if (_method == HTTP_INVALID) {
     return false;
   }
 
@@ -1311,55 +1284,6 @@ String AsyncWebServerRequest::urlDecode(const String &text) const {
   return decoded;
 }
 
-const char *AsyncWebServerRequest::methodToString() const {
-  if (_method == AsyncWebRequestMethod::HTTP_ANY) {
-    return T_ANY;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_GET) {
-    return T_GET;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_POST) {
-    return T_POST;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_DELETE) {
-    return T_DELETE;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_PUT) {
-    return T_PUT;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_PATCH) {
-    return T_PATCH;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_HEAD) {
-    return T_HEAD;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_OPTIONS) {
-    return T_OPTIONS;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_PROPFIND) {
-    return T_PROPFIND;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_LOCK) {
-    return T_LOCK;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_UNLOCK) {
-    return T_UNLOCK;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_PROPPATCH) {
-    return T_PROPPATCH;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_MKCOL) {
-    return T_MKCOL;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_MOVE) {
-    return T_MOVE;
-  }
-  if (_method & AsyncWebRequestMethod::HTTP_COPY) {
-    return T_COPY;
-  }
-  return T_UNKNOWN;
-}
-
 const char *AsyncWebServerRequest::requestedConnTypeToString() const {
   switch (_reqconntype) {
     case RCT_NOT_USED: return T_RCT_NOT_USED;
@@ -1380,4 +1304,60 @@ AsyncClient *AsyncWebServerRequest::clientRelease() {
   AsyncClient *c = _client;
   _client = nullptr;
   return c;
+}
+
+// WebRequestMethod conversions
+WebRequestMethod stringToMethod(const String &m) {
+  if (m == T_GET) {
+    return AsyncWebRequestMethod::HTTP_GET;
+  } else if (m == T_POST) {
+    return AsyncWebRequestMethod::HTTP_POST;
+  } else if (m == T_DELETE) {
+    return AsyncWebRequestMethod::HTTP_DELETE;
+  } else if (m == T_PUT) {
+    return AsyncWebRequestMethod::HTTP_PUT;
+  } else if (m == T_PATCH) {
+    return AsyncWebRequestMethod::HTTP_PATCH;
+  } else if (m == T_HEAD) {
+    return AsyncWebRequestMethod::HTTP_HEAD;
+  } else if (m == T_OPTIONS) {
+    return AsyncWebRequestMethod::HTTP_OPTIONS;
+  } else if (m == T_PROPFIND) {
+    return AsyncWebRequestMethod::HTTP_PROPFIND;
+  } else if (m == T_LOCK) {
+    return AsyncWebRequestMethod::HTTP_LOCK;
+  } else if (m == T_UNLOCK) {
+    return AsyncWebRequestMethod::HTTP_UNLOCK;
+  } else if (m == T_PROPPATCH) {
+    return AsyncWebRequestMethod::HTTP_PROPPATCH;
+  } else if (m == T_MKCOL) {
+    return AsyncWebRequestMethod::HTTP_MKCOL;
+  } else if (m == T_MOVE) {
+    return AsyncWebRequestMethod::HTTP_MOVE;
+  } else if (m == T_COPY) {
+    return AsyncWebRequestMethod::HTTP_COPY;
+  } else {
+    return AsyncWebRequestMethod::HTTP_INVALID;
+  }
+}
+
+const char *methodToString(WebRequestMethod method) {
+  switch (method) {
+    case AsyncWebRequestMethod::HTTP_GET:       return T_GET;
+    case AsyncWebRequestMethod::HTTP_POST:      return T_POST;
+    case AsyncWebRequestMethod::HTTP_DELETE:    return T_DELETE;
+    case AsyncWebRequestMethod::HTTP_PUT:       return T_PUT;
+    case AsyncWebRequestMethod::HTTP_PATCH:     return T_PATCH;
+    case AsyncWebRequestMethod::HTTP_HEAD:      return T_HEAD;
+    case AsyncWebRequestMethod::HTTP_OPTIONS:   return T_OPTIONS;
+    case AsyncWebRequestMethod::HTTP_PROPFIND:  return T_PROPFIND;
+    case AsyncWebRequestMethod::HTTP_LOCK:      return T_LOCK;
+    case AsyncWebRequestMethod::HTTP_UNLOCK:    return T_UNLOCK;
+    case AsyncWebRequestMethod::HTTP_PROPPATCH: return T_PROPPATCH;
+    case AsyncWebRequestMethod::HTTP_MKCOL:     return T_MKCOL;
+    case AsyncWebRequestMethod::HTTP_MOVE:      return T_MOVE;
+    case AsyncWebRequestMethod::HTTP_COPY:      return T_COPY;
+    case AsyncWebRequestMethod::HTTP_ANY:       return T_ANY;
+    default:             return T_UNKNOWN;
+  }
 }

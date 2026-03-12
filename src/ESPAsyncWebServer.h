@@ -98,6 +98,7 @@ enum AsyncWebRequestMethodType {
   HTTP_COPY = 0b0010000000000000,
   HTTP_RESERVED = 0b0100000000000000,
   HTTP_ANY = 0b0111111111111111,
+  HTTP_INVALID = 0b1000000000000000
 };
 };  // namespace AsyncWebRequestMethod
 
@@ -105,12 +106,19 @@ typedef AsyncWebRequestMethod::AsyncWebRequestMethodType WebRequestMethod;
 typedef uint16_t WebRequestMethodComposite;
 
 // Type-safe helper functions for composite methods
-extern constexpr inline WebRequestMethodComposite operator|(WebRequestMethodComposite l, WebRequestMethod r) {
+constexpr inline WebRequestMethodComposite operator|(WebRequestMethodComposite l, WebRequestMethod r) {
   return l | static_cast<WebRequestMethodComposite>(r);
 };
-extern constexpr inline WebRequestMethodComposite operator|(WebRequestMethod l, WebRequestMethod r) {
+constexpr inline WebRequestMethodComposite operator|(WebRequestMethod l, WebRequestMethod r) {
   return static_cast<WebRequestMethodComposite>(l) | r;
 };
+constexpr inline bool methodMatches(WebRequestMethodComposite c, WebRequestMethod m) {
+  return c & static_cast<WebRequestMethodComposite>(m);
+};
+
+// WebRequestMethod string conversion functions
+WebRequestMethod stringToMethod(const String &);
+const char *methodToString(WebRequestMethod);
 
 #if !defined(ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS)
 // Import the method enum values to the global namespace
@@ -265,7 +273,7 @@ private:
   uint8_t _parseState;
 
   uint8_t _version;
-  WebRequestMethodComposite _method;
+  WebRequestMethod _method;
   String _url;
   String _host;
   String _contentType;
@@ -355,7 +363,7 @@ public:
   uint8_t version() const {
     return _version;
   }
-  WebRequestMethodComposite method() const {
+  WebRequestMethod method() const {
     return _method;
   }
   const String &url() const {
@@ -374,7 +382,9 @@ public:
     return _isMultipart;
   }
 
-  const char *methodToString() const;
+  inline const char *methodToString() const {
+    return ::methodToString(_method);
+  };
   const char *requestedConnTypeToString() const;
 
   RequestedConnectionType requestedConnType() const {

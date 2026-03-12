@@ -124,7 +124,7 @@ AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, Ar
 #endif
 
 bool AsyncCallbackJsonWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  if (!_onRequest || !request->isHTTP() || !(_method & request->method())) {
+  if (!_onRequest || !request->isHTTP() || !methodMatches(_method, request->method())) {
     return false;
   }
 
