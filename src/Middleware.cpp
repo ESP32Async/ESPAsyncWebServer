@@ -249,7 +249,7 @@ void AsyncCorsMiddleware::run(AsyncWebServerRequest *request, ArMiddlewareNext n
   // Origin header ? => CORS handling
   if (request->hasHeader(asyncsrv::T_CORS_O)) {
     // check if this is a preflight request => handle it and return
-    if (request->method() == AsyncWebRequestMethod::HTTP_OPTIONS) {
+    if (request->method() == HTTP_OPTIONS) {
       AsyncWebServerResponse *response = request->beginResponse(200);
       addCORSHeaders(request, response);
       request->send(response);

@@ -45,6 +45,72 @@
 #error Platform not supported
 #endif
 
+// HTTP method types from the platform's HTTP parser library.
+// Arduino ESP32 core provides HTTP_Method.h which typedef's http_method as
+// HTTPMethod and defines HTTP_ANY = (HTTPMethod)(255) as the "match any" sentinel.
+// Fall back to the raw http_parser.h (always available via the TCP library) or,
+// as a last resort, to a fully inline fallback definition.
+#if __has_include(<HTTP_Method.h>)
+#include <HTTP_Method.h>
+// HTTP_Method.h provides: typedef enum http_method HTTPMethod;
+// and: #define HTTP_ANY (HTTPMethod)(255)
+#elif __has_include(<http_parser.h>)
+#include <http_parser.h>
+// http_parser.h provides enum http_method but not the HTTP_ANY sentinel.
+// Define the sentinel here, matching the value used by Arduino's HTTP_Method.h.
+#ifndef HTTP_ANY
+#define HTTP_ANY ((http_method)(255))
+#endif
+#else
+// Full fallback for toolchains that expose neither header.
+// Enum values match the llhttp/http_parser spec used by all supported platforms.
+typedef enum {
+  HTTP_DELETE = 0,
+  HTTP_GET = 1,
+  HTTP_HEAD = 2,
+  HTTP_POST = 3,
+  HTTP_PUT = 4,
+  /* pathological */
+  HTTP_CONNECT = 5,
+  HTTP_OPTIONS = 6,
+  HTTP_TRACE = 7,
+  /* WebDAV */
+  HTTP_COPY = 8,
+  HTTP_LOCK = 9,
+  HTTP_MKCOL = 10,
+  HTTP_MOVE = 11,
+  HTTP_PROPFIND = 12,
+  HTTP_PROPPATCH = 13,
+  HTTP_SEARCH = 14,
+  HTTP_UNLOCK = 15,
+  HTTP_BIND = 16,
+  HTTP_REBIND = 17,
+  HTTP_UNBIND = 18,
+  HTTP_ACL = 19,
+  /* subversion */
+  HTTP_REPORT = 20,
+  HTTP_MKACTIVITY = 21,
+  HTTP_CHECKOUT = 22,
+  HTTP_MERGE = 23,
+  /* upnp */
+  HTTP_MSEARCH = 24,
+  HTTP_NOTIFY = 25,
+  HTTP_SUBSCRIBE = 26,
+  HTTP_UNSUBSCRIBE = 27,
+  /* RFC-5789 */
+  HTTP_PATCH = 28,
+  HTTP_PURGE = 29,
+  /* CalDAV */
+  HTTP_MKCALENDAR = 30,
+  /* RFC-2068, section 19.6.1.2 */
+  HTTP_LINK = 31,
+  HTTP_UNLINK = 32,
+  /* icecast */
+  HTTP_SOURCE = 33,
+} http_method;
+#define HTTP_ANY ((http_method)(255))
+#endif
+
 #include "AsyncWebServerVersion.h"
 #define ASYNCWEBSERVER_FORK_ESP32Async
 
@@ -78,44 +144,97 @@ class AsyncCallbackWebHandler;
 class AsyncResponseStream;
 class AsyncMiddlewareChain;
 
-// Namespace for web request method defines
-namespace AsyncWebRequestMethod {
-// The long name here is because we sometimes include this in the global namespace
-enum AsyncWebRequestMethodType {
-  HTTP_GET = 0b0000000000000001,
-  HTTP_POST = 0b0000000000000010,
-  HTTP_DELETE = 0b0000000000000100,
-  HTTP_PUT = 0b0000000000001000,
-  HTTP_PATCH = 0b0000000000010000,
-  HTTP_HEAD = 0b0000000000100000,
-  HTTP_OPTIONS = 0b0000000001000000,
-  HTTP_PROPFIND = 0b0000000010000000,
-  HTTP_LOCK = 0b0000000100000000,
-  HTTP_UNLOCK = 0b0000001000000000,
-  HTTP_PROPPATCH = 0b0000010000000000,
-  HTTP_MKCOL = 0b0000100000000000,
-  HTTP_MOVE = 0b0001000000000000,
-  HTTP_COPY = 0b0010000000000000,
-  HTTP_RESERVED = 0b0100000000000000,
-  HTTP_ANY = 0b0111111111111111,
-};
-};  // namespace AsyncWebRequestMethod
+// WebRequestMethod: a single HTTP request method, taken directly from the
+// platform's http_parser enum.  HTTP_GET, HTTP_POST, HTTP_DELETE, HTTP_PUT,
+// HTTP_PATCH, HTTP_HEAD, HTTP_OPTIONS, HTTP_PROPFIND, HTTP_LOCK, HTTP_UNLOCK,
+// HTTP_PROPPATCH, HTTP_MKCOL, HTTP_MOVE, HTTP_COPY and many others are already
+// defined globally by the platform headers above — no redefinition needed here.
+// HTTP_ANY (= 255) is the "match any method" sentinel, also from the platform.
+typedef http_method WebRequestMethod;
 
-typedef AsyncWebRequestMethod::AsyncWebRequestMethodType WebRequestMethod;
-typedef uint16_t WebRequestMethodComposite;
+// WebRequestMethodComposite: an ordered list of HTTP methods that a handler
+// accepts.  An empty composite matches *nothing*.  A composite containing
+// HTTP_ANY matches *any* method.
+class WebRequestMethodComposite {
+public:
+  // Empty composite = match nothing.
+  WebRequestMethodComposite() {}
 
-// Type-safe helper functions for composite methods
-extern constexpr inline WebRequestMethodComposite operator|(WebRequestMethodComposite l, WebRequestMethod r) {
-  return l | static_cast<WebRequestMethodComposite>(r);
-};
-extern constexpr inline WebRequestMethodComposite operator|(WebRequestMethod l, WebRequestMethod r) {
-  return static_cast<WebRequestMethodComposite>(l) | r;
+  // Single-method composite.
+  WebRequestMethodComposite(WebRequestMethod m) {
+    _methods.push_back(m);
+  }
+
+  // Append a method.
+  WebRequestMethodComposite &add(WebRequestMethod m) {
+    _methods.push_back(m);
+    return *this;
+  }
+
+  // Returns true when this composite contains (or should match) the given
+  // method.
+  bool allows(WebRequestMethod m) const {
+    for (const auto &method : _methods) {
+      if (method == HTTP_ANY || method == m) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Equality: true when the composite holds exactly this one method.
+  bool operator==(WebRequestMethod m) const {
+    return _methods.size() == 1 && _methods[0] == m;
+  }
+  bool operator!=(WebRequestMethod m) const {
+    return !(*this == m);
+  }
+
+  // True when this is an empty (match-nothing) composite.
+  bool empty() const {
+    return _methods.empty();
+  }
+
+  String toString() const {
+    if (empty()) {
+      return "<>";
+    }
+    String result = "<";
+    for (size_t i = 0; i < _methods.size(); ++i) {
+      if (i > 0) {
+        result += ",";
+      }
+      result.concat(_methods[i]);
+    }
+    result.concat(">");
+    return result;
+  }
+
+private:
+  std::vector<WebRequestMethod> _methods;
 };
 
-#if !defined(ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS)
-// Import the method enum values to the global namespace
-using namespace AsyncWebRequestMethod;
-#endif
+// Build a composite from two individual methods: HTTP_GET | HTTP_POST
+inline WebRequestMethodComposite operator|(WebRequestMethod l, WebRequestMethod r) {
+  WebRequestMethodComposite c;
+  c.add(l).add(r);
+  return c;
+}
+
+// Extend a composite with one more method: (HTTP_GET | HTTP_POST) | HTTP_PUT
+inline WebRequestMethodComposite operator|(WebRequestMethodComposite c, WebRequestMethod r) {
+  c.add(r);
+  return c;
+}
+
+// Membership test: returns true when composite c contains method m.
+// Usage: if (handler._method & request->method()) { /* matched */ }
+inline bool operator&(const WebRequestMethodComposite &c, WebRequestMethod m) {
+  return c.allows(m);
+}
+inline bool operator&(WebRequestMethod m, const WebRequestMethodComposite &c) {
+  return c.allows(m);
+}
 
 #ifndef HAVE_FS_FILE_OPEN_MODE
 namespace fs {
@@ -265,7 +384,7 @@ private:
   uint8_t _parseState;
 
   uint8_t _version;
-  WebRequestMethodComposite _method;
+  WebRequestMethod _method;
   String _url;
   String _host;
   String _contentType;
@@ -355,7 +474,7 @@ public:
   uint8_t version() const {
     return _version;
   }
-  WebRequestMethodComposite method() const {
+  WebRequestMethod method() const {
     return _method;
   }
   const String &url() const {
@@ -374,6 +493,7 @@ public:
     return _isMultipart;
   }
 
+  const char *methodToString(WebRequestMethod method) const;
   const char *methodToString() const;
   const char *requestedConnTypeToString() const;
 
@@ -383,10 +503,10 @@ public:
   bool isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2 = RCT_NOT_USED, RequestedConnectionType erct3 = RCT_NOT_USED)
     const;
   bool isWebSocketUpgrade() const {
-    return _method == AsyncWebRequestMethod::HTTP_GET && isExpectedRequestedConnType(RCT_WS);
+    return _method == HTTP_GET && isExpectedRequestedConnType(RCT_WS);
   }
   bool isSSE() const {
-    return _method == AsyncWebRequestMethod::HTTP_GET && isExpectedRequestedConnType(RCT_EVENT);
+    return _method == HTTP_GET && isExpectedRequestedConnType(RCT_EVENT);
   }
   bool isHTTP() const {
     return isExpectedRequestedConnType(RCT_DEFAULT, RCT_HTTP);
@@ -964,6 +1084,8 @@ public:
 #endif
 
 private:
+  friend class AsyncWebServer;
+
   // fields
   String _value;
   union {
@@ -1556,7 +1678,7 @@ public:
   bool removeHandler(AsyncWebHandler *handler);
 
   AsyncCallbackWebHandler &on(AsyncURIMatcher uri, ArRequestHandlerFunction onRequest) {
-    return on(std::move(uri), AsyncWebRequestMethod::HTTP_ANY, onRequest);
+    return on(std::move(uri), HTTP_ANY, onRequest);
   }
   AsyncCallbackWebHandler &on(
     AsyncURIMatcher uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload = nullptr,
