@@ -62,7 +62,7 @@ protected:
   bool _isRegex;
 
 public:
-  AsyncCallbackWebHandler() : _uri(), _method(AsyncWebRequestMethod::HTTP_ANY), _onRequest(NULL), _onUpload(NULL), _onBody(NULL), _isRegex(false) {}
+  AsyncCallbackWebHandler() : _uri(), _method(HTTP_ANY), _onRequest(NULL), _onUpload(NULL), _onBody(NULL), _isRegex(false) {}
   void setUri(AsyncURIMatcher uri);
   void setMethod(WebRequestMethodComposite method) {
     _method = method;

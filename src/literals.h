@@ -119,6 +119,25 @@ static constexpr const char T_PROPPATCH[] = "PROPPATCH";
 static constexpr const char T_MKCOL[] = "MKCOL";
 static constexpr const char T_MOVE[] = "MOVE";
 static constexpr const char T_COPY[] = "COPY";
+static constexpr const char T_CONNECT[] = "CONNECT";
+static constexpr const char T_TRACE[] = "TRACE";
+static constexpr const char T_SEARCH[] = "SEARCH";
+static constexpr const char T_BIND[] = "BIND";
+static constexpr const char T_REBIND[] = "REBIND";
+static constexpr const char T_UNBIND[] = "UNBIND";
+static constexpr const char T_ACL[] = "ACL";
+static constexpr const char T_REPORT[] = "REPORT";
+static constexpr const char T_MKACTIVITY[] = "MKACTIVITY";
+static constexpr const char T_CHECKOUT[] = "CHECKOUT";
+static constexpr const char T_MERGE[] = "MERGE";
+static constexpr const char T_MSEARCH[] = "M-SEARCH";
+static constexpr const char T_NOTIFY[] = "NOTIFY";
+static constexpr const char T_SUBSCRIBE[] = "SUBSCRIBE";
+static constexpr const char T_UNSUBSCRIBE[] = "UNSUBSCRIBE";
+static constexpr const char T_PURGE[] = "PURGE";
+static constexpr const char T_MKCALENDAR[] = "MKCALENDAR";
+static constexpr const char T_LINK[] = "LINK";
+static constexpr const char T_UNLINK[] = "UNLINK";
 static constexpr const char T_UNKNOWN[] = "UNKNOWN";
 
 // Req content types

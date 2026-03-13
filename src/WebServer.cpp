@@ -3,6 +3,7 @@
 
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
+#include "AsyncWebServerLogging.h"
 
 #include <string>
 #include <utility>
@@ -156,6 +157,7 @@ void AsyncWebServer::_attachHandler(AsyncWebServerRequest *request) {
 AsyncCallbackWebHandler &AsyncWebServer::on(
   AsyncURIMatcher uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload, ArBodyHandlerFunction onBody
 ) {
+  async_ws_log_v("+Handler: %s %s", uri._value.c_str(), method.toString().c_str());
   AsyncCallbackWebHandler *handler = new AsyncCallbackWebHandler();
   handler->setUri(std::move(uri));
   handler->setMethod(method);

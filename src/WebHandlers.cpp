@@ -103,7 +103,7 @@ AsyncStaticWebHandler &AsyncStaticWebHandler::setLastModified() {
 }
 
 bool AsyncStaticWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  return request->isHTTP() && request->method() == AsyncWebRequestMethod::HTTP_GET && request->url().startsWith(_uri) && _getFile(request);
+  return request->isHTTP() && request->method() == HTTP_GET && request->url().startsWith(_uri) && _getFile(request);
 }
 
 bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest *request) const {

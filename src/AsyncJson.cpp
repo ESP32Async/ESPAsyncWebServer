@@ -115,14 +115,11 @@ size_t AsyncMessagePackResponse::_fillBuffer(uint8_t *data, size_t len) {
 
 #if ARDUINOJSON_VERSION_MAJOR == 6
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest, size_t maxJsonBufferSize)
-  : _uri(std::move(uri)),
-    _method(AsyncWebRequestMethod::HTTP_GET | AsyncWebRequestMethod::HTTP_POST | AsyncWebRequestMethod::HTTP_PUT | AsyncWebRequestMethod::HTTP_PATCH),
-    _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize), _maxContentLength(16384) {}
+  : _uri(std::move(uri)), _method(HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_PATCH), _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize),
+    _maxContentLength(16384) {}
 #else
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest)
-  : _uri(std::move(uri)),
-    _method(AsyncWebRequestMethod::HTTP_GET | AsyncWebRequestMethod::HTTP_POST | AsyncWebRequestMethod::HTTP_PUT | AsyncWebRequestMethod::HTTP_PATCH),
-    _onRequest(onRequest), _maxContentLength(16384) {}
+  : _uri(std::move(uri)), _method(HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_PATCH), _onRequest(onRequest), _maxContentLength(16384) {}
 #endif
 
 bool AsyncCallbackJsonWebHandler::canHandle(AsyncWebServerRequest *request) const {
@@ -135,17 +132,17 @@ bool AsyncCallbackJsonWebHandler::canHandle(AsyncWebServerRequest *request) cons
   }
 
 #if ASYNC_MSG_PACK_SUPPORT == 1
-  return request->method() == AsyncWebRequestMethod::HTTP_GET || request->contentType().equalsIgnoreCase(asyncsrv::T_application_json)
+  return request->method() == HTTP_GET || request->contentType().equalsIgnoreCase(asyncsrv::T_application_json)
          || request->contentType().equalsIgnoreCase(asyncsrv::T_application_msgpack);
 #else
-  return request->method() == AsyncWebRequestMethod::HTTP_GET || request->contentType().equalsIgnoreCase(asyncsrv::T_application_json);
+  return request->method() == HTTP_GET || request->contentType().equalsIgnoreCase(asyncsrv::T_application_json);
 #endif
 }
 
 void AsyncCallbackJsonWebHandler::handleRequest(AsyncWebServerRequest *request) {
   if (_onRequest) {
     // GET request:
-    if (request->method() == AsyncWebRequestMethod::HTTP_GET) {
+    if (request->method() == HTTP_GET) {
       JsonVariant json;
       _onRequest(request, json);
       return;

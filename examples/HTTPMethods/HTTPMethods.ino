@@ -23,8 +23,6 @@
 #include <WiFi.h>
 #endif
 
-#define ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS 1
-#undef HTTP_ANY
 #include <ESPAsyncWebServer.h>
 
 static AsyncWebServer server(80);
@@ -37,14 +35,19 @@ void setup() {
   WiFi.softAP("esp-captive");
 #endif
 
-  // curl -v http://192.168.4.1/get-or-post
-  // curl -v -X POST -d "a=b" http://192.168.4.1/get-or-post
-  server.on("/get-or-post", WebRequestMethod::HTTP_GET | WebRequestMethod::HTTP_POST, [](AsyncWebServerRequest *request) {
+  // curl -v http://192.168.4.1/get-or-post => Hello
+  // curl -v -X POST -d "a=b" http://192.168.4.1/get-or-post => Hello
+  // curl -v -X PUT -d "a=b" http://192.168.4.1/get-or-post => 404
+  // curl -v -X PATCH -d "a=b" http://192.168.4.1/get-or-post => 404
+  server.on("/get-or-post", HTTP_GET | HTTP_POST, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Hello");
   });
 
-  // curl -v http://192.168.4.1/any
-  server.on("/any", WebRequestMethod::HTTP_ANY, [](AsyncWebServerRequest *request) {
+  // curl -v http://192.168.4.1/any => Hello
+  // curl -v -X POST -d "a=b" http://192.168.4.1/any => Hello
+  // curl -v -X PUT -d "a=b" http://192.168.4.1/any => Hello
+  // curl -v -X PATCH -d "a=b" http://192.168.4.1/any => Hello
+  server.on("/any", HTTP_ANY, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Hello");
   });
 
