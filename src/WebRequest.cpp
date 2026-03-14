@@ -1356,6 +1356,7 @@ const char *AsyncWebServerRequest::methodToString(WebRequestMethod method) const
     /* RFC-2068, section 19.6.1.2 */
     case HTTP_LINK:     return T_LINK;
     case HTTP_UNLINK:   return T_UNLINK;
+    case HTTP_ANY:      return T_ANY;
     default:            return T_UNKNOWN;
   }
 }
