@@ -40,7 +40,7 @@ enum {
 
 AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
   : _client(c), _server(s), _handler(NULL), _response(NULL), _onDisconnectfn(NULL), _temp(), _parseState(PARSE_REQ_START), _version(0),
-    _method(AsyncWebRequestMethod::HTTP_ANY), _url(), _host(), _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP),
+    _method(AsyncWebRequestMethod::HTTP_UNKNOWN), _url(), _host(), _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP),
     _authMethod(AsyncAuthType::AUTH_NONE), _isMultipart(false), _isPlainPost(false), _expectingContinue(false), _contentLength(0), _parsedLength(0),
     _multiParseState(0), _boundaryPosition(0), _itemStartIndex(0), _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0),
     _itemBufferIndex(0), _itemIsFile(false), _chunkStartIndex(0), _chunkOffset(0), _chunkSize(0), _chunkedParseState(CHUNK_NONE), _chunkedLastChar(0),
@@ -1357,7 +1357,6 @@ const char *methodToString(WebRequestMethod method) {
     case AsyncWebRequestMethod::HTTP_MKCOL:     return T_MKCOL;
     case AsyncWebRequestMethod::HTTP_MOVE:      return T_MOVE;
     case AsyncWebRequestMethod::HTTP_COPY:      return T_COPY;
-    case AsyncWebRequestMethod::HTTP_ANY:       return T_ANY;
-    default:             return T_UNKNOWN;
+    default:                                    return T_UNKNOWN;
   }
 }

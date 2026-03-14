@@ -66,6 +66,19 @@
 #define ASYNCWEBSERVER_WIFI_SUPPORTED 0
 #endif
 
+// HTTP_ANY is commonly defined as a macro in Arduino core HTTP client libraries (e.g., ESP8266 HTTPClient.h).
+// Macros are expanded by the preprocessor before C++ namespace resolution, so even a namespace-qualified
+// reference like AsyncWebRequestMethod::HTTP_ANY would be incorrectly expanded to AsyncWebRequestMethod::0.
+// In these cases, other HTTP_METHOD symbols will likely also become ambiguous if put in the global namespace.
+// To avoid these conflicts, AsyncWebRequestMethod::HTTP_ANY will only be provided if no conflicting definition
+// is present; and we will disable putting our definitions in the global namespace.
+// If the user explicitly defined ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS, we assume they are using safely
+// namespaced references and AsyncWebServerMethod::HTTP_ALL.
+#if defined(HTTP_ANY) && !defined(ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS)
+#warning HTTP_ANY definition collision detected - AsyncWebServer HTTP_ methods will not be defined in the global namespace.  Make sure to use AsyncWebServerMethod::HTTP_ALL instead, and define ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS to disable this warning.
+#define ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS
+#endif
+
 class AsyncWebServer;
 class AsyncWebServerRequest;
 class AsyncWebServerResponse;
@@ -82,28 +95,39 @@ class AsyncMiddlewareChain;
 namespace AsyncWebRequestMethod {
 // The long name here is because we sometimes include this in the global namespace
 enum AsyncWebRequestMethodType {
-  HTTP_GET = 0b0000000000000001,
-  HTTP_POST = 0b0000000000000010,
-  HTTP_DELETE = 0b0000000000000100,
-  HTTP_PUT = 0b0000000000001000,
-  HTTP_PATCH = 0b0000000000010000,
-  HTTP_HEAD = 0b0000000000100000,
-  HTTP_OPTIONS = 0b0000000001000000,
-  HTTP_PROPFIND = 0b0000000010000000,
-  HTTP_LOCK = 0b0000000100000000,
-  HTTP_UNLOCK = 0b0000001000000000,
-  HTTP_PROPPATCH = 0b0000010000000000,
-  HTTP_MKCOL = 0b0000100000000000,
-  HTTP_MOVE = 0b0001000000000000,
-  HTTP_COPY = 0b0010000000000000,
-  HTTP_RESERVED = 0b0100000000000000,
-  HTTP_ANY = 0b0111111111111111,
-  HTTP_INVALID = 0b1000000000000000
+  HTTP_GET = 1 << 0,
+  HTTP_POST = 1 << 1,
+  HTTP_DELETE = 1 << 2,
+  HTTP_PUT = 1 << 3,
+  HTTP_PATCH = 1 << 4,
+  HTTP_HEAD = 1 << 5,
+  HTTP_OPTIONS = 1 << 6,
+  HTTP_PROPFIND = 1 << 7,
+  HTTP_LOCK = 1 << 8,
+  HTTP_UNLOCK = 1 << 9,
+  HTTP_PROPPATCH = 1 << 10,
+  HTTP_MKCOL = 1 << 11,
+  HTTP_MOVE = 1 << 12,
+  HTTP_COPY = 1 << 13,
+  HTTP_RESERVED = 1 << 14,
+
+  HTTP_UNKNOWN = 0,
+  HTTP_INVALID = 1 << 15  // Sentinel
 };
 };  // namespace AsyncWebRequestMethod
 
 typedef AsyncWebRequestMethod::AsyncWebRequestMethodType WebRequestMethod;
 typedef uint16_t WebRequestMethodComposite;
+
+namespace AsyncWebRequestMethod {
+constexpr WebRequestMethodComposite HTTP_ALL = static_cast<WebRequestMethodComposite>(HTTP_INVALID) - 1;
+
+// We used to use HTTP_ANY but some libraries squat on this name with a macro.  Transition to HTTP_ALL instead.
+#ifndef HTTP_ANY
+__attribute__((deprecated("HTTP_ANY is used as a macro by other libraries - use AsyncWebRequestMethod::HTTP_ALL instead."))
+) constexpr WebRequestMethodComposite HTTP_ANY = HTTP_ALL;
+#endif
+}  // namespace AsyncWebRequestMethod
 
 // Type-safe helper functions for composite methods
 constexpr inline WebRequestMethodComposite operator|(WebRequestMethodComposite l, WebRequestMethod r) {
@@ -1566,7 +1590,7 @@ public:
   bool removeHandler(AsyncWebHandler *handler);
 
   AsyncCallbackWebHandler &on(AsyncURIMatcher uri, ArRequestHandlerFunction onRequest) {
-    return on(std::move(uri), AsyncWebRequestMethod::HTTP_ANY, onRequest);
+    return on(std::move(uri), AsyncWebRequestMethod::HTTP_ALL, onRequest);
   }
   AsyncCallbackWebHandler &on(
     AsyncURIMatcher uri, WebRequestMethodComposite method, ArRequestHandlerFunction onRequest, ArUploadHandlerFunction onUpload = nullptr,

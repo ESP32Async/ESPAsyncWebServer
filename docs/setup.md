@@ -71,12 +71,12 @@ void setup(){
   }, onUpload);
 
   // send a file when /index is requested (SPIFFS example)
-  server.on("/index", HTTP_ANY, [](AsyncWebServerRequest *request){
+  server.on("/index", HTTP_ALL, [](AsyncWebServerRequest *request){
     request->send(SPIFFS, "/index.htm");
   });
 
   // send a file when /index is requested (LittleFS example)
-  server.on("/index", HTTP_ANY, [](AsyncWebServerRequest *request){
+  server.on("/index", HTTP_ALL, [](AsyncWebServerRequest *request){
     request->send(LittleFS, "/index.htm");
   });
 
@@ -161,10 +161,10 @@ public :
 
   void begin(){
     // attach global request handler
-    classWebServer.on("/example", HTTP_ANY, handleRequest);
+    classWebServer.on("/example", HTTP_ALL, handleRequest);
 
     // attach class request handler
-    classWebServer.on("/example", HTTP_ANY, std::bind(&WebClass::classRequest, this, std::placeholders::_1));
+    classWebServer.on("/example", HTTP_ALL, std::bind(&WebClass::classRequest, this, std::placeholders::_1));
   }
 };
 
@@ -173,10 +173,10 @@ WebClass webClassInstance;
 
 void setup() {
   // attach global request handler
-  globalWebServer.on("/example", HTTP_ANY, handleRequest);
+  globalWebServer.on("/example", HTTP_ALL, handleRequest);
 
   // attach class request handler
-  globalWebServer.on("/example", HTTP_ANY, std::bind(&WebClass::classRequest, webClassInstance, std::placeholders::_1));
+  globalWebServer.on("/example", HTTP_ALL, std::bind(&WebClass::classRequest, webClassInstance, std::placeholders::_1));
 }
 
 void loop() {

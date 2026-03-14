@@ -104,7 +104,6 @@ static constexpr const char T_WWW_AUTH[] = "WWW-Authenticate";
 static constexpr const char T_X_Expected_Entity_Length[] = "X-Expected-Entity-Length";
 
 // HTTP Methods
-static constexpr const char T_ANY[] = "ANY";
 static constexpr const char T_GET[] = "GET";
 static constexpr const char T_POST[] = "POST";
 static constexpr const char T_PUT[] = "PUT";
