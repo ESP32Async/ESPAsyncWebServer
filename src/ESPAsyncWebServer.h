@@ -307,7 +307,7 @@ public:
   [[deprecated("Use AsyncWebHeader::parse(data) instead")]]
 #endif
   AsyncWebHeader(const String &data)
-    : AsyncWebHeader(parse(data)) {};
+    : AsyncWebHeader(parse(data)){};
 
   AsyncWebHeader &operator=(const AsyncWebHeader &) = default;
   AsyncWebHeader &operator=(AsyncWebHeader &&other) = default;
@@ -500,9 +500,8 @@ public:
   RequestedConnectionType requestedConnType() const {
     return _reqconntype;
   }
-  bool isExpectedRequestedConnType(
-    RequestedConnectionType erct1, RequestedConnectionType erct2 = RCT_NOT_USED, RequestedConnectionType erct3 = RCT_NOT_USED
-  ) const;
+  bool isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2 = RCT_NOT_USED, RequestedConnectionType erct3 = RCT_NOT_USED)
+    const;
   bool isWebSocketUpgrade() const {
     return _method == HTTP_GET && isExpectedRequestedConnType(RCT_WS);
   }
@@ -695,8 +694,7 @@ public:
     return beginResponse(code, contentType.c_str(), content, len, callback);
   }
 #ifndef ESP8266
-  [[deprecated(
-    "Replaced by beginResponse(int code, const String& contentType, const char* content = asyncsrv::empty, AwsTemplateProcessor callback = nullptr)"
+  [[deprecated("Replaced by beginResponse(int code, const String& contentType, const char* content = asyncsrv::empty, AwsTemplateProcessor callback = nullptr)"
   )]]
 #endif
   AsyncWebServerResponse *beginResponse_P(int code, const String &contentType, PGM_P content, AwsTemplateProcessor callback = nullptr);

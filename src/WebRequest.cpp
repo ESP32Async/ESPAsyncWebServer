@@ -1316,48 +1316,48 @@ const char *AsyncWebServerRequest::methodToString() const {
 
 const char *AsyncWebServerRequest::methodToString(WebRequestMethod method) const {
   switch (method) {
-    case HTTP_DELETE:   return T_DELETE;
-    case HTTP_GET:      return T_GET;
-    case HTTP_HEAD:     return T_HEAD;
-    case HTTP_POST:     return T_POST;
-    case HTTP_PUT:      return T_PUT;
+    case HTTP_DELETE: return T_DELETE;
+    case HTTP_GET:    return T_GET;
+    case HTTP_HEAD:   return T_HEAD;
+    case HTTP_POST:   return T_POST;
+    case HTTP_PUT:    return T_PUT;
     /* pathological */
-    case HTTP_CONNECT:  return T_CONNECT;
-    case HTTP_OPTIONS:  return T_OPTIONS;
-    case HTTP_TRACE:    return T_TRACE;
+    case HTTP_CONNECT: return T_CONNECT;
+    case HTTP_OPTIONS: return T_OPTIONS;
+    case HTTP_TRACE:   return T_TRACE;
     /* WebDAV */
-    case HTTP_COPY:     return T_COPY;
-    case HTTP_LOCK:     return T_LOCK;
-    case HTTP_MKCOL:    return T_MKCOL;
-    case HTTP_MOVE:     return T_MOVE;
-    case HTTP_PROPFIND: return T_PROPFIND;
+    case HTTP_COPY:      return T_COPY;
+    case HTTP_LOCK:      return T_LOCK;
+    case HTTP_MKCOL:     return T_MKCOL;
+    case HTTP_MOVE:      return T_MOVE;
+    case HTTP_PROPFIND:  return T_PROPFIND;
     case HTTP_PROPPATCH: return T_PROPPATCH;
-    case HTTP_SEARCH:   return T_SEARCH;
-    case HTTP_UNLOCK:   return T_UNLOCK;
-    case HTTP_BIND:     return T_BIND;
-    case HTTP_REBIND:   return T_REBIND;
-    case HTTP_UNBIND:   return T_UNBIND;
-    case HTTP_ACL:      return T_ACL;
+    case HTTP_SEARCH:    return T_SEARCH;
+    case HTTP_UNLOCK:    return T_UNLOCK;
+    case HTTP_BIND:      return T_BIND;
+    case HTTP_REBIND:    return T_REBIND;
+    case HTTP_UNBIND:    return T_UNBIND;
+    case HTTP_ACL:       return T_ACL;
     /* subversion */
-    case HTTP_REPORT:   return T_REPORT;
+    case HTTP_REPORT:     return T_REPORT;
     case HTTP_MKACTIVITY: return T_MKACTIVITY;
-    case HTTP_CHECKOUT: return T_CHECKOUT;
-    case HTTP_MERGE:    return T_MERGE;
+    case HTTP_CHECKOUT:   return T_CHECKOUT;
+    case HTTP_MERGE:      return T_MERGE;
     /* upnp */
-    case HTTP_MSEARCH:  return T_MSEARCH;
-    case HTTP_NOTIFY:   return T_NOTIFY;
-    case HTTP_SUBSCRIBE: return T_SUBSCRIBE;
+    case HTTP_MSEARCH:     return T_MSEARCH;
+    case HTTP_NOTIFY:      return T_NOTIFY;
+    case HTTP_SUBSCRIBE:   return T_SUBSCRIBE;
     case HTTP_UNSUBSCRIBE: return T_UNSUBSCRIBE;
     /* RFC-5789 */
-    case HTTP_PATCH:    return T_PATCH;
-    case HTTP_PURGE:    return T_PURGE;
+    case HTTP_PATCH: return T_PATCH;
+    case HTTP_PURGE: return T_PURGE;
     /* CalDAV */
     case HTTP_MKCALENDAR: return T_MKCALENDAR;
     /* RFC-2068, section 19.6.1.2 */
-    case HTTP_LINK:     return T_LINK;
-    case HTTP_UNLINK:   return T_UNLINK;
-    case HTTP_ANY:      return T_ANY;
-    default:            return T_UNKNOWN;
+    case HTTP_LINK:   return T_LINK;
+    case HTTP_UNLINK: return T_UNLINK;
+    case HTTP_ANY:    return T_ANY;
+    default:          return T_UNKNOWN;
   }
 }
 
