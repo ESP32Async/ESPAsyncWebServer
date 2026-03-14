@@ -75,7 +75,7 @@
 // If the user explicitly defined ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS, we assume they are using safely
 // namespaced references and AsyncWebServerMethod::HTTP_ALL.
 #if defined(HTTP_ANY) && !defined(ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS)
-#warning HTTP_ANY definition collision detected - AsyncWebServer HTTP_ methods will not be defined in the global namespace.  Make sure to use AsyncWebServerMethod::HTTP_ALL instead, and define ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS to disable this warning.
+#warning HTTP_ANY definition collision detected - AsyncWebServer HTTP_ methods will not be defined in the global namespace.  Make sure to use AsyncWebRequestMethod::HTTP_ALL instead, and define ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS to disable this warning.
 #define ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS
 #endif
 
