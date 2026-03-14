@@ -341,6 +341,12 @@ bool AsyncWebServerRequest::_parseReqHead() {
     _method = HTTP_MOVE;
   } else if (m == T_COPY) {
     _method = HTTP_COPY;
+  } else if (m == T_CONNECT) {
+    _method = HTTP_CONNECT;
+  } else if (m == T_TRACE) {
+    _method = HTTP_TRACE;
+  } else if (m == T_SEARCH) {
+    _method = HTTP_SEARCH;
   } else {
     return false;
   }
