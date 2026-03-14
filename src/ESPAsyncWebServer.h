@@ -152,39 +152,49 @@ class AsyncMiddlewareChain;
 // HTTP_ANY (= 255) is the "match any method" sentinel, also from the platform.
 typedef http_method WebRequestMethod;
 
-// WebRequestMethodComposite: an ordered list of HTTP methods that a handler
-// accepts.  An empty composite matches *nothing*.  A composite containing
-// HTTP_ANY matches *any* method.
+// WebRequestMethodComposite: a compact, allocation-free set of HTTP methods
+// that a handler accepts.  Internally stored as a 64-bit bitmask (one bit per
+// http_method enum value, which spans 0–33 in the current llhttp spec) plus a
+// single boolean sentinel for HTTP_ANY (= 255, the "match anything" value).
+// A uint64_t bitmask supports up to 64 distinct enum values; the http_method
+// enum currently defines 34 values (0–33), so all methods fit with room to
+// spare.  An empty composite (no bits set, _any == false) matches *nothing*.
+// A composite with _any == true matches *any* method.
 class WebRequestMethodComposite {
 public:
   // Empty composite = match nothing.
-  WebRequestMethodComposite() {}
+  WebRequestMethodComposite() : _bits(0), _any(false) {}
 
   // Single-method composite.
-  WebRequestMethodComposite(WebRequestMethod m) {
-    _methods.push_back(m);
+  WebRequestMethodComposite(WebRequestMethod m) : _bits(0), _any(false) {
+    _set(m);
   }
 
   // Append a method.
   WebRequestMethodComposite &add(WebRequestMethod m) {
-    _methods.push_back(m);
+    _set(m);
     return *this;
   }
 
   // Returns true when this composite contains (or should match) the given
   // method.
   bool allows(WebRequestMethod m) const {
-    for (const auto &method : _methods) {
-      if (method == HTTP_ANY || method == m) {
-        return true;
-      }
-    }
-    return false;
+    if (_any)
+      return true;
+    if (m == HTTP_ANY)
+      return false;  // HTTP_ANY is not a real request method; only matches when _any is set
+    const unsigned idx = static_cast<unsigned>(m);
+    return idx < 64 && (_bits & (1ULL << idx)) != 0;
   }
 
   // Equality: true when the composite holds exactly this one method.
   bool operator==(WebRequestMethod m) const {
-    return _methods.size() == 1 && _methods[0] == m;
+    if (m == HTTP_ANY)
+      return _any && _bits == 0;
+    const unsigned idx = static_cast<unsigned>(m);
+    if (idx >= 64)
+      return false;
+    return !_any && _bits == (1ULL << idx);
   }
   bool operator!=(WebRequestMethod m) const {
     return !(*this == m);
@@ -192,7 +202,7 @@ public:
 
   // True when this is an empty (match-nothing) composite.
   bool empty() const {
-    return _methods.empty();
+    return _bits == 0 && !_any;
   }
 
   String toString() const {
@@ -200,18 +210,38 @@ public:
       return "<>";
     }
     String result = "<";
-    for (size_t i = 0; i < _methods.size(); ++i) {
-      if (i > 0) {
-        result += ",";
+    bool first = true;
+    if (_any) {
+      result.concat(static_cast<int>(HTTP_ANY));
+      first = false;
+    }
+    for (unsigned i = 0; i < 64; ++i) {
+      if (_bits & (1ULL << i)) {
+        if (!first) {
+          result += ",";
+        }
+        result.concat(static_cast<int>(i));
+        first = false;
       }
-      result.concat(_methods[i]);
     }
     result.concat(">");
     return result;
   }
 
 private:
-  std::vector<WebRequestMethod> _methods;
+  uint64_t _bits;
+  bool _any;
+
+  void _set(WebRequestMethod m) {
+    if (m == HTTP_ANY) {
+      _any = true;
+    } else {
+      const unsigned idx = static_cast<unsigned>(m);
+      if (idx < 64) {
+        _bits |= (1ULL << idx);
+      }
+    }
+  }
 };
 
 // Build a composite from two individual methods: HTTP_GET | HTTP_POST
