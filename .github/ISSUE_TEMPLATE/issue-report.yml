@@ -60,7 +60,7 @@ body:
     id: stack-trace
     attributes:
       label: Stack Trace
-      description: Please provide a debug message or error message. If you have a Guru Meditation Error or Backtrace, [please decode it](https://maximeborges.github.io/esp-stacktrace-decoder/).
+      description: Please provide a debug message or error message. If you have a Guru Meditation Error or Backtrace, [please decode it](https://esphome.github.io/esp-stacktrace-decoder/).
       placeholder: For Arduino IDE, Enable Core debug level - Debug on tools menu, then put the serial output here.
     validations:
       required: true

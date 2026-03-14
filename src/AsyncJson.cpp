@@ -117,7 +117,7 @@ constexpr static WebRequestMethodComposite JsonHandlerMethods =
 
 #if ARDUINOJSON_VERSION_MAJOR == 6
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest, size_t maxJsonBufferSize)
-  : _uri(std::move(uri)), _method(JsonHandlerTypes), _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize), _maxContentLength(16384) {}
+  : _uri(std::move(uri)), _method(JsonHandlerMethods), _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize), _maxContentLength(16384) {}
 #else
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest)
   : _uri(std::move(uri)), _method(JsonHandlerMethods), _onRequest(onRequest), _maxContentLength(16384) {}
