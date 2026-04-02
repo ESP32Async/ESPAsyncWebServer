@@ -19,6 +19,10 @@
 #include <utility>
 #include <vector>
 
+#ifndef __unused
+#define __unused __attribute__((unused))
+#endif
+
 #if __has_include("ArduinoJson.h")
 #include <ArduinoJson.h>
 

@@ -331,11 +331,11 @@ private:
 
 public:
   AsyncEventSourceResponse(AsyncEventSource *server);
-  void _respond(AsyncWebServerRequest *request);
+  void _respond(AsyncWebServerRequest *request) override;
   size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override {
     return 0;
   };
-  bool _sourceValid() const {
+  bool _sourceValid() const override {
     return true;
   }
 };

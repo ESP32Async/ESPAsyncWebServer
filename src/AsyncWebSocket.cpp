@@ -26,6 +26,7 @@
 #include <cstring>
 #include <memory>
 #include <utility>
+#include <cstdarg>
 
 #define STATE_FRAME_START 0
 #define STATE_FRAME_MASK  1

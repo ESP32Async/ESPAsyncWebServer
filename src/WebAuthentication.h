@@ -5,6 +5,8 @@
 
 #include "Arduino.h"
 
+using namespace arduino;
+
 bool checkBasicAuthentication(const char *header, const char *username, const char *password);
 
 bool checkDigestAuthentication(
