@@ -216,6 +216,10 @@ public:
     return (_state < RESPONSE_END);
   }
   size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
+#ifdef ARDUINO_API_VERSION
+// ArduinoCore-API does not have Print::printf
+  size_t printf(const char *format, ...);
+#endif
   size_t write(const uint8_t *data, size_t len);
   size_t write(uint8_t data);
   /**

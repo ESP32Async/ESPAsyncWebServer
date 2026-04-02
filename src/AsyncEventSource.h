@@ -5,7 +5,7 @@
 
 #include <Arduino.h>
 
-#if defined(ESP32) || defined(LIBRETINY)
+#if defined(ESP32) || defined(LIBRETINY) || defined(HOST)
 #include <AsyncTCP.h>
 #ifdef LIBRETINY
 #ifdef round
@@ -136,7 +136,7 @@ private:
   size_t _inflight{0};                    // num of unacknowledged bytes that has been written to socket buffer
   size_t _max_inflight{SSE_MAX_INFLIGH};  // max num of unacknowledged bytes that could be written to socket buffer
   std::list<AsyncEventSourceMessage> _messageQueue;
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   mutable std::recursive_mutex _lockmq;
 #endif
   bool _queueMessage(const char *message, size_t len);

@@ -27,7 +27,7 @@ static String generateEventMessage(const char *message, const char *event, uint3
 
   if (!str.reserve(len)) {
     async_ws_log_e("Failed to allocate");
-    return emptyString;
+    return _emptyString;
   }
 
   if (reconnect) {
@@ -191,7 +191,7 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, A
 }
 
 AsyncEventSourceClient::~AsyncEventSourceClient() {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   // Protect message queue access (size checks and modifications) which is not thread-safe.
   std::lock_guard<std::recursive_mutex> lock(_lockmq);
 #endif
@@ -200,8 +200,12 @@ AsyncEventSourceClient::~AsyncEventSourceClient() {
 }
 
 bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   // Protect message queue access (size checks and modifications) which is not thread-safe.
+  if (_messageQueue.size() >= SSE_MAX_QUEUED_MESSAGES) {
+    async_ws_log_e("Event message queue overflow: discard message");
+    return false;
+  }
   std::lock_guard<std::recursive_mutex> lock(_lockmq);
 #endif
 

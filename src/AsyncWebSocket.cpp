@@ -17,6 +17,8 @@
 #include <Hash.h>
 #elif defined(LIBRETINY)
 #include <mbedtls/sha1.h>
+#elif defined(HOST)
+#include "BackPort_SHA1Builder.h"
 #endif
 
 #include <algorithm>
@@ -261,7 +263,14 @@ AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *
   _client->onDisconnect(
     [](void *r, AsyncClient *c) {
       ((AsyncWebSocketClient *)(r))->_onDisconnect();
+#if defined(HOST)
+      // Do NOT delete c here: in the host build, AsyncClient lifetime is managed by
+      // std::shared_ptr in AsyncTCPManager::_clients.  The manager removes the
+      // shared_ptr on the next poll cycle once it sees _socket < 0 (set by _close()).
+      (void)c;
+#else
       delete c;
+#endif
     },
     this
   );
@@ -291,7 +300,7 @@ AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *
 
 AsyncWebSocketClient::~AsyncWebSocketClient() {
   {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
     std::lock_guard<std::recursive_mutex> lock(_lock);
 #endif
     _messageQueue.clear();
@@ -309,7 +318,7 @@ void AsyncWebSocketClient::_clearQueue() {
 void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
   _lastMessageTime = millis();
 
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   std::unique_lock<std::recursive_mutex> lock(_lock);
 #endif
 
@@ -324,7 +333,7 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
         _status = WS_DISCONNECTED;
         async_ws_log_v("[%s][%" PRIu32 "] ACK WS_DISCONNECTED", _server->url(), _clientId);
         if (_client) {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
           /*
             Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
             Due to _client->close() shall call the callback function _onDisconnect()
@@ -361,13 +370,13 @@ void AsyncWebSocketClient::_onPoll() {
     return;
   }
 
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   std::unique_lock<std::recursive_mutex> lock(_lock);
 #endif
   if (_client && _client->canSend() && (!_controlQueue.empty() || !_messageQueue.empty())) {
     _runQueue();
   } else if (_keepAlivePeriod > 0 && (millis() - _lastMessageTime) >= _keepAlivePeriod && (_controlQueue.empty() && _messageQueue.empty())) {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
     lock.unlock();
 #endif
     ping((uint8_t *)AWSC_PING_PAYLOAD, AWSC_PING_PAYLOAD_LEN);
@@ -433,21 +442,21 @@ void AsyncWebSocketClient::_runQueue() {
 }
 
 bool AsyncWebSocketClient::queueIsFull() const {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   std::lock_guard<std::recursive_mutex> lock(_lock);
 #endif
   return (_messageQueue.size() >= WS_MAX_QUEUED_MESSAGES) || (_status != WS_CONNECTED);
 }
 
 size_t AsyncWebSocketClient::queueLen() const {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   std::lock_guard<std::recursive_mutex> lock(_lock);
 #endif
   return _messageQueue.size();
 }
 
 bool AsyncWebSocketClient::canSend() const {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   std::lock_guard<std::recursive_mutex> lock(_lock);
 #endif
   return _messageQueue.size() < WS_MAX_QUEUED_MESSAGES;
@@ -458,7 +467,7 @@ bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, si
     return false;
   }
 
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   std::lock_guard<std::recursive_mutex> lock(_lock);
 #endif
 
@@ -477,7 +486,7 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
     return false;
   }
 
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   std::unique_lock<std::recursive_mutex> lock(_lock);
 #endif
 
@@ -486,7 +495,7 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
       _status = WS_DISCONNECTED;
 
       if (_client) {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
         /*
           Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
           Due to _client->close() shall call the callback function _onDisconnect()

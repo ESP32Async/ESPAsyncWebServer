@@ -5,7 +5,9 @@
 
 #include <Arduino.h>
 #include <FS.h>
+#ifndef HOST
 #include <lwip/tcpbase.h>
+#endif
 
 #include <algorithm>
 #include <deque>
@@ -35,6 +37,9 @@
 #endif  // __has_include("ArduinoJson.h")
 
 #if defined(ESP32) || defined(LIBRETINY)
+#include <AsyncTCP.h>
+#include <assert.h>
+#elif defined(HOST)
 #include <AsyncTCP.h>
 #include <assert.h>
 #elif defined(ESP8266)
@@ -374,6 +379,13 @@ typedef std::function<String(const String &)> AwsTemplateProcessor;
 
 using AsyncWebServerRequestPtr = std::weak_ptr<AsyncWebServerRequest>;
 
+// The ESP32 Arduino framework defines emptyString but it is not in the
+// Arduino Core API.  Some other Arduino frameworks define emptyString
+// for compatibility, but its implementation is cumbersome due to the
+// lack of a convenient place to put the definition.  For maximum
+// portablity, we just make our own renamed version.
+extern const String _emptyString;
+
 class AsyncWebServerRequest {
   using File = fs::File;
   using FS = fs::FS;
@@ -671,14 +683,14 @@ public:
   AsyncWebServerResponse *
     beginResponse(FS &fs, const String &path, const char *contentType = asyncsrv::empty, bool download = false, AwsTemplateProcessor callback = nullptr);
   AsyncWebServerResponse *
-    beginResponse(FS &fs, const String &path, const String &contentType = emptyString, bool download = false, AwsTemplateProcessor callback = nullptr) {
+    beginResponse(FS &fs, const String &path, const String &contentType = _emptyString, bool download = false, AwsTemplateProcessor callback = nullptr) {
     return beginResponse(fs, path, contentType.c_str(), download, callback);
   }
 
   AsyncWebServerResponse *
     beginResponse(File content, const String &path, const char *contentType = asyncsrv::empty, bool download = false, AwsTemplateProcessor callback = nullptr);
   AsyncWebServerResponse *
-    beginResponse(File content, const String &path, const String &contentType = emptyString, bool download = false, AwsTemplateProcessor callback = nullptr) {
+    beginResponse(File content, const String &path, const String &contentType = _emptyString, bool download = false, AwsTemplateProcessor callback = nullptr) {
     return beginResponse(content, path, contentType.c_str(), download, callback);
   }
 
@@ -783,11 +795,11 @@ public:
 #endif
   const String &arg(size_t i) const;  // get request argument value by number
   const String &arg(int i) const {
-    return i < 0 ? emptyString : arg((size_t)i);
+    return i < 0 ? _emptyString : arg((size_t)i);
   };
   const String &argName(size_t i) const;  // get request argument name by number
   const String &argName(int i) const {
-    return i < 0 ? emptyString : argName((size_t)i);
+    return i < 0 ? _emptyString : argName((size_t)i);
   };
   bool hasArg(const char *name) const;  // check if argument exists
   bool hasArg(const String &name) const {
@@ -800,14 +812,14 @@ public:
 #ifdef ASYNCWEBSERVER_REGEX
   const String &pathArg(size_t i) const {
     if (i >= _pathParams.size()) {
-      return emptyString;
+      return _emptyString;
     }
     auto it = _pathParams.begin();
     std::advance(it, i);
     return *it;
   }
   const String &pathArg(int i) const {
-    return i < 0 ? emptyString : pathArg((size_t)i);
+    return i < 0 ? _emptyString : pathArg((size_t)i);
   }
 #else
   const String &pathArg(size_t i) const __attribute__((error("ERR: pathArg() requires -D ASYNCWEBSERVER_REGEX and only works on regex handlers")));
@@ -826,11 +838,11 @@ public:
 
   const String &header(size_t i) const;  // get request header value by number
   const String &header(int i) const {
-    return i < 0 ? emptyString : header((size_t)i);
+    return i < 0 ? _emptyString : header((size_t)i);
   };
   const String &headerName(size_t i) const;  // get request header name by number
   const String &headerName(int i) const {
-    return i < 0 ? emptyString : headerName((size_t)i);
+    return i < 0 ? _emptyString : headerName((size_t)i);
   };
 
   size_t headers() const;  // get header count
@@ -888,7 +900,7 @@ public:
     _attributes[name] = value;
   }
   void setAttribute(const char *name, bool value) {
-    _attributes[name] = value ? "1" : emptyString;
+    _attributes[name] = value ? "1" : _emptyString;
   }
   void setAttribute(const char *name, long value) {
     _attributes[name] = String(value);
@@ -904,7 +916,7 @@ public:
     return _attributes.find(name) != _attributes.end();
   }
 
-  const String &getAttribute(const char *name, const String &defaultValue = emptyString) const;
+  const String &getAttribute(const char *name, const String &defaultValue = _emptyString) const;
   bool getAttribute(const char *name, bool defaultValue) const;
   long getAttribute(const char *name, long defaultValue) const;
   float getAttribute(const char *name, float defaultValue) const;

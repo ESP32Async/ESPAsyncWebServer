@@ -923,6 +923,39 @@ size_t AsyncResponseStream::_fillBuffer(uint8_t *buf, size_t maxLen) {
   return _content->read((char *)buf, maxLen);
 }
 
+#ifdef ARDUINO_API_VERSION
+// ArduinoCore-API does not have Print::printf
+#include <stdarg.h>
+size_t AsyncResponseStream::printf(const char *format, ...) {
+  char loc_buf[64];
+  char *temp = loc_buf;
+  va_list arg;
+  va_list copy;
+  va_start(arg, format);
+  va_copy(copy, arg);
+  int len = vsnprintf(temp, sizeof(loc_buf), format, copy);
+  va_end(copy);
+  if (len < 0) {
+    va_end(arg);
+    return 0;
+  }
+  if (len >= (int)sizeof(loc_buf)) {  // comparation of same sign type for the compiler
+    temp = (char *)malloc(len + 1);
+    if (temp == NULL) {
+      va_end(arg);
+      return 0;
+    }
+    len = vsnprintf(temp, len + 1, format, arg);
+  }
+  va_end(arg);
+  len = write((uint8_t *)temp, len);
+  if (temp != loc_buf) {
+    free(temp);
+  }
+  return len;
+}
+#endif
+
 size_t AsyncResponseStream::write(const uint8_t *data, size_t len) {
   if (_started()) {
     return 0;
