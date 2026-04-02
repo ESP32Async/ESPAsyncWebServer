@@ -205,7 +205,7 @@ public:
     return _lastId;
   }
   size_t packetsWaiting() const {
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
     std::lock_guard<std::recursive_mutex> lock(_lockmq);
 #endif
     return _messageQueue.size();
@@ -245,7 +245,7 @@ class AsyncEventSource : public AsyncWebHandler {
 private:
   String _url;
   std::list<std::unique_ptr<AsyncEventSourceClient>> _clients;
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
   // Same as for individual messages, protect mutations of _clients list
   // since simultaneous access from different tasks is possible
   mutable std::recursive_mutex _client_queue_lock;

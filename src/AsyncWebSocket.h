@@ -382,13 +382,8 @@ private:
   AwsEventHandler _eventHandler;
   AwsHandshakeHandler _handshakeHandler;
   bool _enabled;
-<<<<<<< HEAD
-#ifdef ESP32
-  mutable std::recursive_mutex _lock;
-=======
 #if defined(ESP32) || defined(HOST)
-  mutable std::mutex _lock;
->>>>>>> 24f7507 (Support hosted builds using Arduino-Emulator)
+  mutable std::recursive_mutex _lock;
 #endif
 
 public:
