@@ -26,19 +26,19 @@ bool checkBasicAuthentication(const char *hash, const char *username, const char
 
 String generateBasicHash(const char *username, const char *password) {
   if (username == NULL || password == NULL) {
-    return emptyString;
+    return _emptyString;
   }
 
   size_t toencodeLen = strlen(username) + strlen(password) + 1;
 
   char *toencode = new char[toencodeLen + 1];
   if (toencode == NULL) {
-    return emptyString;
+    return _emptyString;
   }
   char *encoded = new char[base64_encode_expected_len(toencodeLen) + 1];
   if (encoded == NULL) {
     delete[] toencode;
-    return emptyString;
+    return _emptyString;
   }
   sprintf_P(toencode, PSTR("%s:%s"), username, password);
   if (base64_encode_chars(toencode, toencodeLen, encoded) > 0) {
@@ -49,11 +49,11 @@ String generateBasicHash(const char *username, const char *password) {
   }
   delete[] toencode;
   delete[] encoded;
-  return emptyString;
+  return _emptyString;
 }
 
 static bool getMD5(uint8_t *data, uint16_t len, char *output) {  // 33 bytes or more
-#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
+#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
   MD5Builder md5;
   md5.begin();
   md5.add(data, len);
@@ -90,7 +90,7 @@ String genRandomMD5() {
   char *out = (char *)malloc(33);
   if (out == NULL || !getMD5((uint8_t *)(&r), 4, out)) {
     async_ws_log_e("Failed to allocate");
-    return emptyString;
+    return _emptyString;
   }
   String res = String(out);
   free(out);
@@ -101,7 +101,7 @@ static String stringMD5(const String &in) {
   char *out = (char *)malloc(33);
   if (out == NULL || !getMD5((uint8_t *)(in.c_str()), in.length(), out)) {
     async_ws_log_e("Failed to allocate");
-    return emptyString;
+    return _emptyString;
   }
   String res = String(out);
   free(out);
@@ -110,19 +110,19 @@ static String stringMD5(const String &in) {
 
 String generateDigestHash(const char *username, const char *password, const char *realm) {
   if (username == NULL || password == NULL || realm == NULL) {
-    return emptyString;
+    return _emptyString;
   }
   char *out = (char *)malloc(33);
   if (out == NULL) {
     async_ws_log_e("Failed to allocate");
-    return emptyString;
+    return _emptyString;
   }
 
   String in;
   if (!in.reserve(strlen(username) + strlen(realm) + strlen(password) + 2)) {
     async_ws_log_e("Failed to allocate");
     free(out);
-    return emptyString;
+    return _emptyString;
   }
 
   in.concat(username);
@@ -134,7 +134,7 @@ String generateDigestHash(const char *username, const char *password, const char
   if (!getMD5((uint8_t *)(in.c_str()), in.length(), out)) {
     async_ws_log_e("Failed to allocate");
     free(out);
-    return emptyString;
+    return _emptyString;
   }
 
   in = String(out);

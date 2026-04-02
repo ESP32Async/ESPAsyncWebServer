@@ -37,7 +37,7 @@ private:
 
 public:
   explicit AsyncBasicResponse(int code, const char *contentType = asyncsrv::empty, const char *content = asyncsrv::empty);
-  AsyncBasicResponse(int code, const String &contentType, const String &content = emptyString)
+  AsyncBasicResponse(int code, const String &contentType, const String &content = _emptyString)
     : AsyncBasicResponse(code, contentType.c_str(), content.c_str()) {}
   void _respond(AsyncWebServerRequest *request) final;
   size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) final {

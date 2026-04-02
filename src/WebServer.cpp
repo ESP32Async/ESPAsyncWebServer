@@ -343,3 +343,5 @@ bool AsyncURIMatcher::matches(AsyncWebServerRequest *request) const {
       return false;
   }
 }
+
+const String _emptyString("");
