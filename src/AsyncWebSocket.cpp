@@ -264,14 +264,7 @@ AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *
   _client->onDisconnect(
     [](void *r, AsyncClient *c) {
       ((AsyncWebSocketClient *)(r))->_onDisconnect();
-#if defined(HOST)
-      // Do NOT delete c here: in the host build, AsyncClient lifetime is managed by
-      // std::shared_ptr in AsyncTCPManager::_clients.  The manager removes the
-      // shared_ptr on the next poll cycle once it sees _socket < 0 (set by _close()).
-      (void)c;
-#else
       delete c;
-#endif
     },
     this
   );

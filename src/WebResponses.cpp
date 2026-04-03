@@ -340,6 +340,7 @@ void AsyncAbstractResponse::_respond(AsyncWebServerRequest *request) {
   addHeader(T_Connection, T_close, false);
   _assembleHead(_assembled_headers, request->version());
   _state = RESPONSE_HEADERS;
+  _finalChunkQueued = false;  // Reset for new response
   write_send_buffs(request, 0, 0);
 }
 
@@ -447,6 +448,11 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
       }
 
       if (_chunked) {
+        if (_finalChunkQueued) {
+          // Final chunk terminator was queued and add()ed to TCP buffer; stop reading content
+          _state = RESPONSE_WAIT_ACK;
+          break;
+        }
         // HTTP 1.1 allows leading zeros in chunk length. Or spaces may be added.
         // See https://datatracker.ietf.org/doc/html/rfc9112#section-7.1
         size_t const readLen =
@@ -466,8 +472,9 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
           _send_buffer_len += readLen + 8;  // set buffers's size to match added data
           _sentLength += readLen;           // data is not sent yet, but we won't get a chance to count this later properly for chunked data
           if (!readLen) {
-            // last chunk?
-            _state = RESPONSE_END;
+            // This is the final chunk terminator ("0\r\n\r\n")
+            // Don't break - let loop continue so add() pushes it to TCP buffer next iteration
+            _finalChunkQueued = true;
           }
         }
       } else {
@@ -483,13 +490,13 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
 
         if (readLen == 0) {
           // no more data to send
-          _state = RESPONSE_END;
+          _state = RESPONSE_WAIT_ACK;  // Wait for ACK instead of ending immediately
         } else if (readLen != RESPONSE_TRY_AGAIN) {
           _send_buffer_len += readLen;  // set buffers's size to match added data
           _sentLength += readLen;       // data is not sent yet, but we need it to understand that it would be last block
           if (_sendContentLength && (_sentLength == _contentLength)) {
             // it was last piece of content
-            _state = RESPONSE_END;
+            _state = RESPONSE_WAIT_ACK;  // Wait for ACKs to be processed before ending
           }
         }
       }
@@ -499,8 +506,10 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
     request->client()->send();
     _writtenLength += payloadlen;
 #if ASYNCWEBSERVER_USE_CHUNK_INFLIGHT
-    _in_flight += payloadlen;
-    --_in_flight_credit;  // take a credit
+    if (payloadlen > 0) {
+      _in_flight += payloadlen;
+      --_in_flight_credit;  // take a credit only when data is actually in-flight
+    }
 #endif
     if (_send_buffer_len == 0) {
       // buffer empty, we can release mem, otherwise need to keep it till next run (should not happen under normal conditions)
@@ -511,9 +520,18 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
 
   // implicit check
   if (_state == RESPONSE_WAIT_ACK) {
-    // we do not need to wait for any acks actually if we won't send any more data,
-    // connection would be closed gracefully with last piece of data (in AsyncWebServerRequest::_onAck)
-    _state = RESPONSE_END;
+    // Only transition to END once all data has been acknowledged
+    if (_sendContentLength) {
+      // For fixed-length responses, make sure all content has been ACK'd
+      if (_ackedLength >= _contentLength) {
+        _state = RESPONSE_END;
+      }
+    } else {
+      // For streaming/chunked responses, once all buffered data is gone and sent, we're done
+      if (_send_buffer_len == 0) {
+        _state = RESPONSE_END;
+      }
+    }
   }
   return 0;
 }
