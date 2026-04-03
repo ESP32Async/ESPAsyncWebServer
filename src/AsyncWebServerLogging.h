@@ -31,6 +31,13 @@
 #define async_ws_log_d(format, ...) log_d(format, ##__VA_ARGS__)
 #define async_ws_log_v(format, ...) log_v(format, ##__VA_ARGS__)
 
+#elif defined(HOST)
+#define async_ws_log_e(format, ...)
+#define async_ws_log_w(format, ...)
+#define async_ws_log_i(format, ...)
+#define async_ws_log_d(format, ...)
+#define async_ws_log_v(format, ...)
+
 /**
  * Raspberry Pi Pico specific configurations
  */

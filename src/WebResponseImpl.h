@@ -37,7 +37,7 @@ private:
 
 public:
   explicit AsyncBasicResponse(int code, const char *contentType = asyncsrv::empty, const char *content = asyncsrv::empty);
-  AsyncBasicResponse(int code, const String &contentType, const String &content = emptyString)
+  AsyncBasicResponse(int code, const String &contentType, const String &content = _emptyString)
     : AsyncBasicResponse(code, contentType.c_str(), content.c_str()) {}
   void _respond(AsyncWebServerRequest *request) final;
   size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) final {
@@ -82,6 +82,8 @@ private:
   std::unique_ptr<std::array<uint8_t, ASYNC_RESPONCE_BUFF_SIZE> > _send_buffer;
   // buffer data size specifiers
   size_t _send_buffer_offset{0}, _send_buffer_len{0};
+  // track if final chunk terminator has been queued for chunked responses
+  bool _finalChunkQueued{false};
   size_t _readDataFromCacheOrContent(uint8_t *data, const size_t len);
   size_t _fillBufferAndProcessTemplates(uint8_t *buf, size_t maxLen);
 
@@ -216,6 +218,10 @@ public:
     return (_state < RESPONSE_END);
   }
   size_t _fillBuffer(uint8_t *buf, size_t maxLen) final;
+#ifdef ARDUINO_API_VERSION
+// ArduinoCore-API does not have Print::printf
+  size_t printf(const char *format, ...);
+#endif
   size_t write(const uint8_t *data, size_t len);
   size_t write(uint8_t data);
   /**

@@ -260,7 +260,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     request->_tempFile.close();
     response = new AsyncBasicResponse(304);  // Not modified
   } else {
-    response = new AsyncFileResponse(request->_tempFile, filename, emptyString, false, _callback);
+    response = new AsyncFileResponse(request->_tempFile, filename, _emptyString, false, _callback);
   }
 
   if (!response) {
