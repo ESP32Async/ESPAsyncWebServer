@@ -16,6 +16,14 @@
 #ifndef WS_MAX_QUEUED_MESSAGES
 #define WS_MAX_QUEUED_MESSAGES 32
 #endif
+#elif defined(HOST)
+#ifndef FPSTR
+#define FPSTR (const char *)
+#endif
+#include <AsyncTCP.h>
+#ifndef WS_MAX_QUEUED_MESSAGES
+#define WS_MAX_QUEUED_MESSAGES 32
+#endif
 #elif defined(ESP8266)
 #include <ESPAsyncTCP.h>
 #ifndef WS_MAX_QUEUED_MESSAGES
@@ -44,7 +52,7 @@
 #endif
 
 #ifndef DEFAULT_MAX_WS_CLIENTS
-#ifdef ESP32
+#if defined(ESP32) || defined(HOST)
 #define DEFAULT_MAX_WS_CLIENTS 8
 #else
 #define DEFAULT_MAX_WS_CLIENTS 4
@@ -222,9 +230,7 @@ private:
   uint8_t _pstate;
   uint32_t _lastMessageTime;
   uint32_t _keepAlivePeriod;
-#ifdef ESP32
-  mutable std::recursive_mutex _lock;
-#endif
+  MAKE_LOCK(_lock);
   std::deque<AsyncWebSocketControl> _controlQueue;
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool closeWhenFull = true;
@@ -372,9 +378,7 @@ private:
   AwsEventHandler _eventHandler;
   AwsHandshakeHandler _handshakeHandler;
   bool _enabled;
-#ifdef ESP32
-  mutable std::recursive_mutex _lock;
-#endif
+  MAKE_LOCK(_lock);
 
 public:
   typedef enum {
@@ -488,11 +492,11 @@ private:
 
 public:
   AsyncWebSocketResponse(const String &key, AsyncWebSocket *server);
-  void _respond(AsyncWebServerRequest *request);
+  void _respond(AsyncWebServerRequest *request) override;
   size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override {
     return 0;
   };
-  bool _sourceValid() const {
+  bool _sourceValid() const override {
     return true;
   }
 };

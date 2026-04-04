@@ -5,7 +5,7 @@
 
 #include <Arduino.h>
 
-#if defined(ESP32) || defined(LIBRETINY)
+#if defined(ESP32) || defined(LIBRETINY) || defined(HOST)
 #include <AsyncTCP.h>
 #ifdef LIBRETINY
 #ifdef round
@@ -136,9 +136,7 @@ private:
   size_t _inflight{0};                    // num of unacknowledged bytes that has been written to socket buffer
   size_t _max_inflight{SSE_MAX_INFLIGH};  // max num of unacknowledged bytes that could be written to socket buffer
   std::list<AsyncEventSourceMessage> _messageQueue;
-#ifdef ESP32
-  mutable std::recursive_mutex _lockmq;
-#endif
+  MAKE_LOCK(_lockmq);
   bool _queueMessage(const char *message, size_t len);
   bool _queueMessage(AsyncEvent_SharedData_t &&msg);
   void _runQueue();
@@ -205,9 +203,7 @@ public:
     return _lastId;
   }
   size_t packetsWaiting() const {
-#ifdef ESP32
-    std::lock_guard<std::recursive_mutex> lock(_lockmq);
-#endif
+    LOCK(_lockmq);
     return _messageQueue.size();
   };
 
@@ -245,11 +241,9 @@ class AsyncEventSource : public AsyncWebHandler {
 private:
   String _url;
   std::list<std::unique_ptr<AsyncEventSourceClient>> _clients;
-#ifdef ESP32
   // Same as for individual messages, protect mutations of _clients list
   // since simultaneous access from different tasks is possible
-  mutable std::recursive_mutex _client_queue_lock;
-#endif
+  MAKE_LOCK(_client_queue_lock);
   ArEventHandlerFunction _connectcb = nullptr;
   ArEventHandlerFunction _disconnectcb = nullptr;
 
@@ -331,11 +325,11 @@ private:
 
 public:
   AsyncEventSourceResponse(AsyncEventSource *server);
-  void _respond(AsyncWebServerRequest *request);
+  void _respond(AsyncWebServerRequest *request) override;
   size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override {
     return 0;
   };
-  bool _sourceValid() const {
+  bool _sourceValid() const override {
     return true;
   }
 };

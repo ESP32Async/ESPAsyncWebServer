@@ -5,7 +5,9 @@
 
 #include <Arduino.h>
 #include <FS.h>
+#ifndef HOST
 #include <lwip/tcpbase.h>
+#endif
 
 #include <algorithm>
 #include <deque>
@@ -16,6 +18,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#ifndef __unused
+#define __unused __attribute__((unused))
+#endif
 
 #if __has_include("ArduinoJson.h")
 #include <ArduinoJson.h>
@@ -37,12 +43,34 @@
 #if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #include <assert.h>
+#elif defined(HOST)
+#include <AsyncTCP.h>
+#include <assert.h>
 #elif defined(ESP8266)
 #include <ESPAsyncTCP.h>
 #elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 #include <RPAsyncTCP.h>
 #else
 #error Platform not supported
+#endif
+
+#if defined(ESP32) || defined(HOST)
+#include <mutex>
+#define MAKE_LOCK(var)   mutable std::recursive_mutex var
+#define LOCK(var)        std::lock_guard<std::recursive_mutex> lock(var)
+#define UNIQUE_LOCK(var) std::unique_lock<std::recursive_mutex> lock(var)
+#define UNLOCK()         lock.unlock()
+#else
+#define MAKE_LOCK(var)
+#define LOCK(var) \
+  do {            \
+  } while (0)
+#define UNIQUE_LOCK(var) \
+  do {                   \
+  } while (0)
+#define UNLOCK() \
+  do {           \
+  } while (0)
 #endif
 
 #include "AsyncWebServerVersion.h"
