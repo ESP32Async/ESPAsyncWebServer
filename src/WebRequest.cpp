@@ -544,7 +544,7 @@ bool AsyncWebServerRequest::_parseReqHeader() {
     _headers.emplace_back(std::move(header));
   }
 #if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY) || defined(HOST)
-  // Ancient PRI core does not have String::clear() method 8-()
+  // ArduinoCore-API does not have String::clear() method 8-()
   _temp = asyncsrv::emptyString;
 #else
   _temp.clear();
@@ -569,7 +569,7 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
     }
 
 #if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY) || defined(HOST)
-    // Ancient PRI core does not have String::clear() method 8-()
+    // ArduinoCore-API does not have String::clear() method 8-()
     _temp = asyncsrv::emptyString;
 #else
     _temp.clear();
