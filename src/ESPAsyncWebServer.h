@@ -5,7 +5,9 @@
 
 #include <Arduino.h>
 #include <FS.h>
+#ifndef HOST
 #include <lwip/tcpbase.h>
+#endif
 
 #include <algorithm>
 #include <deque>
@@ -16,6 +18,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#ifndef __unused
+#define __unused __attribute__((unused))
+#endif
 
 #if __has_include("ArduinoJson.h")
 #include <ArduinoJson.h>
@@ -37,12 +43,43 @@
 #if defined(ESP32) || defined(LIBRETINY)
 #include <AsyncTCP.h>
 #include <assert.h>
+#elif defined(HOST)
+#include <AsyncTCP.h>
+#include <assert.h>
 #elif defined(ESP8266)
 #include <ESPAsyncTCP.h>
 #elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
 #include <RPAsyncTCP.h>
 #else
 #error Platform not supported
+#endif
+
+#if defined(ESP32) || defined(HOST)
+#include <mutex>
+typedef std::recursive_mutex mutex_type;
+typedef std::lock_guard<mutex_type> lock_guard_type;
+typedef std::unique_lock<mutex_type> unique_lock_type;
+#else
+// Do-nothing locks that will evaporate under optimization
+class null_mutex {
+public:
+  void lock() {}
+  void unlock() {}
+  bool try_lock() {
+    return true;
+  };
+};
+typedef null_mutex mutex_type;
+
+class lock_guard_type {
+public:
+  lock_guard_type(mutex_type &) {};
+};
+class unique_lock_type {
+public:
+  unique_lock_type(mutex_type &) {};
+  void unlock() {};
+};
 #endif
 
 #include "AsyncWebServerVersion.h"
