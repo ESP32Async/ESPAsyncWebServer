@@ -56,21 +56,30 @@
 
 #if defined(ESP32) || defined(HOST)
 #include <mutex>
-#define MAKE_LOCK(var)   mutable std::recursive_mutex var
-#define LOCK(var)        std::lock_guard<std::recursive_mutex> lock(var)
-#define UNIQUE_LOCK(var) std::unique_lock<std::recursive_mutex> lock(var)
-#define UNLOCK()         lock.unlock()
+typedef std::recursive_mutex mutex_type;
+typedef std::lock_guard<mutex_type> lock_guard_type;
+typedef std::unique_lock<mutex_type> unique_lock_type;
 #else
-#define MAKE_LOCK(var)
-#define LOCK(var) \
-  do {            \
-  } while (0)
-#define UNIQUE_LOCK(var) \
-  do {                   \
-  } while (0)
-#define UNLOCK() \
-  do {           \
-  } while (0)
+// Do-nothing locks that will evaporate under optimization
+class null_mutex {
+public:
+  void lock() {}
+  void unlock() {}
+  bool try_lock() {
+    return true;
+  };
+};
+typedef null_mutex mutex_type;
+
+class lock_guard_type {
+public:
+  lock_guard_type(mutex_type &) {};
+};
+class unique_lock_type {
+public:
+  unique_lock_type(mutex_type &) {};
+  void unlock() {};
+};
 #endif
 
 #include "AsyncWebServerVersion.h"

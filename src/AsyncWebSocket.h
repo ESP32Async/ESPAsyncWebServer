@@ -230,7 +230,7 @@ private:
   uint8_t _pstate;
   uint32_t _lastMessageTime;
   uint32_t _keepAlivePeriod;
-  MAKE_LOCK(_lock);
+  mutable mutex_type _lock;
   std::deque<AsyncWebSocketControl> _controlQueue;
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool closeWhenFull = true;
@@ -378,7 +378,7 @@ private:
   AwsEventHandler _eventHandler;
   AwsHandshakeHandler _handshakeHandler;
   bool _enabled;
-  MAKE_LOCK(_lock);
+  mutable mutex_type _lock;
 
 public:
   typedef enum {
