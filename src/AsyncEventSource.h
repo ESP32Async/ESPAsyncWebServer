@@ -136,7 +136,7 @@ private:
   size_t _inflight{0};                    // num of unacknowledged bytes that has been written to socket buffer
   size_t _max_inflight{SSE_MAX_INFLIGH};  // max num of unacknowledged bytes that could be written to socket buffer
   std::list<AsyncEventSourceMessage> _messageQueue;
-  mutable mutex_type _lockmq;
+  mutable asyncsrv::mutex_type _lockmq;
   bool _queueMessage(const char *message, size_t len);
   bool _queueMessage(AsyncEvent_SharedData_t &&msg);
   void _runQueue();
@@ -203,7 +203,7 @@ public:
     return _lastId;
   }
   size_t packetsWaiting() const {
-    lock_guard_type lock(_lockmq);
+    asyncsrv::lock_guard_type lock(_lockmq);
     return _messageQueue.size();
   };
 
@@ -243,7 +243,7 @@ private:
   std::list<std::unique_ptr<AsyncEventSourceClient>> _clients;
   // Same as for individual messages, protect mutations of _clients list
   // since simultaneous access from different tasks is possible
-  mutable mutex_type _client_queue_lock;
+  mutable asyncsrv::mutex_type _client_queue_lock;
   ArEventHandlerFunction _connectcb = nullptr;
   ArEventHandlerFunction _disconnectcb = nullptr;
 

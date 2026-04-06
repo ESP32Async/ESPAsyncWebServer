@@ -54,34 +54,9 @@
 #error Platform not supported
 #endif
 
-#if defined(ESP32) || defined(HOST)
-#include <mutex>
-typedef std::recursive_mutex mutex_type;
-typedef std::lock_guard<mutex_type> lock_guard_type;
-typedef std::unique_lock<mutex_type> unique_lock_type;
-#else
-// Do-nothing locks that will evaporate under optimization
-class null_mutex {
-public:
-  void lock() {}
-  void unlock() {}
-  bool try_lock() {
-    return true;
-  };
-};
-typedef null_mutex mutex_type;
-
-class lock_guard_type {
-public:
-  lock_guard_type(mutex_type &) {};
-};
-class unique_lock_type {
-public:
-  unique_lock_type(mutex_type &) {};
-  void unlock() {};
-};
+#if !defined(ASYNCWEBSERVER_USE_MUTEX)
+#define ASYNCWEBSERVER_USE_MUTEX defined(ESP32) || defined(HOST)
 #endif
-
 #include "AsyncWebServerVersion.h"
 #define ASYNCWEBSERVER_FORK_ESP32Async
 
@@ -278,6 +253,35 @@ constexpr WebRequestMethodComposite HTTP_ANY = HTTP_ALL;
 
 // WebRequestMethod string conversion functions
 namespace asyncsrv {
+
+#if ASYNCWEBSERVER_USE_MUTEX
+#include <mutex>
+typedef std::recursive_mutex mutex_type;
+typedef std::lock_guard<mutex_type> lock_guard_type;
+typedef std::unique_lock<mutex_type> unique_lock_type;
+#else
+// Do-nothing locks that will evaporate under optimization
+class null_mutex {
+public:
+  void lock() {}
+  void unlock() {}
+  bool try_lock() {
+    return true;
+  };
+};
+typedef null_mutex mutex_type;
+
+class lock_guard_type {
+public:
+  lock_guard_type(mutex_type &) {};
+};
+class unique_lock_type {
+public:
+  unique_lock_type(mutex_type &) {};
+  void unlock() {};
+};
+#endif
+
 WebRequestMethod stringToMethod(const String &);
 const char *methodToString(WebRequestMethod);
 }  // namespace asyncsrv
