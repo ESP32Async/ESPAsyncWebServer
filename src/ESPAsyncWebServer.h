@@ -53,8 +53,13 @@
 #endif
 
 #if !defined(ASYNCWEBSERVER_USE_MUTEX)
-#define ASYNCWEBSERVER_USE_MUTEX defined(ESP32) || defined(HOST)
+#if defined(ESP32) || defined(HOST)
+#define ASYNCWEBSERVER_USE_MUTEX 1
+#else
+#define ASYNCWEBSERVER_USE_MUTEX 0
 #endif
+#endif
+
 #include "AsyncWebServerVersion.h"
 #define ASYNCWEBSERVER_FORK_ESP32Async
 
