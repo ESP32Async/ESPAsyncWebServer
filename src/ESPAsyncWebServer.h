@@ -19,9 +19,7 @@
 #include <utility>
 #include <vector>
 
-#ifndef __unused
-#define __unused __attribute__((unused))
-#endif
+#define __asyncws_unused __attribute__((unused))
 
 #if __has_include("ArduinoJson.h")
 #include <ArduinoJson.h>
@@ -600,12 +598,12 @@ public:
 #ifndef ESP8266
   [[deprecated("All headers are now collected. Use removeHeader(name) or AsyncHeaderFreeMiddleware if you really need to free some headers.")]]
 #endif
-  void addInterestingHeader(__unused const char *name) {
+  void addInterestingHeader(__asyncws_unused const char *name) {
   }
 #ifndef ESP8266
   [[deprecated("All headers are now collected. Use removeHeader(name) or AsyncHeaderFreeMiddleware if you really need to free some headers.")]]
 #endif
-  void addInterestingHeader(__unused const String &name) {
+  void addInterestingHeader(__asyncws_unused const String &name) {
   }
 
   /**
@@ -1208,7 +1206,7 @@ using ArMiddlewareCallback = std::function<void(AsyncWebServerRequest *request, 
 class AsyncMiddleware {
 public:
   virtual ~AsyncMiddleware() {}
-  virtual void run(__unused AsyncWebServerRequest *request, __unused ArMiddlewareNext next) {
+  virtual void run(__asyncws_unused AsyncWebServerRequest *request, __asyncws_unused ArMiddlewareNext next) {
     return next();
   };
 
@@ -1528,12 +1526,15 @@ public:
   virtual bool canHandle(AsyncWebServerRequest *request __attribute__((unused))) const {
     return false;
   }
-  virtual void handleRequest(__unused AsyncWebServerRequest *request) {}
+  virtual void handleRequest(__asyncws_unused AsyncWebServerRequest *request) {}
   virtual void handleUpload(
-    __unused AsyncWebServerRequest *request, __unused const String &filename, __unused size_t index, __unused uint8_t *data, __unused size_t len,
-    __unused bool final
+    __asyncws_unused AsyncWebServerRequest *request, __asyncws_unused const String &filename, __asyncws_unused size_t index, __asyncws_unused uint8_t *data,
+    __asyncws_unused size_t len, __asyncws_unused bool final
   ) {}
-  virtual void handleBody(__unused AsyncWebServerRequest *request, __unused uint8_t *data, __unused size_t len, __unused size_t index, __unused size_t total) {}
+  virtual void handleBody(
+    __asyncws_unused AsyncWebServerRequest *request, __asyncws_unused uint8_t *data, __asyncws_unused size_t len, __asyncws_unused size_t index,
+    __asyncws_unused size_t total
+  ) {}
   virtual bool isRequestHandlerTrivial() const {
     return true;
   }

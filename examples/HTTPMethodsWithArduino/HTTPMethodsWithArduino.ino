@@ -58,7 +58,7 @@ static WebRequestMethodComposite allowed = AsyncWebRequestMethod::HTTP_HEAD | As
 
 class MyRequestHandler : public AsyncWebHandler {
 public:
-  bool canHandle(__unused AsyncWebServerRequest *request) const override {
+  bool canHandle(__asyncws_unused AsyncWebServerRequest *request) const override {
     // Test backward compatibility with previous way of checking if a method is allowed in a composite using a bit operator
     return allowed & request->method();
   }

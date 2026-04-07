@@ -23,7 +23,7 @@ static AsyncWebServer server(80);
 
 class CaptiveRequestHandler : public AsyncWebHandler {
 public:
-  bool canHandle(__unused AsyncWebServerRequest *request) const override {
+  bool canHandle(__asyncws_unused AsyncWebServerRequest *request) const override {
     return true;
   }
 
