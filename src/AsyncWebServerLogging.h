@@ -32,6 +32,7 @@
 #define async_ws_log_v(format, ...) log_v(format, ##__VA_ARGS__)
 
 #elif defined(HOST)
+#include <cstdio>
 // Arduino-Emulator has Serial, but it does not have Serial.printf, which
 // is not a member of the Arduino Core API Print class.
 
