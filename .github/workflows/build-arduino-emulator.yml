@@ -1,0 +1,80 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: Build (Arduino Emulator)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - release/*
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "README.md"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arduino-emulator:
+    name: Arduino Emulator (cmake, HOST)
+    runs-on: ubuntu-latest
+    env:
+      ASYNCTCP_REPO: https://github.com/ESP32Async/AsyncTCP
+      ASYNCTCP_REF: main
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential git
+
+      - name: Clone Arduino-Emulator
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/pschatzmann/Arduino-Emulator.git .ci/arduino-emulator
+
+      - name: Generate host build project
+        run: |
+          mkdir -p .ci/arduino-emulator-build
+          cat > .ci/arduino-emulator-build/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.11)
+          project(espasyncwebserver_host_build LANGUAGES C CXX)
+
+          add_subdirectory(${CMAKE_SOURCE_DIR}/../arduino-emulator ${CMAKE_BINARY_DIR}/arduino-emulator)
+          include(${CMAKE_SOURCE_DIR}/../arduino-emulator/Arduino.cmake)
+
+          arduino_library(asynctcp "$ENV{ASYNCTCP_REPO}" TAG "$ENV{ASYNCTCP_REF}")
+          arduino_library(espasyncwebserver "${CMAKE_SOURCE_DIR}/../..")
+
+          arduino_sketch(host-build-check host-build-check.ino LIBRARIES asynctcp espasyncwebserver DEFINITIONS HOST)
+          EOF
+
+          cat > .ci/arduino-emulator-build/host-build-check.ino <<'EOF'
+          #include <Arduino.h>
+          #include <ESPAsyncWebServer.h>
+
+          AsyncWebServer server(80);
+
+          void setup() {
+            server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+              request->send(200, "text/plain", "host-ok");
+            });
+          }
+
+          void loop() {}
+          EOF
+
+      - name: Build with Arduino-Emulator
+        run: |
+          cmake -S .ci/arduino-emulator-build -B .ci/arduino-emulator-build/out -G Ninja
+          cmake --build .ci/arduino-emulator-build/out --parallel
