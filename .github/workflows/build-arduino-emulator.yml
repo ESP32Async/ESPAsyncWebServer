@@ -43,38 +43,14 @@ jobs:
         run: |
           git clone --depth 1 --recurse-submodules https://github.com/pschatzmann/Arduino-Emulator.git .ci/arduino-emulator
 
-      - name: Generate host build project
+      - name: Clone AsyncTCP, Arduino FS headers, lwIP and lwIP contrib
         run: |
-          mkdir -p .ci/arduino-emulator-build
-          cat > .ci/arduino-emulator-build/CMakeLists.txt <<'EOF'
-          cmake_minimum_required(VERSION 3.11)
-          project(espasyncwebserver_host_build LANGUAGES C CXX)
-
-          add_subdirectory(${CMAKE_SOURCE_DIR}/../arduino-emulator ${CMAKE_BINARY_DIR}/arduino-emulator)
-          include(${CMAKE_SOURCE_DIR}/../arduino-emulator/Arduino.cmake)
-
-          arduino_library(asynctcp "$ENV{ASYNCTCP_REPO}" TAG "$ENV{ASYNCTCP_REF}")
-          arduino_library(espasyncwebserver "${CMAKE_SOURCE_DIR}/../..")
-
-          arduino_sketch(host-build-check host-build-check.ino LIBRARIES asynctcp espasyncwebserver DEFINITIONS HOST)
-          EOF
-
-          cat > .ci/arduino-emulator-build/host-build-check.ino <<'EOF'
-          #include <Arduino.h>
-          #include <ESPAsyncWebServer.h>
-
-          AsyncWebServer server(80);
-
-          void setup() {
-            server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-              request->send(200, "text/plain", "host-ok");
-            });
-          }
-
-          void loop() {}
-          EOF
+          git clone --depth 1 --branch "${ASYNCTCP_REF}" "${ASYNCTCP_REPO}" .ci/asynctcp
+          git clone --depth 1 https://github.com/espressif/arduino-esp32.git .ci/arduino-esp32
+          git clone --depth 1 https://github.com/lwip-tcpip/lwip.git .ci/lwip
+          git clone --depth 1 https://git.savannah.nongnu.org/git/lwip/lwip-contrib.git .ci/lwip-contrib
 
       - name: Build with Arduino-Emulator
         run: |
-          cmake -S .ci/arduino-emulator-build -B .ci/arduino-emulator-build/out -G Ninja
-          cmake --build .ci/arduino-emulator-build/out --parallel
+          cmake -S arduino_emulator_example -B .ci/arduino-emulator-build/out -G Ninja
+          cmake --build .ci/arduino-emulator-build/out --target espasyncwebserver --parallel
