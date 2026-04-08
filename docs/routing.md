@@ -121,7 +121,7 @@ Usage:
   server.addRewrite( new OneParamRewrite("/radio/{frequence}", "/radio?f={frequence}") );
 ```
 
-See the [Rewrite example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Rewrite/Rewrite.ino).
+See the [Rewrite example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Rewrite/Rewrite.ino).
 
 ## Remove handlers and rewrites
 

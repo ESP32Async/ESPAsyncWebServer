@@ -10,7 +10,7 @@ Two filter callback are provided for convince:
 - `ON_STA_FILTER` - return true when requests are made to the STA (station mode) interface.
 - `ON_AP_FILTER` - return true when requests are made to the AP (access point) interface.
 
-See the [Filters example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Filters/Filters.ino).
+See the [Filters example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Filters/Filters.ino).
 
 ### Serve different site files in AP mode
 

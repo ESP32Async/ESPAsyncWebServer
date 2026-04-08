@@ -376,7 +376,7 @@ Request Continuation is the ability to pause the processing of a request (the ac
 
 This is a common supported use case amongst web servers.
 
-A usage example can be found in the example called [RequestContinuation.ino](https://github.com/ESP32Async/ESPAsyncWebServer/blob/main/examples/RequestContinuation/RequestContinuation.ino)
+A usage example can be found in the example called [RequestContinuation.ino](https://github.com/ESP32Async/ESPAsyncWebServer/blob/main/examples/arduino/RequestContinuation/RequestContinuation.ino)
 
 In the handler receiving the request, just execute:
 

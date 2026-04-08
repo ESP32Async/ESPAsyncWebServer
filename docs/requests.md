@@ -44,7 +44,7 @@ if(request->hasHeader("MyHeader")){
 }
 ```
 
-See the [Headers example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Headers/Headers.ino).
+See the [Headers example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Headers/Headers.ino).
 
 ## Path Variable
 
@@ -83,7 +83,7 @@ build_flags =
 
 _NOTE_: By enabling `ASYNCWEBSERVER_REGEX`, `<regex>` will be included. This will add an 100k to your binary.
 
-See the [URIMatcher example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/URIMatcher/URIMatcher.ino) and [URIMatcherTest example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/URIMatcherTest/URIMatcherTest.ino).
+See the [URIMatcher example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/URIMatcher/URIMatcher.ino) and [URIMatcherTest example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/URIMatcherTest/URIMatcherTest.ino).
 
 ### GET, POST and FILE parameters
 
@@ -124,7 +124,7 @@ if(request->hasArg("download"))
   String arg = request->arg("download");
 ```
 
-See the [Params example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Params/Params.ino).
+See the [Params example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Params/Params.ino).
 
 ### FILE Upload handling
 
@@ -142,7 +142,7 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
 }
 ```
 
-See the [Upload example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Upload/Upload.ino).
+See the [Upload example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Upload/Upload.ino).
 
 ### Body data handling
 
@@ -177,7 +177,7 @@ AsyncCallbackJsonWebHandler* handler = new AsyncCallbackJsonWebHandler("/rest/en
 server.addHandler(handler);
 ```
 
-See the [Json example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Json/Json.ino).
+See the [Json example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Json/Json.ino).
 
 ### MessagePack body handling
 
@@ -194,4 +194,4 @@ AsyncCallbackMessagePackWebHandler* handler = new AsyncCallbackMessagePackWebHan
 server.addHandler(handler);
 ```
 
-See the [MessagePack example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/MessagePack/MessagePack.ino).
+See the [MessagePack example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/MessagePack/MessagePack.ino).

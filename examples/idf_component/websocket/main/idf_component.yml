@@ -2,5 +2,5 @@
 dependencies:
   esp32async/espasyncwebserver:
     version: "*"
-    override_path: "../../../"
+    override_path: "../../../../"
     pre_release: true
