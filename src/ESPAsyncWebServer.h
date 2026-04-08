@@ -5,9 +5,7 @@
 
 #include <Arduino.h>
 #include <FS.h>
-#ifndef HOST
 #include <lwip/tcpbase.h>
-#endif
 
 #include <algorithm>
 #include <deque>
