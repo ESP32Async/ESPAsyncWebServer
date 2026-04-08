@@ -11,11 +11,11 @@
 #elif defined(ASYNCWEBSERVER_LOG_DEBUG)
 // Local Debug logging
 #include <HardwareSerial.h>
-#define async_ws_log_e(format, ...) Serial.printf("E async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
-#define async_ws_log_w(format, ...) Serial.printf("W async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
-#define async_ws_log_i(format, ...) Serial.printf("I async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
-#define async_ws_log_d(format, ...) Serial.printf("D async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
-#define async_ws_log_v(format, ...) Serial.printf("V async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_e(format, ...) Serial.printf("E async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define async_ws_log_w(format, ...) Serial.printf("W async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define async_ws_log_i(format, ...) Serial.printf("I async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define async_ws_log_d(format, ...) Serial.printf("D async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define async_ws_log_v(format, ...) Serial.printf("V async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 #else
 // Framework-based logging
@@ -107,31 +107,31 @@
 #endif
 // error
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_ERROR
-#define async_ws_log_e(format, ...) Serial.printf("E async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_e(format, ...) Serial.printf("E async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_e(format, ...)
 #endif
 // warn
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_WARN
-#define async_ws_log_w(format, ...) Serial.printf("W async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_w(format, ...) Serial.printf("W async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_w(format, ...)
 #endif
 // info
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_INFO
-#define async_ws_log_i(format, ...) Serial.printf("I async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_i(format, ...) Serial.printf("I async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_i(format, ...)
 #endif
 // debug
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_DEBUG
-#define async_ws_log_d(format, ...) Serial.printf("D async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_d(format, ...) Serial.printf("D async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_d(format, ...)
 #endif
 // verbose
 #if ASYNCWEBSERVER_LOG_LEVEL >= ASYNC_WS_LOG_VERBOSE
-#define async_ws_log_v(format, ...) Serial.printf("V async_ws %s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__);
+#define async_ws_log_v(format, ...) Serial.printf("V async_ws %s() %d: " format "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #else
 #define async_ws_log_v(format, ...)
 #endif

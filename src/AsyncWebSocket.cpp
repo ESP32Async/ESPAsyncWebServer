@@ -561,7 +561,8 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
 
   while (plen > 0) {
     async_ws_log_v(
-      "[%s][%" PRIu32 "] DATA plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _server->url(), _clientId, plen, _pstate, static_cast<uint8_t>(_status)
+      "[%s][%" PRIu32 "] DATA plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _server->url(), _clientId, static_cast<uint32_t>(plen), _pstate,
+      static_cast<uint8_t>(_status)
     );
 
     if (_pstate == STATE_FRAME_START) {
