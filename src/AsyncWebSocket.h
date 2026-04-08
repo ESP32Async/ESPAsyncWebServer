@@ -5,7 +5,7 @@
 
 #include <Arduino.h>
 
-#if defined(ESP32) || defined(LIBRETINY)
+#if defined(ESP32) || defined(LIBRETINY) || defined(HOST)
 #include <AsyncTCP.h>
 #ifdef LIBRETINY
 #ifdef round
@@ -13,14 +13,6 @@
 #endif
 #endif
 #include <mutex>
-#ifndef WS_MAX_QUEUED_MESSAGES
-#define WS_MAX_QUEUED_MESSAGES 32
-#endif
-#elif defined(HOST)
-#ifndef FPSTR
-#define FPSTR (const char *)
-#endif
-#include <AsyncTCP.h>
 #ifndef WS_MAX_QUEUED_MESSAGES
 #define WS_MAX_QUEUED_MESSAGES 32
 #endif

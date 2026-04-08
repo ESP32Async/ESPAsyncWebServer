@@ -19,6 +19,9 @@
 #include <mbedtls/sha1.h>
 #elif defined(HOST)
 #include "BackPort_SHA1Builder.h"
+#ifndef FPSTR
+#define FPSTR (const char *)
+#endif
 #endif
 
 #include <algorithm>
