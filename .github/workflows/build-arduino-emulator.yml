@@ -26,10 +26,6 @@ jobs:
   arduino-emulator:
     name: Arduino Emulator (cmake, HOST)
     runs-on: ubuntu-latest
-    env:
-      ASYNCTCP_REPO: https://github.com/ESP32Async/AsyncTCP
-      ASYNCTCP_REF: main
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -45,7 +41,7 @@ jobs:
 
       - name: Clone AsyncTCP, Arduino FS headers, lwIP and lwIP contrib
         run: |
-          git clone --depth 1 --branch "${ASYNCTCP_REF}" "${ASYNCTCP_REPO}" .ci/asynctcp
+          git clone --depth 1 https://github.com/ESP32Async/AsyncTCP .ci/asynctcp
           git clone --depth 1 https://github.com/espressif/arduino-esp32.git .ci/arduino-esp32
           git clone --depth 1 https://github.com/lwip-tcpip/lwip.git .ci/lwip
           git clone --depth 1 https://git.savannah.nongnu.org/git/lwip/lwip-contrib.git .ci/lwip-contrib
