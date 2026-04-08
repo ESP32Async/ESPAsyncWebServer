@@ -5,7 +5,7 @@
 The server includes EventSource (Server-Sent Events) plugin which can be used to send short text events to the browser.
 Difference between EventSource and WebSockets is that EventSource is single direction, text-only protocol.
 
-See the [ServerSentEvents example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/ServerSentEvents/ServerSentEvents.ino).
+See the [ServerSentEvents example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/ServerSentEvents/ServerSentEvents.ino).
 
 ### Setup Event Source on the server
 

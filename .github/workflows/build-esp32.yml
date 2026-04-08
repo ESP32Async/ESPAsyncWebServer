@@ -45,13 +45,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Build Examples
+      - name: Build Arduono Examples
         run: |
-          for i in `ls examples`; do
+          for i in `ls examples/arduino`; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            arduino-cli compile --library . --warnings none -b esp32:esp32:esp32 "examples/$i/$i.ino"
+            arduino-cli compile --library . --warnings none -b esp32:esp32:esp32 "examples/arduino/$i/$i.ino"
           done
 
   arduino-esp32-dev:
@@ -76,13 +76,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Build Examples
+      - name: Build Arduino Examples
         run: |
-          for i in `ls examples`; do
+          for i in `ls examples/arduino`; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            arduino-cli compile --library . --warnings none -b esp32:esp32:esp32 "examples/$i/$i.ino"
+            arduino-cli compile --library . --warnings none -b esp32:esp32:esp32 "examples/arduino/$i/$i.ino"
           done
 
   platformio-esp32-arduino2:
@@ -113,13 +113,13 @@ jobs:
         run: |
           uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
 
-      - name: Build Examples
+      - name: Build Arduino Examples
         run: |
-          for i in `ls examples`; do
+          for i in `ls examples/arduino`; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            PLATFORMIO_SRC_DIR=examples/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-arduino-2
+            PLATFORMIO_SRC_DIR=examples/arduino/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-arduino-2
           done
 
   platformio-esp32-arduino-3:
@@ -153,13 +153,13 @@ jobs:
         run: |
           uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
 
-      - name: Build Examples
+      - name: Build Arduino Examples
         run: |
-          for i in `ls examples`; do
+          for i in `ls examples/arduino`; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            PLATFORMIO_SRC_DIR=examples/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-arduino-3
+            PLATFORMIO_SRC_DIR=examples/arduino/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-arduino-3
           done
 
   platformio-specific-envs:
@@ -192,11 +192,11 @@ jobs:
         run: |
           uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
 
-      - name: Build Examples
+      - name: Build Arduino Examples
         run: |
-          for i in `ls examples`; do
+          for i in `ls examples/arduino`; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            PLATFORMIO_SRC_DIR=examples/$i PIO_BOARD=esp32dev pio run -e ${{ matrix.env }}
+            PLATFORMIO_SRC_DIR=examples/arduino/$i PIO_BOARD=esp32dev pio run -e ${{ matrix.env }}
           done

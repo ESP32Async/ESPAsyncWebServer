@@ -40,7 +40,7 @@ I recommend to use the official API `AsyncWebSocketMessageBuffer` to retain furt
 The server includes a web socket plugin which lets you define different WebSocket locations to connect to
 without starting another listening service or using different port
 
-See the [WebSocket example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/WebSocket/WebSocket.ino) and [WebSocketEasy example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/WebSocketEasy/WebSocketEasy.ino).
+See the [WebSocket example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/WebSocket/WebSocket.ino) and [WebSocketEasy example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/WebSocketEasy/WebSocketEasy.ino).
 
 ### Async WebSocket Event
 
