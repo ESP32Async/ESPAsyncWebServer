@@ -48,5 +48,5 @@ jobs:
 
       - name: Build with Arduino-Emulator
         run: |
-          cmake -S arduino_emulator_example -B .ci/arduino-emulator-build/out -G Ninja
+          cmake -S examples/arduino_emulator -B .ci/arduino-emulator-build/out -G Ninja
           cmake --build .ci/arduino-emulator-build/out --target espasyncwebserver --parallel
