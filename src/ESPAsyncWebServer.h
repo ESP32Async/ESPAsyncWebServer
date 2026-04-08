@@ -5,7 +5,10 @@
 
 #include <Arduino.h>
 #include <FS.h>
+
+#if !defined(HOST) || __has_include(<lwip/tcpbase.h>)
 #include <lwip/tcpbase.h>
+#endif
 
 #include <algorithm>
 #include <deque>
