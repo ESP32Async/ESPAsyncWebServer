@@ -276,11 +276,11 @@ typedef null_mutex mutex_type;
 
 class lock_guard_type {
 public:
-  lock_guard_type(mutex_type &) {};
+  lock_guard_type(mutex_type &){};
 };
 class unique_lock_type {
 public:
-  unique_lock_type(mutex_type &) {};
+  unique_lock_type(mutex_type &){};
   void unlock() {};
 };
 #endif

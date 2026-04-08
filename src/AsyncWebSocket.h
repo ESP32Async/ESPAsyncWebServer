@@ -256,7 +256,7 @@ public:
    * @param request
    * @param server
    */
-  AsyncWebSocketClient(AsyncWebServerRequest *request, AsyncWebSocket *server) : AsyncWebSocketClient(request->clientRelease(), server) {};
+  AsyncWebSocketClient(AsyncWebServerRequest *request, AsyncWebSocket *server) : AsyncWebSocketClient(request->clientRelease(), server){};
   ~AsyncWebSocketClient();
 
   // client id increments for the given server
