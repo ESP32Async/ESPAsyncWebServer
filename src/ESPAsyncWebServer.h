@@ -255,10 +255,12 @@ constexpr WebRequestMethodComposite HTTP_ANY = HTTP_ALL;
 }  // namespace AsyncWebRequestMethod
 
 // WebRequestMethod string conversion functions
-namespace asyncsrv {
-
 #if ASYNCWEBSERVER_USE_MUTEX
 #include <mutex>
+#endif
+
+namespace asyncsrv {
+#if ASYNCWEBSERVER_USE_MUTEX
 typedef std::recursive_mutex mutex_type;
 typedef std::lock_guard<mutex_type> lock_guard_type;
 typedef std::unique_lock<mutex_type> unique_lock_type;
