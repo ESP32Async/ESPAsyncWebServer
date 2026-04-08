@@ -118,8 +118,8 @@ public:
   bool canHandle(AsyncWebServerRequest *request) const final;
   void handleRequest(AsyncWebServerRequest *request) final;
   void handleUpload(
-    __unused AsyncWebServerRequest *request, __unused const String &filename, __unused size_t index, __unused uint8_t *data, __unused size_t len,
-    __unused bool final
+    __asyncws_unused AsyncWebServerRequest *request, __asyncws_unused const String &filename, __asyncws_unused size_t index, __asyncws_unused uint8_t *data,
+    __asyncws_unused size_t len, __asyncws_unused bool final
   ) final {}
   void handleBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) final;
   bool isRequestHandlerTrivial() const final {
