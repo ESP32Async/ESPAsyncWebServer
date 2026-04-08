@@ -36,10 +36,7 @@
 
 #endif  // __has_include("ArduinoJson.h")
 
-#if defined(ESP32) || defined(LIBRETINY)
-#include <AsyncTCP.h>
-#include <assert.h>
-#elif defined(HOST)
+#if defined(ESP32) || defined(LIBRETINY) || defined(HOST)
 #include <AsyncTCP.h>
 #include <assert.h>
 #elif defined(ESP8266)

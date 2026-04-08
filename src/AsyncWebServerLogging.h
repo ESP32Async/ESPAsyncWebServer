@@ -201,7 +201,6 @@
  * Arduino specific configurations
  */
 #elif defined(ARDUINO)
-
 #if defined(USE_ESP_IDF_LOG)
 #include <esp_log.h>
 #define async_ws_log_e(format, ...) ESP_LOGE("async_ws", "%s() %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__)

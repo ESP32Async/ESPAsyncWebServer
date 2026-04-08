@@ -3,7 +3,6 @@
 
 #include "WebAuthentication.h"
 #include "AsyncWebServerLogging.h"
-#include "ESPAsyncWebServer.h"
 #include <libb64/cencode.h>
 
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)

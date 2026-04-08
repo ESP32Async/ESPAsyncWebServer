@@ -12,6 +12,6 @@ target_include_directories(espasyncwebserver PUBLIC
   ${CMAKE_SOURCE_DIR}/../.ci/arduino-esp32/libraries/FS/src
   ${CMAKE_SOURCE_DIR}/../.ci/lwip/src/include
   ${CMAKE_SOURCE_DIR}/../.ci/lwip-contrib/ports/unix/port/include
-  ${CMAKE_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/host_config
 )
 target_link_libraries(espasyncwebserver PUBLIC arduino_emulator)
