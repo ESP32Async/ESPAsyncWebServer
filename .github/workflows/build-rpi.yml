@@ -52,13 +52,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Build Examples
+      - name: Build Arduino Examples
         run: |
-          for i in `ls examples`; do
+          for i in `ls examples/arduino`; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            arduino-cli compile --library . --warnings none -b rp2040:rp2040:${{ matrix.board }} "examples/$i/$i.ino"
+            arduino-cli compile --library . --warnings none -b rp2040:rp2040:${{ matrix.board }} "examples/arduino/$i/$i.ino"
           done
 
   platformio-rpi:
@@ -87,11 +87,11 @@ jobs:
         run: |
           uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
 
-      - name: Build Examples
+      - name: Build Arduino Examples
         run: |
-          for i in `ls examples`; do
+          for i in `ls examples/arduino`; do
             echo "============================================================="
-            echo "Building examples/$i..."
+            echo "Building examples/arduino/$i..."
             echo "============================================================="
-            PLATFORMIO_SRC_DIR=examples/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-raspberrypi
+            PLATFORMIO_SRC_DIR=examples/arduino/$i PIO_BOARD=${{ matrix.board }} pio run -e ci-raspberrypi
           done

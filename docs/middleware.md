@@ -40,7 +40,7 @@ AsyncMiddlewareFunction complexAuth([](AsyncWebServerRequest* request, ArMiddlew
 - `LoggerMiddleware`: to log requests globally or per handler with the same pattern as curl. Will also record request processing time
 - `AsyncRateLimitMiddleware`: to limit the number of requests on a windows of time globally or per handler
 
-See the [Middleware example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Middleware/Middleware.ino).
+See the [Middleware example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Middleware/Middleware.ino).
 
 ### CORS with AsyncCorsMiddleware
 
@@ -114,7 +114,7 @@ server.addMiddleware(&authMiddleware); // globally add authentication to the ser
 myHandler.addMiddleware(&authMiddleware); // add authentication to a specific handler
 ```
 
-See the [Auth example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/Auth/Auth.ino).
+See the [Auth example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Auth/Auth.ino).
 
 ### Migration to Middleware to improve performance and memory usage
 
