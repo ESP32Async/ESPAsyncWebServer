@@ -41,12 +41,11 @@ jobs:
 
       - name: Clone AsyncTCP, Arduino FS headers, lwIP and lwIP contrib
         run: |
-          git clone --depth 1 https://github.com/ESP32Async/AsyncTCP .ci/asynctcp
+          git clone --depth 1 https://github.com/MitchBradley/PosixAsyncTCP .ci/asynctcp
           git clone --depth 1 https://github.com/espressif/arduino-esp32.git .ci/arduino-esp32
-          git clone --depth 1 https://github.com/lwip-tcpip/lwip.git .ci/lwip
-          git clone --depth 1 https://git.savannah.nongnu.org/git/lwip/lwip-contrib.git .ci/lwip-contrib
 
       - name: Build with Arduino-Emulator
         run: |
           cmake -S examples/arduino_emulator -B .ci/arduino-emulator-build/out -G Ninja
-          cmake --build .ci/arduino-emulator-build/out --target espasyncwebserver --parallel
+          cmake --build .ci/arduino-emulator-build/out --target espasyncwebserver_host --parallel
+          chmod +x .ci/arduino-emulator-build/out/espasyncwebserver_host
