@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 
 static AsyncWebServer server(8080);
@@ -12,6 +13,7 @@ void setup() {
     request->send(404, "text/plain", "Not found\n");
   });
 
+  PosixAsyncTCPManager::getInstance().begin();
   server.begin();
 }
 
