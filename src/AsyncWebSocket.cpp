@@ -37,15 +37,6 @@
 
 using namespace asyncsrv;
 
-namespace {
-AsyncWebSocketClient *find_connected_client_locked(std::list<AsyncWebSocketClient> &clients, uint32_t id) {
-  const auto iter = std::find_if(clients.begin(), clients.end(), [id](const AsyncWebSocketClient &client) {
-    return client.id() == id && client.status() == WS_CONNECTED;
-  });
-  return iter == clients.end() ? nullptr : &(*iter);
-}
-}  // namespace
-
 size_t webSocketSendFrameWindow(AsyncClient *client) {
   if (!client || !client->canSend()) {
     return 0;
@@ -367,6 +358,7 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
 
 void AsyncWebSocketClient::_onPoll() {
   asyncsrv::unique_lock_type lock(_lock);
+
   if (!_client) {
     return;
   }
@@ -454,6 +446,7 @@ bool AsyncWebSocketClient::canSend() const {
 
 bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, size_t len, bool mask) {
   asyncsrv::lock_guard_type lock(_lock);
+
   if (!_client) {
     return false;
   }
@@ -470,6 +463,7 @@ bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, si
 
 bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode, bool mask) {
   asyncsrv::unique_lock_type lock(_lock);
+
   if (!_client || !buffer || buffer->empty() || _status != WS_CONNECTED) {
     return false;
   }
@@ -958,6 +952,7 @@ bool AsyncWebSocketClient::binary(const __FlashStringHelper *data, size_t len) {
 
 IPAddress AsyncWebSocketClient::remoteIP() const {
   asyncsrv::lock_guard_type lock(_lock);
+
   if (!_client) {
     return IPAddress((uint32_t)0U);
   }
@@ -967,6 +962,7 @@ IPAddress AsyncWebSocketClient::remoteIP() const {
 
 uint16_t AsyncWebSocketClient::remotePort() const {
   asyncsrv::lock_guard_type lock(_lock);
+
   if (!_client) {
     return 0;
   }
@@ -995,10 +991,14 @@ AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request)
 }
 
 void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient *client) {
-  (void)client;
-  // Defer removal to cleanupClients(). Disconnect callbacks can fire while
-  // iterating _clients for broadcast sends, and erasing here invalidates the
-  // active iterator in the caller.
+  asyncsrv::lock_guard_type lock(_lock);
+  const auto client_id = client->id();
+  const auto iter = std::find_if(std::begin(_clients), std::end(_clients), [client_id](const AsyncWebSocketClient &c) {
+    return c.id() == client_id;
+  });
+  if (iter != std::end(_clients)) {
+    _clients.erase(iter);
+  }
 }
 
 bool AsyncWebSocket::availableForWriteAll() {
@@ -1040,7 +1040,7 @@ AsyncWebSocketClient *AsyncWebSocket::client(uint32_t id) {
 
 void AsyncWebSocket::close(uint32_t id, uint16_t code, const char *message) {
   asyncsrv::lock_guard_type lock(_lock);
-  if (AsyncWebSocketClient *c = find_connected_client_locked(_clients, id)) {
+  if (AsyncWebSocketClient *c = client(id)) {
     c->close(code, message);
   }
 }
@@ -1055,37 +1055,24 @@ void AsyncWebSocket::closeAll(uint16_t code, const char *message) {
 }
 
 void AsyncWebSocket::cleanupClients(uint16_t maxClients) {
-  std::list<AsyncWebSocketClient> removed_clients;
-  {
-    asyncsrv::lock_guard_type lock(_lock);
-    const size_t connected = std::count_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
-      return c.status() == WS_CONNECTED;
-    });
+  asyncsrv::lock_guard_type lock(_lock);
+  const size_t c = count();
+  if (c > maxClients) {
+    async_ws_log_v("[%s] CLEANUP %" PRIu32 " (%u/%" PRIu16 ")", _url.c_str(), _clients.front().id(), c, maxClients);
+    _clients.front().close();
+  }
 
-    if (connected > maxClients) {
-      const auto connected_iter = std::find_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
-        return c.status() == WS_CONNECTED;
-      });
-      if (connected_iter != std::end(_clients)) {
-        async_ws_log_v("[%s] CLEANUP %" PRIu32 " (%u/%" PRIu16 ")", _url.c_str(), connected_iter->id(), connected, maxClients);
-        connected_iter->close();
-      }
-    }
-
-    for (auto iter = _clients.begin(); iter != _clients.end();) {
-      if (iter->shouldBeDeleted()) {
-        auto current = iter++;
-        removed_clients.splice(removed_clients.end(), _clients, current);
-      } else {
-        ++iter;
-      }
+  for (auto i = _clients.begin(); i != _clients.end(); ++i) {
+    if (i->shouldBeDeleted()) {
+      _clients.erase(i);
+      break;
     }
   }
 }
 
 bool AsyncWebSocket::ping(uint32_t id, const uint8_t *data, size_t len) {
   asyncsrv::lock_guard_type lock(_lock);
-  AsyncWebSocketClient *c = find_connected_client_locked(_clients, id);
+  AsyncWebSocketClient *c = client(id);
   return c && c->ping(data, len);
 }
 
@@ -1105,7 +1092,7 @@ AsyncWebSocket::SendStatus AsyncWebSocket::pingAll(const uint8_t *data, size_t l
 
 bool AsyncWebSocket::text(uint32_t id, const uint8_t *message, size_t len) {
   asyncsrv::lock_guard_type lock(_lock);
-  AsyncWebSocketClient *c = find_connected_client_locked(_clients, id);
+  AsyncWebSocketClient *c = client(id);
   return c && c->text(makeSharedBuffer(message, len));
 }
 bool AsyncWebSocket::text(uint32_t id, const char *message, size_t len) {
@@ -1152,7 +1139,7 @@ bool AsyncWebSocket::text(uint32_t id, AsyncWebSocketMessageBuffer *buffer) {
 }
 bool AsyncWebSocket::text(uint32_t id, AsyncWebSocketSharedBuffer buffer) {
   asyncsrv::lock_guard_type lock(_lock);
-  AsyncWebSocketClient *c = find_connected_client_locked(_clients, id);
+  AsyncWebSocketClient *c = client(id);
   return c && c->text(buffer);
 }
 
@@ -1216,7 +1203,7 @@ AsyncWebSocket::SendStatus AsyncWebSocket::textAll(AsyncWebSocketSharedBuffer bu
 
 bool AsyncWebSocket::binary(uint32_t id, const uint8_t *message, size_t len) {
   asyncsrv::lock_guard_type lock(_lock);
-  AsyncWebSocketClient *c = find_connected_client_locked(_clients, id);
+  AsyncWebSocketClient *c = client(id);
   return c && c->binary(makeSharedBuffer(message, len));
 }
 bool AsyncWebSocket::binary(uint32_t id, const char *message, size_t len) {
@@ -1253,7 +1240,7 @@ bool AsyncWebSocket::binary(uint32_t id, AsyncWebSocketMessageBuffer *buffer) {
 }
 bool AsyncWebSocket::binary(uint32_t id, AsyncWebSocketSharedBuffer buffer) {
   asyncsrv::lock_guard_type lock(_lock);
-  AsyncWebSocketClient *c = find_connected_client_locked(_clients, id);
+  AsyncWebSocketClient *c = client(id);
   return c && c->binary(buffer);
 }
 

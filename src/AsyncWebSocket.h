@@ -256,7 +256,6 @@ public:
     return _clientId;
   }
   AwsClientStatus status() const {
-    asyncsrv::lock_guard_type lock(_lock);
     return _status;
   }
   AsyncClient *client() {
