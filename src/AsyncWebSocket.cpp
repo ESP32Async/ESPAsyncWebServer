@@ -1055,26 +1055,30 @@ void AsyncWebSocket::closeAll(uint16_t code, const char *message) {
 }
 
 void AsyncWebSocket::cleanupClients(uint16_t maxClients) {
-  asyncsrv::lock_guard_type lock(_lock);
-  const size_t connected = std::count_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
-    return c.status() == WS_CONNECTED;
-  });
-
-  if (connected > maxClients) {
-    const auto connected_iter = std::find_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
+  std::list<AsyncWebSocketClient> removed_clients;
+  {
+    asyncsrv::lock_guard_type lock(_lock);
+    const size_t connected = std::count_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
       return c.status() == WS_CONNECTED;
     });
-    if (connected_iter != std::end(_clients)) {
-      async_ws_log_v("[%s] CLEANUP %" PRIu32 " (%u/%" PRIu16 ")", _url.c_str(), connected_iter->id(), connected, maxClients);
-      connected_iter->close();
-    }
-  }
 
-  for (auto iter = _clients.begin(); iter != _clients.end();) {
-    if (iter->shouldBeDeleted()) {
-      iter = _clients.erase(iter);
-    } else {
-      ++iter;
+    if (connected > maxClients) {
+      const auto connected_iter = std::find_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
+        return c.status() == WS_CONNECTED;
+      });
+      if (connected_iter != std::end(_clients)) {
+        async_ws_log_v("[%s] CLEANUP %" PRIu32 " (%u/%" PRIu16 ")", _url.c_str(), connected_iter->id(), connected, maxClients);
+        connected_iter->close();
+      }
+    }
+
+    for (auto iter = _clients.begin(); iter != _clients.end();) {
+      if (iter->shouldBeDeleted()) {
+        auto current = iter++;
+        removed_clients.splice(removed_clients.end(), _clients, current);
+      } else {
+        ++iter;
+      }
     }
   }
 }
