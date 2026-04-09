@@ -499,13 +499,15 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
 }
 
 void AsyncWebSocketClient::close(uint16_t code, const char *message) {
-  if (_status != WS_CONNECTED) {
-    return;
+  {
+    asyncsrv::lock_guard_type lock(_lock);
+    if (_status != WS_CONNECTED) {
+      return;
+    }
+    _status = WS_DISCONNECTING;
   }
 
   async_ws_log_w("[%s][%" PRIu32 "] CLOSE", _server->url(), _clientId);
-
-  _status = WS_DISCONNECTING;
 
   if (code) {
     uint8_t packetLen = 2;
@@ -535,6 +537,7 @@ void AsyncWebSocketClient::close(uint16_t code, const char *message) {
 }
 
 bool AsyncWebSocketClient::ping(const uint8_t *data, size_t len) {
+  asyncsrv::lock_guard_type lock(_lock);
   return _status == WS_CONNECTED && _queueControl(WS_PING, data, len);
 }
 
@@ -564,9 +567,10 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
   uint8_t *data = (uint8_t *)pbuf;
 
   while (plen > 0) {
+    const AwsClientStatus client_status = status();
     async_ws_log_v(
       "[%s][%" PRIu32 "] DATA plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _server->url(), _clientId, static_cast<uint32_t>(plen), _pstate,
-      static_cast<uint8_t>(_status)
+      static_cast<uint8_t>(client_status)
     );
 
     if (_pstate == STATE_FRAME_START) {
@@ -685,10 +689,13 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
             _server->_handleEvent(this, WS_EVT_ERROR, (void *)&reasonCode, (uint8_t *)reasonString, strlen(reasonString));
           }
         }
+        asyncsrv::unique_lock_type lock(_lock);
         if (_status == WS_DISCONNECTING) {
           _status = WS_DISCONNECTED;
           if (_client) {
-            _client->close();
+            auto *client = _client;
+            lock.unlock();
+            client->close();
           }
         } else {
           _status = WS_DISCONNECTING;
@@ -732,9 +739,12 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         "[%s][%" PRIu32 "] DATA frame error: len: %u, index: %" PRIu64 ", total: %" PRIu64 "\n", _server->url(), _clientId, datalen, _pinfo.index, _pinfo.len
       );
 
-      _status = WS_DISCONNECTING;
-      if (_client) {
-        _client->ackLater();
+      {
+        asyncsrv::lock_guard_type lock(_lock);
+        _status = WS_DISCONNECTING;
+        if (_client) {
+          _client->ackLater();
+        }
       }
       _queueControl(WS_DISCONNECT, data, datalen);
       break;
