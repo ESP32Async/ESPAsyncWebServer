@@ -303,6 +303,7 @@ public:
   uint16_t remotePort() const;
 
   bool shouldBeDeleted() const {
+    asyncsrv::lock_guard_type lock(_lock);
     return !_client;
   }
 
