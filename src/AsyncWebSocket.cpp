@@ -301,7 +301,6 @@ AsyncWebSocketClient::~AsyncWebSocketClient() {
     _messageQueue.clear();
     _controlQueue.clear();
   }
-  _server->_handleEvent(this, WS_EVT_DISCONNECT, NULL, NULL, 0);
 }
 
 void AsyncWebSocketClient::_clearQueue() {
@@ -996,10 +995,12 @@ AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request)
 }
 
 void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient *client) {
-  (void)client;
   // Defer removal to cleanupClients(). Disconnect callbacks can fire while
   // iterating _clients for broadcast sends, and erasing here invalidates the
-  // active iterator in the caller.
+  // active iterator in the caller. However, emit the disconnect event now so
+  // applications observe the disconnect at the time it happens even though the
+  // client object remains in _clients until cleanup.
+  _handleEvent(client, WS_EVT_DISCONNECT, NULL, NULL, 0);
 }
 
 bool AsyncWebSocket::availableForWriteAll() {
