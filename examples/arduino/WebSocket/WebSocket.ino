@@ -210,7 +210,7 @@ void loop() {
     ws.pingAll();
 
 #ifdef ESP32
-    Serial.printf("Free heap: %" PRIu32 "\n", ESP.getFreeHeap());
+    Serial.printf("Uptime: %3lu s, Free heap: %" PRIu32 ", Min free heap: %" PRIu32 "\n", millis() / 1000, ESP.getFreeHeap(), ESP.getMinFreeHeap());
 #endif
     lastHeap = now;
   }

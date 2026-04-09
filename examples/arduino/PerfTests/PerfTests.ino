@@ -239,7 +239,7 @@ void loop() {
 
 #ifdef ESP32
   if (now - lastHeap >= 2000) {
-    Serial.printf("Uptime: %3lu s, requests: %3u, Free heap: %" PRIu32 "\n", millis() / 1000, requests, ESP.getFreeHeap());
+    Serial.printf("Uptime: %3lu s, requests: %3u, Free heap: %" PRIu32 ", Min free heap: %" PRIu32 "\n", millis() / 1000, requests, ESP.getFreeHeap(), ESP.getMinFreeHeap());
     lastHeap = now;
   }
 #endif
