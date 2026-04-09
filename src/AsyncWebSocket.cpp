@@ -358,7 +358,6 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
 
 void AsyncWebSocketClient::_onPoll() {
   asyncsrv::unique_lock_type lock(_lock);
-
   if (!_client) {
     return;
   }
@@ -446,7 +445,6 @@ bool AsyncWebSocketClient::canSend() const {
 
 bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, size_t len, bool mask) {
   asyncsrv::lock_guard_type lock(_lock);
-
   if (!_client) {
     return false;
   }
@@ -463,7 +461,6 @@ bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, si
 
 bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode, bool mask) {
   asyncsrv::unique_lock_type lock(_lock);
-
   if (!_client || !buffer || buffer->empty() || _status != WS_CONNECTED) {
     return false;
   }
@@ -952,7 +949,6 @@ bool AsyncWebSocketClient::binary(const __FlashStringHelper *data, size_t len) {
 
 IPAddress AsyncWebSocketClient::remoteIP() const {
   asyncsrv::lock_guard_type lock(_lock);
-
   if (!_client) {
     return IPAddress((uint32_t)0U);
   }
@@ -962,7 +958,6 @@ IPAddress AsyncWebSocketClient::remoteIP() const {
 
 uint16_t AsyncWebSocketClient::remotePort() const {
   asyncsrv::lock_guard_type lock(_lock);
-
   if (!_client) {
     return 0;
   }
@@ -991,14 +986,10 @@ AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request)
 }
 
 void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient *client) {
-  asyncsrv::lock_guard_type lock(_lock);
-  const auto client_id = client->id();
-  const auto iter = std::find_if(std::begin(_clients), std::end(_clients), [client_id](const AsyncWebSocketClient &c) {
-    return c.id() == client_id;
-  });
-  if (iter != std::end(_clients)) {
-    _clients.erase(iter);
-  }
+  (void)client;
+  // Defer removal to cleanupClients(). Disconnect callbacks can fire while
+  // iterating _clients for broadcast sends, and erasing here invalidates the
+  // active iterator in the caller.
 }
 
 bool AsyncWebSocket::availableForWriteAll() {
@@ -1055,17 +1046,30 @@ void AsyncWebSocket::closeAll(uint16_t code, const char *message) {
 }
 
 void AsyncWebSocket::cleanupClients(uint16_t maxClients) {
-  asyncsrv::lock_guard_type lock(_lock);
-  const size_t c = count();
-  if (c > maxClients) {
-    async_ws_log_v("[%s] CLEANUP %" PRIu32 " (%u/%" PRIu16 ")", _url.c_str(), _clients.front().id(), c, maxClients);
-    _clients.front().close();
-  }
+  std::list<AsyncWebSocketClient> removed_clients;
+  {
+    asyncsrv::lock_guard_type lock(_lock);
+    const size_t connected = std::count_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
+      return c.status() == WS_CONNECTED;
+    });
 
-  for (auto i = _clients.begin(); i != _clients.end(); ++i) {
-    if (i->shouldBeDeleted()) {
-      _clients.erase(i);
-      break;
+    if (connected > maxClients) {
+      const auto connected_iter = std::find_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
+        return c.status() == WS_CONNECTED;
+      });
+      if (connected_iter != std::end(_clients)) {
+        async_ws_log_v("[%s] CLEANUP %" PRIu32 " (%u/%" PRIu16 ")", _url.c_str(), connected_iter->id(), connected, maxClients);
+        connected_iter->close();
+      }
+    }
+
+    for (auto iter = _clients.begin(); iter != _clients.end();) {
+      if (iter->shouldBeDeleted()) {
+        auto current = iter++;
+        removed_clients.splice(removed_clients.end(), _clients, current);
+      } else {
+        ++iter;
+      }
     }
   }
 }
