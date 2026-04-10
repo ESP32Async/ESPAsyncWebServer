@@ -297,7 +297,7 @@ AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *
 
 AsyncWebSocketClient::~AsyncWebSocketClient() {
   {
-    asyncsrv::lock_guard_type lock(_lock);
+    asyncsrv::lock_guard_type lock(_queue_lock);
     _messageQueue.clear();
     _controlQueue.clear();
   }
@@ -313,7 +313,7 @@ void AsyncWebSocketClient::_clearQueue() {
 void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
   _lastMessageTime = millis();
 
-  asyncsrv::unique_lock_type lock(_lock);
+  asyncsrv::unique_lock_type lock(_queue_lock);
 
   async_ws_log_v("[%s][%" PRIu32 "] START ACK(%u, %" PRIu32 ") Q:%u", _server->url(), _clientId, len, time, _messageQueue.size());
 
@@ -357,7 +357,7 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
 }
 
 void AsyncWebSocketClient::_onPoll() {
-  asyncsrv::unique_lock_type lock(_lock);
+  asyncsrv::unique_lock_type lock(_queue_lock);
 
   if (!_client) {
     return;
@@ -430,22 +430,22 @@ void AsyncWebSocketClient::_runQueue() {
 }
 
 bool AsyncWebSocketClient::queueIsFull() const {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_queue_lock);
   return (_messageQueue.size() >= WS_MAX_QUEUED_MESSAGES) || (_status != WS_CONNECTED);
 }
 
 size_t AsyncWebSocketClient::queueLen() const {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_queue_lock);
   return _messageQueue.size();
 }
 
 bool AsyncWebSocketClient::canSend() const {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_queue_lock);
   return _messageQueue.size() < WS_MAX_QUEUED_MESSAGES;
 }
 
 bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, size_t len, bool mask) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_queue_lock);
 
   if (!_client) {
     return false;
@@ -462,7 +462,7 @@ bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, si
 }
 
 bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode, bool mask) {
-  asyncsrv::unique_lock_type lock(_lock);
+  asyncsrv::unique_lock_type lock(_queue_lock);
 
   if (!_client || !buffer || buffer->empty() || _status != WS_CONNECTED) {
     return false;
@@ -546,7 +546,6 @@ void AsyncWebSocketClient::_onError(int8_t err) {
 }
 
 void AsyncWebSocketClient::_onTimeout(uint32_t time) {
-  asyncsrv::lock_guard_type lock(_lock);
   if (!_client) {
     return;
   }
@@ -555,7 +554,6 @@ void AsyncWebSocketClient::_onTimeout(uint32_t time) {
 }
 
 void AsyncWebSocketClient::_onDisconnect() {
-  asyncsrv::lock_guard_type lock(_lock);
   async_ws_log_v("[%s][%" PRIu32 "] DISCONNECT", _server->url(), _clientId);
   _status = WS_DISCONNECTED;
   _client = nullptr;
@@ -951,22 +949,16 @@ bool AsyncWebSocketClient::binary(const __FlashStringHelper *data, size_t len) {
 #endif
 
 IPAddress AsyncWebSocketClient::remoteIP() const {
-  asyncsrv::lock_guard_type lock(_lock);
-
   if (!_client) {
     return IPAddress((uint32_t)0U);
   }
-
   return _client->remoteIP();
 }
 
 uint16_t AsyncWebSocketClient::remotePort() const {
-  asyncsrv::lock_guard_type lock(_lock);
-
   if (!_client) {
     return 0;
   }
-
   return _client->remotePort();
 }
 
