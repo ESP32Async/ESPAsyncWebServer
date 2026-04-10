@@ -325,14 +325,12 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
         _controlQueue.pop_front();
         _status = WS_DISCONNECTED;
         async_ws_log_v("[%s][%" PRIu32 "] ACK WS_DISCONNECTED", _server->url(), _clientId);
-        if (_client) {
-          /*
-            Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
-            Due to _client->close() shall call the callback function _onDisconnect()
-            The calling flow _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient()
-          */
+        // Capture _client before unlocking: _client->close() triggers the _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient() chain,
+        // so we must not access any member after unlock.
+        AsyncClient *c = _client;
+        if (c) {
           lock.unlock();
-          _client->close();
+          c->close();
         }
         return;
       }
@@ -472,17 +470,15 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
     if (closeWhenFull) {
       _status = WS_DISCONNECTED;
 
-      if (_client) {
-        /*
-          Unlocking has to be called before return execution otherwise std::unique_lock ::~unique_lock() will get an exception pthread_mutex_unlock.
-          Due to _client->close() shall call the callback function _onDisconnect()
-          The calling flow _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient()
-        */
-        lock.unlock();
-        _client->close();
-      }
-
       async_ws_log_w("[%s][%" PRIu32 "] Too many messages queued: closing connection", _server->url(), _clientId);
+
+      // Capture _client before unlocking: _client->close() triggers the _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient() chain,
+      // so we must not access any member after unlock.
+      AsyncClient *c = _client;
+      if (c) {
+        lock.unlock();
+        c->close();
+      }
 
     } else {
       async_ws_log_w("[%s][%" PRIu32 "] Too many messages queued: discarding new message", _server->url(), _clientId);
@@ -531,8 +527,13 @@ void AsyncWebSocketClient::close(uint16_t code, const char *message) {
       return;
     } else {
       async_ws_log_e("Failed to allocate");
-      if (_client) {
-        _client->abort();
+      // Reads _client, then dereference it without any lock.
+      // A concurrent _onDisconnect could null + delete the client between the check and the use.
+      // Local capture ensures the pointer is read exactly once, eliminating the null-dereference.
+      // (TOCTOU)
+      AsyncClient *c = _client;
+      if (c) {
+        c->abort();
       }
     }
   }
@@ -548,17 +549,27 @@ void AsyncWebSocketClient::_onError(int8_t err) {
 }
 
 void AsyncWebSocketClient::_onTimeout(uint32_t time) {
-  if (!_client) {
+  // Reads _client, then dereference it without any lock.
+  // A concurrent _onDisconnect could null + delete the client between the check and the use.
+  // Local capture ensures the pointer is read exactly once, eliminating the null-dereference.
+  // (TOCTOU)
+  AsyncClient *c = _client;
+  if (!c) {
     return;
   }
   async_ws_log_v("[%s][%" PRIu32 "] TIMEOUT %" PRIu32, _server->url(), _clientId, time);
-  _client->close();
+  c->close();
 }
 
 void AsyncWebSocketClient::_onDisconnect() {
   async_ws_log_v("[%s][%" PRIu32 "] DISCONNECT", _server->url(), _clientId);
   _status = WS_DISCONNECTED;
-  _client = nullptr;
+  {
+    // Every queue method (_queueControl, _queueMessage, _runQueue, _onPoll, _onAck) reads _client while holding _queue_lock.
+    // For those guarded reads to be meaningful, the write must also be synchronized. This doesn't change _queue_lock's purpose — it still guards queue integrity — but ensures the "is client alive?" checks that protect queue operations see a consistent value.
+    asyncsrv::lock_guard_type lock(_queue_lock);
+    _client = nullptr;
+  }
   _server->_handleDisconnect(this);
 }
 
@@ -951,17 +962,27 @@ bool AsyncWebSocketClient::binary(const __FlashStringHelper *data, size_t len) {
 #endif
 
 IPAddress AsyncWebSocketClient::remoteIP() const {
-  if (!_client) {
+  // Reads _client, then dereference it without any lock.
+  // A concurrent _onDisconnect could null + delete the client between the check and the use.
+  // Local capture ensures the pointer is read exactly once, eliminating the null-dereference.
+  // (TOCTOU)
+  AsyncClient *c = _client;
+  if (!c) {
     return IPAddress((uint32_t)0U);
   }
-  return _client->remoteIP();
+  return c->remoteIP();
 }
 
 uint16_t AsyncWebSocketClient::remotePort() const {
-  if (!_client) {
+  // Reads _client, then dereference it without any lock.
+  // A concurrent _onDisconnect could null + delete the client between the check and the use.
+  // Local capture ensures the pointer is read exactly once, eliminating the null-dereference.
+  // (TOCTOU)
+  AsyncClient *c = _client;
+  if (!c) {
     return 0;
   }
-  return _client->remotePort();
+  return c->remotePort();
 }
 
 /*
