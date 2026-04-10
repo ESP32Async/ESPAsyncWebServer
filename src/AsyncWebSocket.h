@@ -222,7 +222,7 @@ private:
   uint8_t _pstate;
   uint32_t _lastMessageTime;
   uint32_t _keepAlivePeriod;
-  mutable asyncsrv::mutex_type _lock;
+  mutable asyncsrv::mutex_type _queue_lock;
   std::deque<AsyncWebSocketControl> _controlQueue;
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool closeWhenFull = true;
@@ -303,7 +303,6 @@ public:
   uint16_t remotePort() const;
 
   bool shouldBeDeleted() const {
-    asyncsrv::lock_guard_type lock(_lock);
     return !_client;
   }
 
@@ -371,7 +370,7 @@ private:
   AwsEventHandler _eventHandler;
   AwsHandshakeHandler _handshakeHandler;
   bool _enabled;
-  mutable asyncsrv::mutex_type _lock;
+  mutable asyncsrv::mutex_type _ws_clients_lock;
 
 public:
   typedef enum {
