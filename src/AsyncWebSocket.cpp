@@ -981,7 +981,7 @@ void AsyncWebSocket::_handleEvent(AsyncWebSocketClient *client, AwsEventType typ
 }
 
 AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   _clients.emplace_back(request, this);
   // we've just detached AsyncTCP client from AsyncWebServerRequest
   _handleEvent(&_clients.back(), WS_EVT_CONNECT, request, NULL, 0);
@@ -991,7 +991,7 @@ AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request)
 }
 
 void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient *client) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   const auto client_id = client->id();
   const auto iter = std::find_if(std::begin(_clients), std::end(_clients), [client_id](const AsyncWebSocketClient &c) {
     return c.id() == client_id;
@@ -1002,14 +1002,14 @@ void AsyncWebSocket::_handleDisconnect(AsyncWebSocketClient *client) {
 }
 
 bool AsyncWebSocket::availableForWriteAll() {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   return std::none_of(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
     return c.queueIsFull();
   });
 }
 
 bool AsyncWebSocket::availableForWrite(uint32_t id) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   const auto iter = std::find_if(std::begin(_clients), std::end(_clients), [id](const AsyncWebSocketClient &c) {
     return c.id() == id;
   });
@@ -1020,14 +1020,14 @@ bool AsyncWebSocket::availableForWrite(uint32_t id) {
 }
 
 size_t AsyncWebSocket::count() const {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   return std::count_if(std::begin(_clients), std::end(_clients), [](const AsyncWebSocketClient &c) {
     return c.status() == WS_CONNECTED;
   });
 }
 
 AsyncWebSocketClient *AsyncWebSocket::client(uint32_t id) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   const auto iter = std::find_if(_clients.begin(), _clients.end(), [id](const AsyncWebSocketClient &c) {
     return c.id() == id && c.status() == WS_CONNECTED;
   });
@@ -1039,14 +1039,14 @@ AsyncWebSocketClient *AsyncWebSocket::client(uint32_t id) {
 }
 
 void AsyncWebSocket::close(uint32_t id, uint16_t code, const char *message) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   if (AsyncWebSocketClient *c = client(id)) {
     c->close(code, message);
   }
 }
 
 void AsyncWebSocket::closeAll(uint16_t code, const char *message) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   for (auto &c : _clients) {
     if (c.status() == WS_CONNECTED) {
       c.close(code, message);
@@ -1055,7 +1055,7 @@ void AsyncWebSocket::closeAll(uint16_t code, const char *message) {
 }
 
 void AsyncWebSocket::cleanupClients(uint16_t maxClients) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   const size_t c = count();
   if (c > maxClients) {
     async_ws_log_v("[%s] CLEANUP %" PRIu32 " (%u/%" PRIu16 ")", _url.c_str(), _clients.front().id(), c, maxClients);
@@ -1071,13 +1071,13 @@ void AsyncWebSocket::cleanupClients(uint16_t maxClients) {
 }
 
 bool AsyncWebSocket::ping(uint32_t id, const uint8_t *data, size_t len) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   AsyncWebSocketClient *c = client(id);
   return c && c->ping(data, len);
 }
 
 AsyncWebSocket::SendStatus AsyncWebSocket::pingAll(const uint8_t *data, size_t len) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   size_t hit = 0;
   size_t miss = 0;
   for (auto &c : _clients) {
@@ -1091,7 +1091,7 @@ AsyncWebSocket::SendStatus AsyncWebSocket::pingAll(const uint8_t *data, size_t l
 }
 
 bool AsyncWebSocket::text(uint32_t id, const uint8_t *message, size_t len) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   AsyncWebSocketClient *c = client(id);
   return c && c->text(makeSharedBuffer(message, len));
 }
@@ -1138,7 +1138,7 @@ bool AsyncWebSocket::text(uint32_t id, AsyncWebSocketMessageBuffer *buffer) {
   return enqueued;
 }
 bool AsyncWebSocket::text(uint32_t id, AsyncWebSocketSharedBuffer buffer) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   AsyncWebSocketClient *c = client(id);
   return c && c->text(buffer);
 }
@@ -1188,7 +1188,7 @@ AsyncWebSocket::SendStatus AsyncWebSocket::textAll(AsyncWebSocketMessageBuffer *
 }
 
 AsyncWebSocket::SendStatus AsyncWebSocket::textAll(AsyncWebSocketSharedBuffer buffer) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   size_t hit = 0;
   size_t miss = 0;
   for (auto &c : _clients) {
@@ -1202,7 +1202,7 @@ AsyncWebSocket::SendStatus AsyncWebSocket::textAll(AsyncWebSocketSharedBuffer bu
 }
 
 bool AsyncWebSocket::binary(uint32_t id, const uint8_t *message, size_t len) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   AsyncWebSocketClient *c = client(id);
   return c && c->binary(makeSharedBuffer(message, len));
 }
@@ -1239,7 +1239,7 @@ bool AsyncWebSocket::binary(uint32_t id, AsyncWebSocketMessageBuffer *buffer) {
   return enqueued;
 }
 bool AsyncWebSocket::binary(uint32_t id, AsyncWebSocketSharedBuffer buffer) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   AsyncWebSocketClient *c = client(id);
   return c && c->binary(buffer);
 }
@@ -1280,7 +1280,7 @@ AsyncWebSocket::SendStatus AsyncWebSocket::binaryAll(AsyncWebSocketMessageBuffer
   return status;
 }
 AsyncWebSocket::SendStatus AsyncWebSocket::binaryAll(AsyncWebSocketSharedBuffer buffer) {
-  asyncsrv::lock_guard_type lock(_lock);
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   size_t hit = 0;
   size_t miss = 0;
   for (auto &c : _clients) {
