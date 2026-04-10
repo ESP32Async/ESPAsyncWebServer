@@ -531,7 +531,9 @@ void AsyncWebSocketClient::close(uint16_t code, const char *message) {
       return;
     } else {
       async_ws_log_e("Failed to allocate");
-      _client->abort();
+      if (_client) {
+        _client->abort();
+      }
     }
   }
   _queueControl(WS_DISCONNECT);
