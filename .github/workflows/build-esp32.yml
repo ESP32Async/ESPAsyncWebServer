@@ -111,7 +111,7 @@ jobs:
           enable-cache: false
       - name: Install platformio
         run: |
-          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Build Arduino Examples
         run: |
@@ -151,7 +151,7 @@ jobs:
           enable-cache: false
       - name: Install platformio
         run: |
-          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Build Arduino Examples
         run: |
@@ -190,7 +190,7 @@ jobs:
           enable-cache: false
       - name: Install platformio
         run: |
-          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Build Arduino Examples
         run: |
