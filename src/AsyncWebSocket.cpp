@@ -467,7 +467,7 @@ bool AsyncWebSocketClient::_queueMessage(AsyncWebSocketSharedBuffer buffer, uint
   }
 
   if (_messageQueue.size() >= WS_MAX_QUEUED_MESSAGES) {
-    if (closeWhenFull) {
+    if (_closeWhenFull) {
       _status = WS_DISCONNECTED;
 
       async_ws_log_w("[%s][%" PRIu32 "] Too many messages queued: closing connection", _server->url(), _clientId);

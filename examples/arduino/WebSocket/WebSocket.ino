@@ -93,7 +93,6 @@ void setup() {
     if (type == WS_EVT_CONNECT) {
       ws.textAll("new client connected");
       Serial.println("ws connect");
-      client->setCloseClientOnQueueFull(false);
       client->ping();
 
     } else if (type == WS_EVT_DISCONNECT) {
