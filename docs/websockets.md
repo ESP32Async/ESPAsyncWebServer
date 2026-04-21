@@ -171,6 +171,38 @@ const uint8_t flash_binary[] PROGMEM = { 0x01, 0x02, 0x03, 0x04 };
 client->binary(flash_binary, 4);
 ```
 
+### Queue full behavior: `setCloseClientOnQueueFull()`
+
+When a client cannot keep up, outgoing WebSocket messages are queued.
+If the queue reaches `WS_MAX_QUEUED_MESSAGES`, new messages are either discarded or the client is closed, depending on this setting.
+
+```cpp
+client->setCloseClientOnQueueFull(bool close);
+```
+
+- `close == false` (default in this library): discard new messages when the queue is full.
+- `close == true`: close the client when the queue is full.
+
+We recommend using `false`.
+
+When the queue starts filling, prefer reducing your sending rate and/or explicitly closing the client according to your application policy.
+
+We do not recommend using `true` because it can lead to a crash under certain circumstances.
+
+You can combine this with:
+
+- `client->queueIsFull()`
+- `client->queueLen()`
+- `ws.availableForWrite(clientId)` and `ws.availableForWriteAll()`
+
+Typical usage is to set the policy when the client connects:
+
+```cpp
+if (type == WS_EVT_CONNECT) {
+  client->setCloseClientOnQueueFull(false); // default behavior
+}
+```
+
 ### Direct access to web socket message buffer
 
 When sending a web socket message using the above methods a buffer is created. Under certain circumstances you might want to manipulate or populate this buffer directly from your application, for example to prevent unnecessary duplications of the data. This example below shows how to create a buffer and print data to it from an ArduinoJson object then send it.
