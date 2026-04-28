@@ -53,5 +53,6 @@ nav:
   - Event Source (SSE): eventsource.md
   - Serving Static Files: static-files.md
   - Filters & Rewrites: filters.md
+  - Hosted Build (Arduino Emulator): hosted-build.md
   - Help & Issues: help_and_issues.md
   - Code of Conduct: code_of_conduct.md
