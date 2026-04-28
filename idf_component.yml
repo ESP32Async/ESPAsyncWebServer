@@ -33,6 +33,6 @@ dependencies:
     version: "^7.4.3"
     require: public
 examples:
-  - path: .examples/idf_component/catchall
-  - path: .examples/idf_component/serversentevents
-  - path: .examples/idf_component/websocket
+  - path: ./examples/idf_component/catchall
+  - path: ./examples/idf_component/serversentevents
+  - path: ./examples/idf_component/websocket
