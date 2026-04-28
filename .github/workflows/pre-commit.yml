@@ -58,7 +58,7 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v42.0.2
+        uses: tj-actions/changed-files@v47.0.6
 
       - name: Run pre-commit hooks in changed files
         run: pre-commit run --color=always --show-diff-on-failure --files ${{ steps.changed-files.outputs.all_changed_files }}
