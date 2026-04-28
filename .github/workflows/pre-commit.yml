@@ -46,7 +46,7 @@ jobs:
           echo "PY_HASH=$(python -VV | sha256sum | cut -d' ' -f1)" >> $GITHUB_ENV
 
       - name: Restore pre-commit cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         id: restore-cache
         with:
           path: |
@@ -58,13 +58,13 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v42.0.2
+        uses: tj-actions/changed-files@v47.0.6
 
       - name: Run pre-commit hooks in changed files
         run: pre-commit run --color=always --show-diff-on-failure --files ${{ steps.changed-files.outputs.all_changed_files }}
 
       - name: Save pre-commit cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         if: ${{ always() && steps.restore-cache.outputs.cache-hit != 'true' }}
         continue-on-error: true
         with:
