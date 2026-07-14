@@ -1067,7 +1067,18 @@ void AsyncWebServerRequest::abort() {
     _paused = false;
     _this.reset();
     // async_ws_log_e("AsyncWebServerRequest::abort");
+    // abort() sends a TCP RST (immediate reset, no TIME_WAIT) and frees the lwIP
+    // pcb — the desired behavior for protocol violations. However, abort() does
+    // NOT fire the onDisconnect (_discard_cb) callback on any platform (ESP32
+    // AsyncTCP, ESP8266 ESPAsyncTCP, RPAsyncTCP), so the AsyncWebServerRequest +
+    // AsyncClient + _response + _tempObject + _tempFile + _itemBuffer would
+    // leak permanently. Manually trigger _onDisconnect() to run the user
+    // callback and _server->_handleDisconnect(this) → delete this → ~AsyncWebServerRequest
+    // → delete _client (pcb is already null from abort, so ~AsyncClient is a no-op).
+    // Safe because all call sites return immediately after abort() — no member
+    // is accessed after _onDisconnect() destroys *this.
     _client->abort();
+    _onDisconnect();
   }
 }
 

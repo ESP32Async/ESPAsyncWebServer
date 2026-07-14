@@ -178,8 +178,11 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
     char *_tempPath = (char *)malloc(pathLen + 1);
     if (_tempPath == NULL) {
       async_ws_log_e("Failed to allocate");
-      request->abort();
+      // abort() now triggers _onDisconnect() → delete request (it no longer
+      // just sends an RST), so we must close the file BEFORE aborting to avoid
+      // a use-after-free on the destroyed request object.
       request->_tempFile.close();
+      request->abort();
       return false;
     }
     snprintf_P(_tempPath, pathLen + 1, PSTR("%s"), path.c_str());
