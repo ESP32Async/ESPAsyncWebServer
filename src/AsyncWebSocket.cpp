@@ -103,9 +103,11 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
     memcpy(buf + (headLen - 4), mbuf, 4);
   }
   if (client->add((const char *)buf, headLen) != headLen) {
-    // os_printf("error adding %lu header bytes\n", headLen);
     free(buf);
-    // Serial.println("SF 4");
+    // Header could not be fully committed — a half-written frame cannot be
+    // recovered and would corrupt the stream for the peer. Abort: an RST is
+    // cleanly recoverable (clients reconnect), a torn frame stream is not.
+    client->abort();
     return 0;
   }
   free(buf);
@@ -118,17 +120,20 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
       }
     }
     if (client->add((const char *)data, len) != len) {
-      // os_printf("error adding %lu data bytes\n", len);
-      //  Serial.println("SF 5");
+      // The header is already committed but the payload was only partially
+      // accepted (lwIP segment exhaustion under load). Returning 0 makes the
+      // caller (AsyncWebSocketMessage::send) roll back its offset and re-send
+      // with a NEW frame header injected into the middle of this frame's
+      // payload — the receiver sees "previous message is unfinished" and the
+      // stream is unrecoverable. Abort instead.
+      client->abort();
       return 0;
     }
   }
-  if (!client->send()) {
-    // os_printf("error sending frame: %lu\n", headLen+len);
-    //  Serial.println("SF 6");
-    return 0;
-  }
-  // Serial.println("SF");
+  // A failing send() is not an error: the frame is fully queued in lwIP and
+  // will be flushed by the next poll/ack cycle. Returning 0 here caused a
+  // rollback and a duplicate re-send of already-queued bytes.
+  client->send();
   return len;
 }
 
