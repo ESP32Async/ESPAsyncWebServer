@@ -57,60 +57,6 @@ class AsyncWebSocket;
 class AsyncWebSocketResponse;
 class AsyncWebSocketClient;
 
-/*
- * Control Frame
- */
-
-class AsyncWebSocketControl {
-private:
-  uint8_t _opcode;
-  uint8_t *_data;
-  size_t _len;
-  bool _mask;
-  bool _finished;
-
-public:
-  AsyncWebSocketControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false)
-    : _opcode(opcode), _len(len), _mask(len && mask), _finished(false) {
-    if (data == NULL) {
-      _len = 0;
-    }
-    if (_len) {
-      if (_len > 125) {
-        _len = 125;
-      }
-
-      _data = (uint8_t *)malloc(_len);
-
-      if (_data == NULL) {
-        async_ws_log_e("Failed to allocate");
-        _len = 0;
-      } else {
-        memcpy(_data, data, len);
-      }
-    } else {
-      _data = NULL;
-    }
-  }
-
-  ~AsyncWebSocketControl() {
-    if (_data != NULL) {
-      free(_data);
-    }
-  }
-
-  bool finished() const {
-    return _finished;
-  }
-  uint8_t opcode() {
-    return _opcode;
-  }
-  uint8_t len() {
-    return _len + 2;
-  }
-  size_t send(AsyncClient *client);
-};
-
 typedef struct {
   /** Message type as defined by enum AwsFrameType.
      * Note: Applications will only see WS_TEXT and WS_BINARY.
@@ -202,11 +148,21 @@ private:
 public:
   AsyncWebSocketMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
 
+  bool isControl() const {
+    return _opcode >= WS_DISCONNECT;
+  }
   bool finished() const {
     return _status != WS_MSG_SENDING;
   }
   bool betweenFrames() const {
     return _acked == _ack;
+  }
+  uint8_t opcode() const {
+    return _opcode;
+  }
+  // wire length of a (necessarily unfragmented, unmasked) control frame
+  size_t len() const {
+    return _WSbuffer->size() + 2;
   }
 
   size_t ack(size_t len, uint32_t time);
@@ -223,7 +179,7 @@ private:
   uint32_t _lastMessageTime;
   uint32_t _keepAlivePeriod;
   mutable asyncsrv::mutex_type _queue_lock;
-  std::deque<AsyncWebSocketControl> _controlQueue;
+  std::deque<AsyncWebSocketMessage> _controlQueue;
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool _closeWhenFull = false;
 

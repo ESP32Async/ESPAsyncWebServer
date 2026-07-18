@@ -37,6 +37,14 @@
 
 using namespace asyncsrv;
 
+namespace {
+AsyncWebSocketSharedBuffer makeSharedBuffer(const uint8_t *message, size_t len) {
+  auto buffer = std::make_shared<std::vector<uint8_t>>(len);
+  std::memcpy(buffer->data(), message, len);
+  return buffer;
+}
+}  // namespace
+
 size_t webSocketSendFrameWindow(AsyncClient *client) {
   if (!client || !client->canSend()) {
     return 0;
@@ -132,11 +140,6 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
   return len;
 }
 
-size_t AsyncWebSocketControl::send(AsyncClient *client) {
-  _finished = true;
-  return webSocketSendFrame(client, true, _opcode & 0x0F, _mask, _data, _len);
-}
-
 /*
  *    AsyncWebSocketMessageBuffer
  */
@@ -168,7 +171,7 @@ bool AsyncWebSocketMessageBuffer::reserve(size_t size) {
  */
 
 AsyncWebSocketMessage::AsyncWebSocketMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode, bool mask)
-  : _WSbuffer{buffer}, _opcode(opcode & 0x07), _mask{mask}, _status{_WSbuffer ? WS_MSG_SENDING : WS_MSG_ERROR} {}
+  : _WSbuffer{buffer}, _opcode(opcode & 0x0F), _mask{mask}, _status{_WSbuffer ? WS_MSG_SENDING : WS_MSG_ERROR} {}
 
 size_t AsyncWebSocketMessage::ack(size_t len, uint32_t time) {
   (void)time;
@@ -186,6 +189,12 @@ size_t AsyncWebSocketMessage::send(AsyncClient *client) {
   if (!client) {
     async_ws_log_v("No client");
     return 0;
+  }
+
+  if (isControl()) {
+    // control frames are always a single, unfragmented frame
+    _status = WS_MSG_SENT;
+    return webSocketSendFrame(client, true, _opcode, _mask, (uint8_t *)_WSbuffer->data(), _WSbuffer->size());
   }
 
   if (_status != WS_MSG_SENDING) {
@@ -449,7 +458,13 @@ bool AsyncWebSocketClient::_queueControl(uint8_t opcode, const uint8_t *data, si
     return false;
   }
 
-  _controlQueue.emplace_back(opcode, data, len, mask);
+  if (!data) {
+    len = 0;
+  } else if (len > 125) {
+    len = 125;
+  }
+  AsyncWebSocketSharedBuffer buffer = len ? makeSharedBuffer(data, len) : std::make_shared<std::vector<uint8_t>>();
+  _controlQueue.emplace_back(buffer, opcode, len && mask);
   async_ws_log_v("[%s][%" PRIu32 "] QUEUE CTRL (%u) << %" PRIu8, _server->url(), _clientId, _controlQueue.size(), opcode);
 
   if (_client && _client->canSend()) {
@@ -865,14 +880,6 @@ size_t AsyncWebSocketClient::printf_P(PGM_P formatP, ...) {
   return enqueued ? len : 0;
 }
 #endif
-
-namespace {
-AsyncWebSocketSharedBuffer makeSharedBuffer(const uint8_t *message, size_t len) {
-  auto buffer = std::make_shared<std::vector<uint8_t>>(len);
-  std::memcpy(buffer->data(), message, len);
-  return buffer;
-}
-}  // namespace
 
 bool AsyncWebSocketClient::text(AsyncWebSocketMessageBuffer *buffer) {
   bool enqueued = false;
