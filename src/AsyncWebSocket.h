@@ -95,11 +95,6 @@ typedef enum {
   WS_PONG
 } AwsFrameType;
 typedef enum {
-  WS_MSG_SENDING,
-  WS_MSG_SENT,
-  WS_MSG_ERROR
-} AwsMessageStatus;
-typedef enum {
   WS_EVT_CONNECT,
   WS_EVT_DISCONNECT,
   WS_EVT_PING,
@@ -129,49 +124,35 @@ public:
   }
 };
 
+// Pure payload holder -- no send-progress state. Lives only in
+// AsyncWebSocketClient's _controlQueue/_messageQueue; all in-flight frame
+// tracking lives on the client, since only one frame may be outstanding
+// (added to TCP but not yet acked) across both queues at a time.
 class AsyncWebSocketMessage {
-  friend AsyncWebSocketClient;
-
 private:
-  size_t _remainingBytesToSend() const {
-    return _WSbuffer->size() - _sent;
-  }
-
   AsyncWebSocketSharedBuffer _WSbuffer;
   uint8_t _opcode{WS_TEXT};
   bool _mask{false};
-  AwsMessageStatus _status{WS_MSG_ERROR};
-  size_t _sent{};  // payload bytes committed across already-completed frames
-  size_t _ack{};
-  size_t _acked{};
-
-  // in-flight frame state, valid only while a frame is being built/resumed
-  size_t _frameSent{};        // header+payload bytes committed so far for the current frame
-  size_t _framePayloadLen{};  // payload length committed to the current frame's header
-  uint8_t _maskKey[4]{};
 
 public:
-  AsyncWebSocketMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
+  AsyncWebSocketMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false)
+    : _WSbuffer{buffer}, _opcode(opcode & 0x0F), _mask{mask} {}
 
   bool isControl() const {
     return _opcode >= WS_DISCONNECT;
   }
-  bool finished() const {
-    return _status != WS_MSG_SENDING;
-  }
-  bool betweenFrames() const {
-    return _acked == _ack;
-  }
   uint8_t opcode() const {
     return _opcode;
   }
-  // wire length of a (necessarily unfragmented, unmasked) control frame
-  size_t len() const {
-    return _WSbuffer->size() + 2;
+  bool mask() const {
+    return _mask;
   }
-
-  size_t ack(size_t len, uint32_t time);
-  size_t send(AsyncClient *client);
+  size_t size() const {
+    return _WSbuffer->size();
+  }
+  uint8_t *data() const {
+    return _WSbuffer->data();
+  }
 };
 
 class AsyncWebSocketClient {
@@ -188,12 +169,22 @@ private:
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool _closeWhenFull = false;
 
+  // Exactly one WS frame may be outstanding (added to TCP but not yet fully
+  // acked) at a time, shared uniformly between control and data frames --
+  // deliberately one set of fields, not one per queue. All are zero/false
+  // when idle (nothing being built, sent, or awaited).
+  bool _sendingControl{false};  // while non-idle: is the in-flight frame from _controlQueue.front() (true) or _messageQueue.front() (false)?
+  size_t _sent{0};              // data messages only: payload bytes of _messageQueue.front() committed across already-completed frames
+  uint8_t _maskKey[4]{};        // meaningful only while non-idle and the target message is masked
+  size_t _framePayloadLen{0};   // payload length committed to the header of the in-flight frame
+  size_t _frameSent{0};         // bytes of (header+in-flight payload) committed so far for the in-flight frame; 0 when idle
+  size_t _unacked{0};           // wire bytes of the in-flight/just-completed frame not yet acked; 0 when idle
+
   AwsFrameInfo _pinfo;
 
   bool _queueControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false);
   bool _queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
   void _runQueue();
-  void _clearQueue();
 
   // this function is called when a text message is received, in order to copy the buffer and place a null terminator at the end of the buffer for easier handling of text messages.
   // Returns true on success, false on failure (e.g. memory allocation failure)

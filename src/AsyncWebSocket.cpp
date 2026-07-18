@@ -150,104 +150,6 @@ bool AsyncWebSocketMessageBuffer::reserve(size_t size) {
 }
 
 /*
- * AsyncWebSocketMessage Message
- */
-
-AsyncWebSocketMessage::AsyncWebSocketMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode, bool mask)
-  : _WSbuffer{buffer}, _opcode(opcode & 0x0F), _mask{mask}, _status{_WSbuffer ? WS_MSG_SENDING : WS_MSG_ERROR} {}
-
-size_t AsyncWebSocketMessage::ack(size_t len, uint32_t time) {
-  (void)time;
-  const size_t pending = std::min(len, _ack - _acked);
-  _acked += pending;
-  if (_sent >= _WSbuffer->size() && _acked >= _ack) {
-    _status = WS_MSG_SENT;
-  }
-  const size_t remaining = len - pending;
-  async_ws_log_v("ACK[%" PRIu8 "] %u/%u (acked: %u/%u) => %" PRIu8, _opcode, _sent, _WSbuffer->size(), _acked, _ack, static_cast<uint8_t>(_status));
-  return remaining;
-}
-
-size_t AsyncWebSocketMessage::send(AsyncClient *client) {
-  if (!client) {
-    async_ws_log_v("No client");
-    return 0;
-  }
-
-  if (_status != WS_MSG_SENDING) {
-    async_ws_log_v("SEND[%" PRIu8 "] => [%" PRIu16 "] WS_MSG_SENDING != %" PRIu8, _opcode, client->remotePort(), static_cast<uint8_t>(_status));
-    return 0;
-  }
-
-  if (_sent > _WSbuffer->size()) {
-    _status = WS_MSG_ERROR;
-    async_ws_log_v(
-      "SEND[%" PRIu8 "] => [%" PRIu16 "] WS_MSG_ERROR %u/%u (acked: %u/%u)", _opcode, client->remotePort(), _sent, _WSbuffer->size(), _acked, _ack
-    );
-    return 0;
-  }
-
-  // idle between frames: pick the next frame's parameters. isControl() is
-  // always exactly one frame, so `_ack > 0` (a prior frame fully committed)
-  // is what actually distinguishes "done" from "haven't sent the (possibly
-  // zero-length) first frame yet" -- `_sent == size()` alone is ambiguous
-  // for a bare, zero-payload control frame.
-  if (_frameSent == 0 && _framePayloadLen == 0) {
-    if (_sent == _WSbuffer->size() && _ack > 0) {
-      if (isControl() || _acked == _ack) {
-        _status = WS_MSG_SENT;
-      }
-      async_ws_log_v(
-        "SEND[%" PRIu8 "] => [%" PRIu16 "] WS_MSG_SENT %u/%u (acked: %u/%u)", _opcode, client->remotePort(), _sent, _WSbuffer->size(), _acked, _ack
-      );
-      return 0;
-    }
-
-    const size_t remaining = _WSbuffer->size() - _sent;
-    if (isControl()) {
-      _framePayloadLen = remaining;
-    } else {
-      const size_t window = webSocketSendFrameWindow(client);
-      if (!window) {
-        async_ws_log_v("SEND[%" PRIu8 "] => [%" PRIu16 "] NO_SPACE %u", _opcode, client->remotePort(), remaining);
-        return 0;
-      }
-      _framePayloadLen = std::min(remaining, window);
-    }
-    if (_mask) {
-      _maskKey[0] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
-      _maskKey[1] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
-      _maskKey[2] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
-      _maskKey[3] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
-    }
-  }
-
-  const bool final = isControl() || (_sent + _framePayloadLen == _WSbuffer->size());
-  const uint8_t frameOpcode = (isControl() || _sent == 0) ? _opcode : (uint8_t)WS_CONTINUATION;
-
-  const size_t added = webSocketAddFrame(client, final, frameOpcode, _mask, _maskKey, (uint8_t *)_WSbuffer->data() + _sent, _framePayloadLen, _frameSent);
-  _frameSent += added;
-
-  const size_t frameLen = webSocketFrameHeaderLen(_framePayloadLen, _mask) + _framePayloadLen;
-  if (_frameSent < frameLen) {
-    async_ws_log_v("SEND[%" PRIu8 "] => [%" PRIu16 "] PARTIAL %u/%u", _opcode, client->remotePort(), _frameSent, frameLen);
-    return added;
-  }
-
-  // frame fully committed
-  _ack += _frameSent;
-  _sent += _framePayloadLen;
-  _frameSent = 0;
-  _framePayloadLen = 0;
-  client->send();  // idempotent flush; the bytes are already durably queued regardless of outcome
-
-  async_ws_log_v(
-    "SEND[%" PRIu8 "] => [%" PRIu16 "] WS_MSG_SENDING %u/%u (acked: %u/%u)", _opcode, client->remotePort(), _sent, _WSbuffer->size(), _acked, _ack
-  );
-  return added;
-}
-
-/*
  * Async WebSocket Client
  */
 const char *AWSC_PING_PAYLOAD = "ESPAsyncWebServer-PING";
@@ -312,25 +214,25 @@ AsyncWebSocketClient::~AsyncWebSocketClient() {
   _server->_handleEvent(this, WS_EVT_DISCONNECT, NULL, NULL, 0);
 }
 
-void AsyncWebSocketClient::_clearQueue() {
-  while (!_messageQueue.empty() && _messageQueue.front().finished()) {
-    _messageQueue.pop_front();
-  }
-}
-
 void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
+  (void)time;
   _lastMessageTime = millis();
 
   asyncsrv::unique_lock_type lock(_queue_lock);
 
-  async_ws_log_v("[%s][%" PRIu32 "] START ACK(%u, %" PRIu32 ") Q:%u", _server->url(), _clientId, len, time, _messageQueue.size());
+  async_ws_log_v("[%s][%" PRIu32 "] ACK(%u) unacked:%u", _server->url(), _clientId, len, _unacked);
 
-  if (!_controlQueue.empty()) {
-    auto &head = _controlQueue.front();
-    if (head.finished()) {
-      len -= head.len();
-      if (_status == WS_DISCONNECTING && head.opcode() == WS_DISCONNECT) {
-        _controlQueue.pop_front();
+  // exactly one frame can ever be outstanding, so a single clamped
+  // subtraction is all the ack accounting this needs
+  const bool wasAwaitingAck = (_frameSent == 0 && _unacked > 0);
+  _unacked -= std::min(len, _unacked);
+
+  if (wasAwaitingAck && _unacked == 0) {
+    // the in-flight frame is now fully sent and fully acked
+    if (_sendingControl && !_controlQueue.empty()) {
+      const uint8_t opcode = _controlQueue.front().opcode();
+      _controlQueue.pop_front();
+      if (_status == WS_DISCONNECTING && opcode == WS_DISCONNECT) {
         _status = WS_DISCONNECTED;
         async_ws_log_v("[%s][%" PRIu32 "] ACK WS_DISCONNECTED", _server->url(), _clientId);
         // Capture _client before unlocking: _client->close() triggers the _onDisconnect() --> _handleDisconnect() --> ~AsyncWebSocketClient() chain,
@@ -342,22 +244,11 @@ void AsyncWebSocketClient::_onAck(size_t len, uint32_t time) {
         }
         return;
       }
-      _controlQueue.pop_front();
+    } else if (!_sendingControl && !_messageQueue.empty() && _sent >= _messageQueue.front().size()) {
+      _messageQueue.pop_front();
+      _sent = 0;
     }
   }
-
-  if (len && !_messageQueue.empty()) {
-    for (auto &msg : _messageQueue) {
-      len = msg.ack(len, time);
-      if (len == 0) {
-        break;
-      }
-    }
-  }
-
-  _clearQueue();
-
-  async_ws_log_v("[%s][%" PRIu32 "] END ACK(%u, %" PRIu32 ") Q:%u", _server->url(), _clientId, len, time, _messageQueue.size());
 
   _runQueue();
 }
@@ -383,56 +274,64 @@ void AsyncWebSocketClient::_runQueue() {
     return;
   }
 
-  _clearQueue();
-
-  size_t space = webSocketSendFrameWindow(_client);
-
-  if (space) {
-    // control frames have priority over message frames
-    // we can send a control frame if:
-    // - there is no message frame in the queue, or the first message frame is between frames (all bytes sent are acked)
-    // - the control frame is not finished (not sent yet)
-    // - there is enough space to send the control frame (control frames are small, at most 129 bytes, so we can assume that if there is space to send it, it can be sent in one go)
-    if (_messageQueue.empty() || _messageQueue.front().betweenFrames()) {
-      for (auto &ctrl : _controlQueue) {
-        if (ctrl.finished()) {
-          continue;
-        }
-        if (space > (size_t)(ctrl.len() - 1)) {
-          async_ws_log_v("[%s][%" PRIu32 "] SEND CTRL %" PRIu8, _server->url(), _clientId, ctrl.opcode());
-          ctrl.send(_client);
-          space = webSocketSendFrameWindow(_client);
-        }
-      }
+  if (_frameSent == 0) {
+    if (_unacked > 0) {
+      return;  // waiting for the in-flight frame to be acked before starting the next one
     }
 
-    // then we can send message frames if there is space
-    if (space) {
-      for (auto &msg : _messageQueue) {
-        if (msg._remainingBytesToSend()) {
-          async_ws_log_v(
-            "[%s][%" PRIu32 "][%" PRIu8 "] SEND %u/%u (acked: %u/%u)", _server->url(), _clientId, msg._opcode, msg._sent, msg._WSbuffer->size(), msg._acked,
-            msg._ack
-          );
+    // idle: pick the next target by priority (control first)
+    if (!_controlQueue.empty()) {
+      _sendingControl = true;
+    } else if (!_messageQueue.empty()) {
+      _sendingControl = false;
+    } else {
+      return;  // nothing queued
+    }
 
-          // will use all the remaining space, or all the remaining bytes to send, whichever is smaller
-          msg.send(_client);
-          space = webSocketSendFrameWindow(_client);
-
-          // If we haven't finished sending this message, we must stop here to preserve WebSocket ordering.
-          // We can only pipeline subsequent messages if the current one is fully passed to TCP buffer.
-          if (msg._remainingBytesToSend()) {
-            async_ws_log_v("[%s][%" PRIu32 "][%" PRIu8 "] NO_SPACE", _server->url(), _clientId, msg._opcode);
-            break;
-          }
-        } else if (!space) {
-          // not enough space for another message
-          async_ws_log_v("[%s][%" PRIu32 "] NO_SPACE", _server->url(), _clientId);
-          break;
-        }
+    AsyncWebSocketMessage &target = _sendingControl ? _controlQueue.front() : _messageQueue.front();
+    const size_t remaining = target.size() - (_sendingControl ? 0 : _sent);
+    if (_sendingControl) {
+      _framePayloadLen = remaining;
+    } else {
+      const size_t window = webSocketSendFrameWindow(_client);
+      if (!window) {
+        return;
       }
+      _framePayloadLen = std::min(remaining, window);
+    }
+    if (target.mask()) {
+      _maskKey[0] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+      _maskKey[1] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+      _maskKey[2] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
+      _maskKey[3] = rand() % 0xFF;  // NOLINT(runtime/threadsafe_fn)
     }
   }
+
+  AsyncWebSocketMessage &target = _sendingControl ? _controlQueue.front() : _messageQueue.front();
+  const bool final = _sendingControl || (_sent + _framePayloadLen == target.size());
+  const uint8_t frameOpcode = (_sendingControl || _sent == 0) ? target.opcode() : (uint8_t)WS_CONTINUATION;
+  uint8_t *payload = target.data() + (_sendingControl ? 0 : _sent);
+
+  async_ws_log_v(
+    "[%s][%" PRIu32 "][%" PRIu8 "] SEND ctrl:%d %u/%u", _server->url(), _clientId, frameOpcode, _sendingControl, _frameSent,
+    webSocketFrameHeaderLen(_framePayloadLen, target.mask()) + _framePayloadLen
+  );
+
+  _frameSent += webSocketAddFrame(_client, final, frameOpcode, target.mask(), _maskKey, payload, _framePayloadLen, _frameSent);
+
+  const size_t frameLen = webSocketFrameHeaderLen(_framePayloadLen, target.mask()) + _framePayloadLen;
+  if (_frameSent < frameLen) {
+    return;  // partial; resume on the next trigger
+  }
+
+  // frame fully committed to TCP -- now waiting for ack
+  _unacked = _frameSent;
+  _frameSent = 0;
+  if (!_sendingControl) {
+    _sent += _framePayloadLen;
+  }
+  _framePayloadLen = 0;
+  _client->send();
 }
 
 bool AsyncWebSocketClient::queueIsFull() const {
