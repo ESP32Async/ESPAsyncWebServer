@@ -1393,11 +1393,13 @@ const String &AsyncWebServerRequest::arg(const __FlashStringHelper *data) const 
 #endif
 
 const String &AsyncWebServerRequest::arg(size_t i) const {
-  return getParam(i)->value();
+  const AsyncWebParameter *p = getParam(i);
+  return p ? p->value() : asyncsrv::emptyString;
 }
 
 const String &AsyncWebServerRequest::argName(size_t i) const {
-  return getParam(i)->name();
+  const AsyncWebParameter *p = getParam(i);
+  return p ? p->name() : asyncsrv::emptyString;
 }
 
 const String &AsyncWebServerRequest::header(const char *name) const {
