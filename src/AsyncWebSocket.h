@@ -141,9 +141,14 @@ private:
   uint8_t _opcode{WS_TEXT};
   bool _mask{false};
   AwsMessageStatus _status{WS_MSG_ERROR};
-  size_t _sent{};
+  size_t _sent{};  // payload bytes committed across already-completed frames
   size_t _ack{};
   size_t _acked{};
+
+  // in-flight frame state, valid only while a frame is being built/resumed
+  size_t _frameSent{};        // header+payload bytes committed so far for the current frame
+  size_t _framePayloadLen{};  // payload length committed to the current frame's header
+  uint8_t _maskKey[4]{};
 
 public:
   AsyncWebSocketMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
