@@ -1068,6 +1068,7 @@ void AsyncWebServerRequest::abort() {
     _this.reset();
     async_ws_log_v("Abort request: %s", _url.c_str());
     _client->abort();
+    _onDisconnect();
   }
 }
 
