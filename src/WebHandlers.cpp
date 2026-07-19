@@ -178,8 +178,8 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
     char *_tempPath = (char *)malloc(pathLen + 1);
     if (_tempPath == NULL) {
       async_ws_log_e("Failed to allocate");
-      request->abort();
       request->_tempFile.close();
+      request->abort();
       return false;
     }
     snprintf_P(_tempPath, pathLen + 1, PSTR("%s"), path.c_str());

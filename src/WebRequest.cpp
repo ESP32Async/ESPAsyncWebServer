@@ -279,7 +279,7 @@ void AsyncWebServerRequest::onDisconnect(ArDisconnectHandler fn) {
 }
 
 void AsyncWebServerRequest::_onDisconnect() {
-  // os_printf("d\n");
+  async_ws_log_v("onDisconnect() cb for request: %s", _url.c_str());
   if (_onDisconnectfn) {
     _onDisconnectfn();
   }
@@ -1066,7 +1066,7 @@ void AsyncWebServerRequest::abort() {
     _sent = true;
     _paused = false;
     _this.reset();
-    // async_ws_log_e("AsyncWebServerRequest::abort");
+    async_ws_log_v("Abort request: %s", _url.c_str());
     _client->abort();
   }
 }
