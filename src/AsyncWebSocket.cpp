@@ -35,6 +35,12 @@
 #define STATE_FRAME_MASK  1
 #define STATE_FRAME_DATA  2
 
+// Sentinel returned by webSocketSendFrame() when a torn frame is detected
+// (partial add() after header committed, or header add() / malloc failure).
+// Distinct from 0, which means "busy, try again later". The caller must not
+// roll back its send offset and must schedule a connection close.
+constexpr size_t WS_FRAME_TORN = static_cast<size_t>(-1);
+
 using namespace asyncsrv;
 
 size_t webSocketSendFrameWindow(AsyncClient *client) {
@@ -83,8 +89,9 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
   uint8_t *buf = (uint8_t *)malloc(headLen);
   if (buf == NULL) {
     async_ws_log_e("Failed to allocate");
-    client->abort();
-    return 0;
+    // Nothing is on the wire yet. Signal hard error so the caller closes
+    // via the safe onDisconnect path (abort() leaks: no onDisconnect fires).
+    return WS_FRAME_TORN;
   }
 
   buf[0] = opcode & 0x0F;
@@ -104,11 +111,10 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
   }
   if (client->add((const char *)buf, headLen) != headLen) {
     free(buf);
-    // Header could not be fully committed — a half-written frame cannot be
-    // recovered and would corrupt the stream for the peer. Abort: an RST is
-    // cleanly recoverable (clients reconnect), a torn frame stream is not.
-    client->abort();
-    return 0;
+    // Header could not be fully committed; nothing usable is on the wire.
+    // Signal hard error so the caller closes via the safe onDisconnect path
+    // (abort() leaks: no onDisconnect fires on ESP32 or ESP8266).
+    return WS_FRAME_TORN;
   }
   free(buf);
 
@@ -121,13 +127,12 @@ size_t webSocketSendFrame(AsyncClient *client, bool final, uint8_t opcode, bool 
     }
     if (client->add((const char *)data, len) != len) {
       // The header is already committed but the payload was only partially
-      // accepted (lwIP segment exhaustion under load). Returning 0 makes the
-      // caller (AsyncWebSocketMessage::send) roll back its offset and re-send
-      // with a NEW frame header injected into the middle of this frame's
-      // payload — the receiver sees "previous message is unfinished" and the
-      // stream is unrecoverable. Abort instead.
-      client->abort();
-      return 0;
+      // accepted (lwIP segment exhaustion under load). The stream is now
+      // unrecoverable. Returning 0 would make the caller roll back its offset
+      // and re-send with a NEW frame header injected mid-payload. Signal hard
+      // error so the caller closes via the safe onDisconnect path (abort()
+      // leaks: no onDisconnect fires on ESP32 or ESP8266).
+      return WS_FRAME_TORN;
     }
   }
   // A failing send() is not an error: the frame is fully queued in lwIP and
@@ -233,6 +238,14 @@ size_t AsyncWebSocketMessage::send(AsyncClient *client) {
 
   size_t sent = webSocketSendFrame(client, final, opCode, _mask, dPtr, toSend);
   _status = WS_MSG_SENDING;
+  if (sent == WS_FRAME_TORN) {
+    // Torn frame: header (and possibly partial payload) is already on the wire.
+    // Do NOT roll back _sent/_ack — re-sending from a rolled-back offset would
+    // inject a new frame header mid-payload and corrupt the stream. Mark the
+    // message errored so _runQueue schedules a safe connection close.
+    _status = WS_MSG_ERROR;
+    return 0;
+  }
   if (toSend && sent != toSend) {
     _sent -= (toSend - sent);
     _ack -= (toSend - sent);
@@ -366,6 +379,28 @@ void AsyncWebSocketClient::_onPoll() {
     return;
   }
 
+  // A torn frame was detected during a previous _runQueue() call. We cannot
+  // close from inside _runQueue: its callers hold _queue_lock, and close()
+  // fires _onDisconnect which re-acquires _queue_lock (non-recursive → deadlock)
+  // and would delete *this mid-iteration. Defer to here: unlock, then abort()
+  // to send an RST (immediate reset, no TIME_WAIT).
+  //
+  // abort() synchronously fires the onDisconnect discard callback, which runs
+  // _onDisconnect() (nulls _client and erases *this from the server's _clients
+  // list, destroying this AsyncWebSocketClient) and then `delete c`s the
+  // AsyncClient. We must NOT `delete c` ourselves here: that would double-free
+  // the AsyncClient and corrupt the heap (esp-idf abort() always invokes the
+  // discard cb when err != ERR_CONN; ERR_CONN means the pcb was already gone,
+  // in which case the discard cb has already run and *this is already dead).
+  if (_abortPending) {
+    AsyncClient *c = _client;
+    if (c) {
+      lock.unlock();
+      c->abort();  // fires onDisconnect → _onDisconnect() + delete c (full teardown)
+    }
+    return;
+  }
+
   if (_client && _client->canSend() && (!_controlQueue.empty() || !_messageQueue.empty())) {
     _runQueue();
   } else if (_keepAlivePeriod > 0 && (millis() - _lastMessageTime) >= _keepAlivePeriod && (_controlQueue.empty() && _messageQueue.empty())) {
@@ -378,6 +413,9 @@ void AsyncWebSocketClient::_runQueue() {
   // all calls to this method MUST be protected by a mutex lock!
   if (!_client) {
     return;
+  }
+  if (_abortPending) {
+    return;  // connection is being torn down; do not attempt further sends
   }
 
   _clearQueue();
@@ -397,14 +435,20 @@ void AsyncWebSocketClient::_runQueue() {
         }
         if (space > (size_t)(ctrl.len() - 1)) {
           async_ws_log_v("[%s][%" PRIu32 "] SEND CTRL %" PRIu8, _server->url(), _clientId, ctrl.opcode());
-          ctrl.send(_client);
+          size_t sent = ctrl.send(_client);
+          if (sent == WS_FRAME_TORN) {
+            async_ws_log_e("[%s][%" PRIu32 "] TORN CTRL FRAME: scheduling abort", _server->url(), _clientId);
+            _abortPending = true;
+            _status = WS_DISCONNECTING;
+            break;
+          }
           space = webSocketSendFrameWindow(_client);
         }
       }
     }
 
-    // then we can send message frames if there is space
-    if (space) {
+    // then we can send message frames if there is space and no abort is pending
+    if (!_abortPending && space) {
       for (auto &msg : _messageQueue) {
         if (msg._remainingBytesToSend()) {
           async_ws_log_v(
@@ -415,6 +459,13 @@ void AsyncWebSocketClient::_runQueue() {
           // will use all the remaining space, or all the remaining bytes to send, whichever is smaller
           msg.send(_client);
           space = webSocketSendFrameWindow(_client);
+
+          if (msg._status == WS_MSG_ERROR) {
+            async_ws_log_e("[%s][%" PRIu32 "] TORN FRAME: scheduling close", _server->url(), _clientId);
+            _abortPending = true;
+            _status = WS_DISCONNECTING;
+            break;
+          }
 
           // If we haven't finished sending this message, we must stop here to preserve WebSocket ordering.
           // We can only pipeline subsequent messages if the current one is fully passed to TCP buffer.
@@ -531,15 +582,18 @@ void AsyncWebSocketClient::close(uint16_t code, const char *message) {
       free(buf);
       return;
     } else {
+      // Could not allocate the close-frame payload. We can't send a proper WS
+      // close frame, so abort() to send an RST. abort() synchronously fires the
+      // onDisconnect discard callback, which runs _onDisconnect() (erases *this
+      // from the server's _clients, destroying this object) and `delete c`s the
+      // AsyncClient. Do NOT `delete c` here: that would double-free it.
+      // close() is unsuitable because it may be called with _queue_lock held.
       async_ws_log_e("Failed to allocate");
-      // Reads _client, then dereference it without any lock.
-      // A concurrent _onDisconnect could null + delete the client between the check and the use.
-      // Local capture ensures the pointer is read exactly once, eliminating the null-dereference.
-      // (TOCTOU)
       AsyncClient *c = _client;
       if (c) {
-        c->abort();
+        c->abort();  // fires onDisconnect → _onDisconnect() + delete c
       }
+      return;
     }
   }
   _queueControl(WS_DISCONNECT);
@@ -795,8 +849,17 @@ void AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endO
         _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy.get(), len);
       } else {
         async_ws_log_e("Failed to allocate");
-        if (_client) {
-          _client->abort();
+        // abort() to send an RST. It synchronously fires the onDisconnect
+        // discard callback, which runs _onDisconnect() (erases *this from the
+        // server's _clients, destroying this object) and `delete c`s the
+        // AsyncClient. Do NOT `delete c` here: that would double-free it.
+        // close() is unsafe here because _handleDataEvent is called from _onData
+        // and close() would fire _onDisconnect → _handleDisconnect → erase
+        // *this from _clients mid-call (same outcome, but close() may also
+        // flush a FIN, which we don't want on an allocation failure).
+        AsyncClient *c = _client;
+        if (c) {
+          c->abort();  // fires onDisconnect → _onDisconnect() + delete c
         }
       }
     } else {

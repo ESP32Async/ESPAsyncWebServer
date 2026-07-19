@@ -226,6 +226,7 @@ private:
   std::deque<AsyncWebSocketControl> _controlQueue;
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool _closeWhenFull = false;
+  bool _abortPending = false;  // set when a torn frame is detected; _onPoll closes the connection safely
 
   AwsFrameInfo _pinfo;
 
