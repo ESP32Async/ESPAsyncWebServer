@@ -148,10 +148,10 @@ public:
     return _mask;
   }
   size_t size() const {
-    return _WSbuffer->size();
+    return _WSbuffer ? _WSbuffer->size() : 0U;
   }
   uint8_t *data() const {
-    return _WSbuffer->data();
+    return _WSbuffer ? _WSbuffer->data() : nullptr;
   }
 };
 
@@ -169,22 +169,25 @@ private:
   std::deque<AsyncWebSocketMessage> _messageQueue;
   bool _closeWhenFull = false;
 
-  // Exactly one WS frame may be outstanding (added to TCP but not yet fully
-  // acked) at a time, shared uniformly between control and data frames --
-  // deliberately one set of fields, not one per queue. All are zero/false
-  // when idle (nothing being built, sent, or awaited).
+  // A message is dequeued as soon as it's fully add()'ed to the TCP output
+  // buffer -- delivery is TCP's job from that point on, so there's no ack
+  // bookkeeping here. Only one frame is ever being built/added at a time,
+  // shared uniformly between control and data frames: deliberately one set
+  // of fields, not one per queue. All are zero/false when idle.
   bool _sendingControl{false};  // while non-idle: is the in-flight frame from _controlQueue.front() (true) or _messageQueue.front() (false)?
   size_t _sent{0};              // data messages only: payload bytes of _messageQueue.front() committed across already-completed frames
   uint8_t _maskKey[4]{};        // meaningful only while non-idle and the target message is masked
   size_t _framePayloadLen{0};   // payload length committed to the header of the in-flight frame
   size_t _frameSent{0};         // bytes of (header+in-flight payload) committed so far for the in-flight frame; 0 when idle
-  size_t _unacked{0};           // wire bytes of the in-flight/just-completed frame not yet acked; 0 when idle
 
   AwsFrameInfo _pinfo;
 
   bool _queueControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false);
   bool _queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
-  void _runQueue();
+  // caller must hold _queue_lock via `lock`; _runQueue may unlock() it (e.g.
+  // before a close() that can synchronously destroy *this) and never touch
+  // `this` again afterward -- callers must do the same once this returns.
+  void _runQueue(asyncsrv::unique_lock_type &lock);
 
   // this function is called when a text message is received, in order to copy the buffer and place a null terminator at the end of the buffer for easier handling of text messages.
   // Returns true on success, false on failure (e.g. memory allocation failure)
