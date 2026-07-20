@@ -79,6 +79,26 @@ void setup() {
   WiFi.softAP("esp-captive");
 #endif
 
+  // Empty query name must not crash the server.
+  //
+  // curl -v "http://192.168.4.1/params?=value"
+  //
+  // The empty name is filtered out, so the request has no params.
+  // Iterating params by index must be safe (no null dereference).
+  //
+  server.on("/params", HTTP_GET, [](AsyncWebServerRequest *request) {
+    size_t count = request->params();
+    Serial.printf("/params: %u parameter(s)\n", (unsigned)count);
+    for (size_t i = 0; i < count; i++) {
+      const AsyncWebParameter *p = request->getParam(i);
+      Serial.printf("  PARAM[%u]: %s = %s\n", (unsigned)i, p->name().c_str(), p->value().c_str());
+    }
+    // access by index on an empty/filtered list must not crash
+    Serial.printf("  arg(0) = '%s'\n", request->arg((size_t)0).c_str());
+    Serial.printf("  argName(0) = '%s'\n", request->argName((size_t)0).c_str());
+    request->send(200, "text/plain", "OK");
+  });
+
   // Get query parameters
   //
   // curl -v http://192.168.4.1/?who=Bob
