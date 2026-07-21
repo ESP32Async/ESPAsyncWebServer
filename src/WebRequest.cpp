@@ -124,12 +124,17 @@ AsyncWebServerRequest::~AsyncWebServerRequest() {
 }
 
 void AsyncWebServerRequest::_onData(void *buf, size_t len) {
+  _inAsyncTcpTask = true;
+
   // SSL/TLS handshake detection
 #ifndef ASYNC_TCP_SSL_ENABLED
   if (_parseState == PARSE_REQ_START && len && ((uint8_t *)buf)[0] == 0x16) {  // 0x16 indicates a Handshake message (SSL/TLS).
     async_ws_log_d("SSL/TLS handshake detected: resetting connection");
     _parseState = PARSE_REQ_FAIL;
     abort();
+    if (_onAsyncTcpTaskExit()) {
+      return;
+    }
     return;
   }
 #endif
@@ -145,6 +150,9 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         if (!str[i]) {
           _parseState = PARSE_REQ_FAIL;
           abort();
+          if (_onAsyncTcpTaskExit()) {
+            return;
+          }
           return;
         }
         if (str[i] == '\n') {
@@ -158,6 +166,9 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
           async_ws_log_e("Failed to allocate");
           _parseState = PARSE_REQ_FAIL;
           abort();
+          if (_onAsyncTcpTaskExit()) {
+            return;
+          }
           return;
         }
         _temp.concat(str);
@@ -167,6 +178,11 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         _temp.concat(str);
         _temp.trim();
         _parseLine();
+        // _parseLine() may call abort() on a parse error; bail out before
+        // touching any member if the request is being disconnected.
+        if (_disconnectPending) {
+          break;
+        }
         if (++i < len) {
           // Still have more buffer to process
           buf = str + i;
@@ -177,9 +193,13 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
     } else if (_parseState == PARSE_REQ_BODY) {
       if (_chunkedParseState != CHUNK_NONE) {
         if (_parseChunkedBytes((uint8_t *)buf, len)) {
-          _parseState = PARSE_REQ_END;
-          _runMiddlewareChain();
-          _send();
+          // _parseChunkedBytes may have called abort() on a parse error;
+          // if so, _send()/_runMiddlewareChain() must be skipped.
+          if (!_disconnectPending) {
+            _parseState = PARSE_REQ_END;
+            _runMiddlewareChain();
+            _send();
+          }
         }
         break;
       }
@@ -193,6 +213,10 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
           size_t i;
           for (i = 0; i < len; i++) {
             _parseMultipartPostByte(((uint8_t *)buf)[i], i == len - 1);
+            // _parseMultipartPostByte may call abort() on a parse error.
+            if (_disconnectPending) {
+              break;
+            }
             _parsedLength++;
           }
         } else {
@@ -229,6 +253,9 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
           _parsedLength += len;
         }
       }
+      if (_disconnectPending) {
+        break;
+      }
       if (_parsedLength == _contentLength) {
         _parseState = PARSE_REQ_END;
         _runMiddlewareChain();
@@ -237,18 +264,30 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
     }
     break;
   }
+
+  if (_onAsyncTcpTaskExit()) {
+    return;
+  }
 }
 
 void AsyncWebServerRequest::_onPoll() {
+  _inAsyncTcpTask = true;
   // os_printf("p\n");
   if (_response && _client && _client->canSend()) {
     _response->_ack(this, 0, 0);
   }
+  if (_onAsyncTcpTaskExit()) {
+    return;
+  }
 }
 
 void AsyncWebServerRequest::_onAck(size_t len, uint32_t time) {
+  _inAsyncTcpTask = true;
   // os_printf("a:%u:%u\n", len, time);
   if (!_response) {
+    if (_onAsyncTcpTaskExit()) {
+      return;
+    }
     return;
   }
 
@@ -262,6 +301,9 @@ void AsyncWebServerRequest::_onAck(size_t len, uint32_t time) {
     // this will close responses that were complete via a single _send() call
     _client->close();  // this will trigger _onDisconnect() and object destruction
   }
+  if (_onAsyncTcpTaskExit()) {
+    return;
+  }
 }
 
 void AsyncWebServerRequest::_onError(int8_t error) {
@@ -269,13 +311,32 @@ void AsyncWebServerRequest::_onError(int8_t error) {
 }
 
 void AsyncWebServerRequest::_onTimeout(uint32_t time) {
+  _inAsyncTcpTask = true;
   (void)time;
   // os_printf("TIMEOUT: %u, state: %s\n", time, _client->stateToString());
   _client->close();
+  if (_onAsyncTcpTaskExit()) {
+    return;
+  }
 }
 
 void AsyncWebServerRequest::onDisconnect(ArDisconnectHandler fn) {
   _onDisconnectfn = fn;
+}
+
+bool AsyncWebServerRequest::_onAsyncTcpTaskExit() {
+  _inAsyncTcpTask = false;
+  // AsyncTCP 3.5.0+ fires the discard (onDisconnect) callback synchronously
+  // from abort()/close().  If that happened during the callback we just ran,
+  // _onDisconnect() set _disconnectPending instead of deleting `this` (because
+  // the AsyncClient was still on the call stack).  Now that we've unwound, it
+  // is safe to perform the deletion.  Returns true if `this` was deleted — the
+  // caller must not touch any member afterward.
+  if (_disconnectPending) {
+    _server->_handleDisconnect(this);  // delete this
+    return true;
+  }
+  return false;
 }
 
 void AsyncWebServerRequest::_onDisconnect() {
@@ -283,7 +344,16 @@ void AsyncWebServerRequest::_onDisconnect() {
   if (_onDisconnectfn) {
     _onDisconnectfn();
   }
-  _server->_handleDisconnect(this);
+  // AsyncTCP 3.5.0+ fires this callback synchronously from abort()/close().
+  // If we are executing inside the async_tcp task (_inAsyncTcpTask), the
+  // AsyncClient is still on the call stack and `delete this` here would
+  // destroy it mid-call (use-after-free).  Defer the deletion to
+  // _onAsyncTcpTaskExit().
+  if (_inAsyncTcpTask) {
+    _disconnectPending = true;
+  } else {
+    _server->_handleDisconnect(this);
+  }
 }
 
 void AsyncWebServerRequest::_addGetParams(const String &params) {
@@ -1327,7 +1397,9 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
         r->addHeader(T_WWW_AUTH, header.c_str());
       } else {
         async_ws_log_e("Failed to allocate");
+        delete r;
         abort();
+        return;
       }
 
       break;
@@ -1351,7 +1423,9 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
           r->addHeader(T_WWW_AUTH, header.c_str());
         } else {
           async_ws_log_e("Failed to allocate");
+          delete r;
           abort();
+          return;
         }
       }
       break;

@@ -438,6 +438,15 @@ private:
   bool _paused = false;                          // request is paused (request continuation)
   std::shared_ptr<AsyncWebServerRequest> _this;  // shared pointer to this request
 
+  // Re-entrancy guard for AsyncTCP 3.5.0+ where abort()/close() fire the
+  // disconnect (discard) callback synchronously.  If _onDisconnect() runs
+  // while we are executing inside the async_tcp task (_inAsyncTcpTask ==
+  // true), it must NOT `delete this` — the AsyncClient is still on the call
+  // stack.  Instead it sets _disconnectPending and the top-level callback
+  // performs the delete after unwinding.
+  bool _inAsyncTcpTask = false;
+  bool _disconnectPending = false;
+
   String _temp;
   uint8_t _parseState;
 
@@ -484,6 +493,14 @@ private:
   uint8_t _chunkedParseState;
   uint8_t _chunkedLastChar;
   bool _parseChunkedBytes(uint8_t *data, size_t len);
+
+  // Called at every exit point of a top-level async_tcp task callback
+  // (_onData, _onAck, _onPoll, _onTimeout).  Returns true if the request is
+  // being disconnected (abort()/close() ran _onDisconnect() re-entrantly
+  // during the callback), in which case the caller must `return` immediately
+  // without touching `this` — this method has already performed `delete this`
+  // via _handleDisconnect().
+  bool _onAsyncTcpTaskExit();
 
   void _onPoll();
   void _onAck(size_t len, uint32_t time);
