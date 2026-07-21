@@ -235,7 +235,8 @@ private:
   void _clearQueue();
 
   // this function is called when a text message is received, in order to copy the buffer and place a null terminator at the end of the buffer for easier handling of text messages.
-  void _handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet);
+  // Returns true on success, false on failure (e.g. memory allocation failure)
+  bool _handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet);
 
 public:
   void *_tempObject;

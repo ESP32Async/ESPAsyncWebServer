@@ -535,6 +535,7 @@ void AsyncWebSocketClient::close(uint16_t code, const char *message) {
       if (c) {
         c->abort();
       }
+      return;
     }
   }
   _queueControl(WS_DISCONNECT);
@@ -680,7 +681,9 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           "[%s][%" PRIu32 "] DATA processing next fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
           (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
         );
-        _handleDataEvent(data, datalen, datalen == plen);  // datalen == plen means that we are processing the last part of the current TCP packet
+        if (!_handleDataEvent(data, datalen, datalen == plen)) {  // datalen == plen means that we are processing the last part of the current TCP packet
+          return;                                                 // stop processing on failure
+        }
       }
 
       // track index for next fragment
@@ -704,6 +707,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           if (_client) {
             _client->close();
           }
+          return;  // our object is now destroyed, so we must return immediately to avoid accessing any member
         } else {
           _status = WS_DISCONNECTING;
           if (_client) {
@@ -729,7 +733,9 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
         );
 
-        _handleDataEvent(data, datalen, datalen == plen);  // datalen == plen means that we are processing the last part of the current TCP packet
+        if (!_handleDataEvent(data, datalen, datalen == plen)) {  // datalen == plen means that we are processing the last part of the current TCP packet
+          return;                                                 // stop processing on failure
+        }
 
         if (_pinfo.final) {
           _pinfo.num = 0;
@@ -759,7 +765,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
   }
 }
 
-void AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet) {
+bool AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet) {
   // ------------------------------------------------------------
   // Issue 384: https://github.com/ESP32Async/ESPAsyncWebServer/issues/384
   // Discussion: https://github.com/ESP32Async/ESPAsyncWebServer/pull/383#discussion_r2760425739
@@ -790,9 +796,11 @@ void AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endO
         _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, copy.get(), len);
       } else {
         async_ws_log_e("Failed to allocate");
-        if (_client) {
-          _client->abort();
+        AsyncClient *c = _client;
+        if (c) {
+          c->abort();
         }
+        return false;  // failure!
       }
     } else {
       uint8_t backup = data[len];
@@ -803,6 +811,7 @@ void AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endO
   } else {
     _server->_handleEvent(this, WS_EVT_DATA, (void *)&_pinfo, data, len);
   }
+  return true;
 }
 
 size_t AsyncWebSocketClient::printf(const char *format, ...) {
