@@ -34,7 +34,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Set up Python 3
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           cache-dependency-path: pre-commit.requirements.txt
           cache: "pip"
