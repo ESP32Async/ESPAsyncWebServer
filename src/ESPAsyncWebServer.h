@@ -508,11 +508,22 @@ private:
 
   static bool _getEtag(File gzFile, char *eTag);
 
+  // Constructor is private to ensure factory is used to create shared_ptrs
+  AsyncWebServerRequest(AsyncWebServer *, AsyncClient *);
+
 public:
   File _tempFile;
   void *_tempObject;
 
-  AsyncWebServerRequest(AsyncWebServer *, AsyncClient *);
+  // Factory function
+  static std::shared_ptr<AsyncWebServerRequest> create(AsyncWebServer *server, AsyncClient *client) {
+    AsyncWebServerRequest *req = new (std::nothrow) AsyncWebServerRequest(server, client);
+    if (req) {
+      req->_this = std::shared_ptr<AsyncWebServerRequest>(req);  // store shared pointer to this request
+      return req->_this;
+    }
+    return {};  // empty shared_ptr
+  }
   ~AsyncWebServerRequest();
 
   AsyncClient *client() {
@@ -1763,7 +1774,6 @@ public:
 
   void reset();  // remove all writers and handlers, with onNotFound/onFileUpload/onRequestBody
 
-  void _handleDisconnect(AsyncWebServerRequest *request);
   void _attachHandler(AsyncWebServerRequest *request);
   void _rewriteRequest(AsyncWebServerRequest *request);
 };
