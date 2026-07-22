@@ -4,6 +4,7 @@
 #include "ESPAsyncWebServer.h"
 #include "WebHandlerImpl.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -47,8 +48,8 @@ AsyncWebServer::AsyncWebServer(uint16_t port) : _server(port) {
         return;
       }
       c->setRxTimeout(3);
-      AsyncWebServerRequest *r = new AsyncWebServerRequest((AsyncWebServer *)s, c);
-      if (r == NULL) {
+      std::shared_ptr<AsyncWebServerRequest> r = AsyncWebServerRequest::create(static_cast<AsyncWebServer *>(s), c);
+      if (!r) {
         c->abort();
         delete c;
       }
@@ -126,10 +127,6 @@ void AsyncWebServer::beginSecure(const char *cert, const char *key, const char *
   _server.beginSecure(cert, key, password);
 }
 #endif
-
-void AsyncWebServer::_handleDisconnect(AsyncWebServerRequest *request) {
-  delete request;
-}
 
 void AsyncWebServer::_rewriteRequest(AsyncWebServerRequest *request) {
   // the last rewrite that matches the request will be used

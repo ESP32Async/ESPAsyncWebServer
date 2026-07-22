@@ -17,8 +17,6 @@ static inline bool isParamChar(char c) {
   return ((c) && ((c) != '{') && ((c) != '[') && ((c) != '&') && ((c) != '='));
 }
 
-static void doNotDelete(AsyncWebServerRequest *) {}
-
 using namespace asyncsrv;
 
 enum {
@@ -108,8 +106,6 @@ AsyncWebServerRequest::~AsyncWebServerRequest() {
     _response = nullptr;
   }
 
-  _this.reset();
-
   if (_tempObject != NULL) {
     free(_tempObject);
   }
@@ -124,6 +120,8 @@ AsyncWebServerRequest::~AsyncWebServerRequest() {
 }
 
 void AsyncWebServerRequest::_onData(void *buf, size_t len) {
+  std::shared_ptr<AsyncWebServerRequest> self = _this;  // Ensure we stay in scope over the function
+
   // SSL/TLS handshake detection
 #ifndef ASYNC_TCP_SSL_ENABLED
   if (_parseState == PARSE_REQ_START && len && ((uint8_t *)buf)[0] == 0x16) {  // 0x16 indicates a Handshake message (SSL/TLS).
@@ -240,6 +238,7 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
 }
 
 void AsyncWebServerRequest::_onPoll() {
+  std::shared_ptr<AsyncWebServerRequest> self = _this;  // Ensure we stay in scope over the function
   // os_printf("p\n");
   if (_response && _client && _client->canSend()) {
     _response->_ack(this, 0, 0);
@@ -251,6 +250,8 @@ void AsyncWebServerRequest::_onAck(size_t len, uint32_t time) {
   if (!_response) {
     return;
   }
+
+  std::shared_ptr<AsyncWebServerRequest> self = _this;  // Ensure we stay in scope over the function
 
   if (!_response->_finished()) {
     _response->_ack(this, len, time);
@@ -271,6 +272,7 @@ void AsyncWebServerRequest::_onError(int8_t error) {
 void AsyncWebServerRequest::_onTimeout(uint32_t time) {
   (void)time;
   // os_printf("TIMEOUT: %u, state: %s\n", time, _client->stateToString());
+  // We do not need to lock the shared pointer here as we do no work after closing the client
   _client->close();
 }
 
@@ -283,7 +285,12 @@ void AsyncWebServerRequest::_onDisconnect() {
   if (_onDisconnectfn) {
     _onDisconnectfn();
   }
-  _server->_handleDisconnect(this);
+  // Pull shared pointer on to this context
+  // This will induce self-destruction if there are no other active handles
+  // This is safe to call here as it is the last operation in this callback
+  // We move to a stack local before destruction a simple reset would attempt to
+  // write through the now-destroyed object.
+  std::shared_ptr<AsyncWebServerRequest> self = std::move(_this);
 }
 
 void AsyncWebServerRequest::_addGetParams(const String &params) {
@@ -1054,9 +1061,6 @@ AsyncWebServerRequestPtr AsyncWebServerRequest::pause() {
     return _this;
   }
   client()->setRxTimeout(0);
-  // this shared ptr will hold the request pointer until it gets destroyed following a disconnect.
-  // this is just used as a holder providing weak observers, so the deleter is a no-op.
-  _this = std::shared_ptr<AsyncWebServerRequest>(this, doNotDelete);
   _paused = true;
   return _this;
 }
@@ -1065,7 +1069,6 @@ void AsyncWebServerRequest::abort() {
   if (!_sent) {
     _sent = true;
     _paused = false;
-    _this.reset();
     async_ws_log_v("Abort request: %s", _url.c_str());
     _client->abort();
   }
@@ -1327,7 +1330,9 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
         r->addHeader(T_WWW_AUTH, header.c_str());
       } else {
         async_ws_log_e("Failed to allocate");
+        delete r;
         abort();
+        return;
       }
 
       break;
@@ -1351,7 +1356,9 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
           r->addHeader(T_WWW_AUTH, header.c_str());
         } else {
           async_ws_log_e("Failed to allocate");
+          delete r;
           abort();
+          return;
         }
       }
       break;
