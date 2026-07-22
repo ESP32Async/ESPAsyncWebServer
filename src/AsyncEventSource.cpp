@@ -186,8 +186,11 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, A
 
   _server->_addClient(this);
   _client->setNoDelay(true);
-  // delete AsyncWebServerRequest object (and bound response) since we have the ownership on client connection now
-  delete request;
+  // Release the AsyncWebServerRequest (and bound response) since we have the ownership on client connection now.
+  // Use release() instead of `delete request` because _this is now an owning
+  // shared_ptr (set in create()).  A manual delete would cause a double-free
+  // when the shared_ptr later drops its last reference.
+  request->release();
 }
 
 AsyncEventSourceClient::~AsyncEventSourceClient() {

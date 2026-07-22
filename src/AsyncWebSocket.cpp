@@ -1001,7 +1001,10 @@ AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request)
   // we've just detached AsyncTCP client from AsyncWebServerRequest
   _handleEvent(&_clients.back(), WS_EVT_CONNECT, request, NULL, 0);
   // after user code completed CONNECT event callback we can delete req/response objects
-  delete request;
+  // Use release() instead of `delete request` because _this is now an owning
+  // shared_ptr (set in create()).  A manual delete would cause a double-free
+  // when the shared_ptr later drops its last reference.
+  request->release();
   return &_clients.back();
 }
 

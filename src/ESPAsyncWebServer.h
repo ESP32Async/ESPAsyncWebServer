@@ -526,6 +526,16 @@ public:
   }
   ~AsyncWebServerRequest();
 
+  // Release the self-referential shared_ptr that owns this request.
+  // Used by WebSocket / EventSource handoff paths (which used to call `delete request`
+  // directly) to trigger destruction via the shared_ptr instead of a manual delete,
+  // avoiding a double-free now that _this is an owning shared_ptr.
+  // If a local shared_ptr hold (e.g. in _onData/_onPoll/_onAck) is on the stack,
+  // the request stays alive until that hold goes out of scope.
+  void release() {
+    _this.reset();
+  }
+
   AsyncClient *client() {
     return _client;
   }

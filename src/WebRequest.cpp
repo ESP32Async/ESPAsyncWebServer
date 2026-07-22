@@ -246,12 +246,11 @@ void AsyncWebServerRequest::_onPoll() {
 }
 
 void AsyncWebServerRequest::_onAck(size_t len, uint32_t time) {
+  std::shared_ptr<AsyncWebServerRequest> self = _this;  // Ensure we stay in scope over the function
   // os_printf("a:%u:%u\n", len, time);
   if (!_response) {
     return;
   }
-
-  std::shared_ptr<AsyncWebServerRequest> self = _this;  // Ensure we stay in scope over the function
 
   if (!_response->_finished()) {
     _response->_ack(this, len, time);
@@ -270,9 +269,9 @@ void AsyncWebServerRequest::_onError(int8_t error) {
 }
 
 void AsyncWebServerRequest::_onTimeout(uint32_t time) {
+  std::shared_ptr<AsyncWebServerRequest> self = _this;  // Ensure we stay in scope over the function
   (void)time;
   // os_printf("TIMEOUT: %u, state: %s\n", time, _client->stateToString());
-  // We do not need to lock the shared pointer here as we do no work after closing the client
   _client->close();
 }
 
@@ -282,10 +281,16 @@ void AsyncWebServerRequest::onDisconnect(ArDisconnectHandler fn) {
 
 void AsyncWebServerRequest::_onDisconnect() {
   async_ws_log_v("onDisconnect() cb for request: %s", _url.c_str());
+  // Take a local copy of _this before resetting the member: if _this is the
+  // last owning shared_ptr, resetting it would destruct *this while this
+  // member function is still executing.  The local copy keeps us alive until
+  // the function returns, then the shared_ptr destructor runs safely.
+  std::shared_ptr<AsyncWebServerRequest> self = _this;
   if (_onDisconnectfn) {
     _onDisconnectfn();
   }
-  this->_this.reset();  // release shared pointer to this request, allowing for object destruction
+  _this.reset();  // release shared pointer to this request, allowing for object destruction
+  // 'self' goes out of scope here — if it was the last owner, the request is deleted
 }
 
 void AsyncWebServerRequest::_addGetParams(const String &params) {
