@@ -144,12 +144,13 @@ private:
 public:
   /**
    * @brief Construct a new Async Event Source Client object
-   * @note constructor would take the ownership of of AsyncTCP's client pointer from `request` parameter and call delete on it!
+   * @note constructor is normally passed a client object from AsyncWebServerRequest::releaseClient(); see AsyncEventSourceResponse::_respond()
    *
-   * @param request
+   * @param client
    * @param server
+   * @param lastId
    */
-  AsyncEventSourceClient(AsyncWebServerRequest *request, AsyncEventSource *server);
+  AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId = 0);
   ~AsyncEventSourceClient();
 
   /**
@@ -319,9 +320,6 @@ public:
 class AsyncEventSourceResponse : public AsyncWebServerResponse {
 private:
   AsyncEventSource *_server;
-  AsyncWebServerRequest *_request;
-  // this call back will switch AsyncTCP client to SSE
-  void _switchClient();
 
 public:
   AsyncEventSourceResponse(AsyncEventSource *server);

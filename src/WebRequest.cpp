@@ -1476,6 +1476,17 @@ bool AsyncWebServerRequest::isExpectedRequestedConnType(RequestedConnectionType 
 AsyncClient *AsyncWebServerRequest::clientRelease() {
   AsyncClient *c = _client;
   _client = nullptr;
+  // Ensure the client object no longer refers to us
+  c->onError({}, nullptr);
+  c->onAck({}, nullptr);
+  c->onDisconnect({}, nullptr);
+  c->onTimeout({}, nullptr);
+  c->onData({}, nullptr);
+  c->onPoll({}, nullptr);
+  // Now that we are no longer bound to the client, self-destruct at the earliest opportunity by moving the shared pointer to a local.
+  // This will decrement the reference count and delete the object when this function ends if there are no other references.
+  // If this function is called by an _onAck handler or the like, the local lock will keep the request object in scope until the handler returns, preventing a use-after-free.
+  std::shared_ptr<AsyncWebServerRequest> destroy_self = std::move(_this);
   return c;
 }
 

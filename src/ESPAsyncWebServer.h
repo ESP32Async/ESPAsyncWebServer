@@ -526,6 +526,10 @@ public:
   }
   ~AsyncWebServerRequest();
 
+  std::shared_ptr<AsyncWebServerRequest> shared_from_this() {
+    return _this;
+  }
+
   AsyncClient *client() {
     return _client;
   }
@@ -535,6 +539,8 @@ public:
    * AsyncClient pointer will be abandoned in this instance,
    * the further ownership of the connection should be managed out of request's life-time scope
    * could be used for long lived connection like SSE or WebSockets
+   * This causes the request object to self-destruct; make sure you're holding a shared_ptr if
+   * you need to keep it alive any longer (see shared_from_this())
    * @note do not call this method unless you know what you are doing, otherwise it may lead to
    * memory leaks and connections lingering
    *

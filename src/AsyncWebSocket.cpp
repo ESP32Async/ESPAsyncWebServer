@@ -997,11 +997,13 @@ void AsyncWebSocket::_handleEvent(AsyncWebSocketClient *client, AwsEventType typ
 
 AsyncWebSocketClient *AsyncWebSocket::_newClient(AsyncWebServerRequest *request) {
   asyncsrv::lock_guard_type lock(_ws_clients_lock);
-  _clients.emplace_back(request, this);
+  // Hold the request in scope for the user callback to inspect
+  std::shared_ptr<AsyncWebServerRequest> req_lock = request->shared_from_this();
+  // Adopt the client object from the request
+  _clients.emplace_back(request->clientRelease(), this);
   // we've just detached AsyncTCP client from AsyncWebServerRequest
   _handleEvent(&_clients.back(), WS_EVT_CONNECT, request, NULL, 0);
-  // after user code completed CONNECT event callback we can delete req/response objects
-  delete request;
+  // req_lock releases the request object at the end of this function scope
   return &_clients.back();
 }
 

@@ -241,14 +241,6 @@ public:
   void *_tempObject;
 
   AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *server);
-
-  /**
-   * @brief Construct a new Async Web Socket Client object
-   * @note constructor would take the ownership of of AsyncTCP's client pointer from `request` parameter and call delete on it!
-   * @param request
-   * @param server
-   */
-  AsyncWebSocketClient(AsyncWebServerRequest *request, AsyncWebSocket *server) : AsyncWebSocketClient(request->clientRelease(), server){};
   ~AsyncWebSocketClient();
 
   // client id increments for the given server

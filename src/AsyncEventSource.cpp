@@ -147,11 +147,8 @@ size_t AsyncEventSourceMessage::send(AsyncClient *client) {
 
 // Client
 
-AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, AsyncEventSource *server) : _client(request->clientRelease()), _server(server) {
-
-  if (request->hasHeader(T_Last_Event_ID)) {
-    _lastId = atoi(request->getHeader(T_Last_Event_ID)->value().c_str());
-  }
+AsyncEventSourceClient::AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId)
+  : _client(client), _server(server), _lastId(lastId) {
 
   _client->setRxTimeout(0);
   _client->onError(NULL, NULL);
@@ -186,8 +183,6 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncWebServerRequest *request, A
 
   _server->_addClient(this);
   _client->setNoDelay(true);
-  // delete AsyncWebServerRequest object (and bound response) since we have the ownership on client connection now
-  delete request;
 }
 
 AsyncEventSourceClient::~AsyncEventSourceClient() {
@@ -478,24 +473,12 @@ AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server) : _
 void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
   String out;
   _assembleHead(out, request->version());
-  // unbind client's onAck callback from AsyncWebServerRequest's, we will destroy it on next callback and steal the client,
-  // can't do it now 'cause now we are in AsyncWebServerRequest::_onAck 's stack actually
-  // here we are loosing time on one RTT delay, but with current design we can't get rid of Req/Resp objects other way
-  _request = request;
-  request->client()->onAck(
-    [](void *r, AsyncClient *c, size_t len, uint32_t time) {
-      if (len) {
-        static_cast<AsyncEventSourceResponse *>(r)->_switchClient();
-      }
-    },
-    this
-  );
+  uint32_t lastId = 0;
+  if (request->hasHeader(T_Last_Event_ID)) {
+    lastId = strtoul(request->getHeader(T_Last_Event_ID)->value().c_str(), nullptr, 10);
+  }
   request->client()->write(out.c_str(), _headLength);
-  _state = RESPONSE_WAIT_ACK;
+  // Add a new AsyncEventSourceClient to the server's list of clients
+  // This adopts the ownership of the AsyncTCP's client pointer from `request` parameter
+  new AsyncEventSourceClient(request->clientRelease(), _server, lastId);
 }
-
-void AsyncEventSourceResponse::_switchClient() {
-  // AsyncEventSourceClient c-tor will take the ownership of AsyncTCP's client connection
-  new AsyncEventSourceClient(_request, _server);
-  // AsyncEventSourceClient c-tor would also delete _request and *this
-};
