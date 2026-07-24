@@ -36,18 +36,18 @@ static const char *htmlContent PROGMEM = R"(
       console.log("WebSocket connected");
     };
     ws.onmessage = function(event) {
-      console.log("WebSocket message: " + event.data);
+      console.log("WebSocket message:", event.data);
     };
     ws.onclose = function() {
       console.log("WebSocket closed");
     };
     ws.onerror = function(error) {
-      console.log("WebSocket error: " + error);
+      console.log("WebSocket error:", error);
     };
     function sendMessage() {
       var message = document.getElementById("message").value;
       ws.send(message);
-      console.log("WebSocket sent: " + message);
+      console.log("WebSocket sent:", message);
     }
     setInterval(function() {
       if (ws.readyState === WebSocket.OPEN) {
