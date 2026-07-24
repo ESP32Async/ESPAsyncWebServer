@@ -508,12 +508,27 @@ private:
 
   static bool _getEtag(File gzFile, char *eTag);
 
+  // Constructor is private to ensure factory is used to create shared_ptrs
+  AsyncWebServerRequest(AsyncWebServer *, AsyncClient *);
+
 public:
   File _tempFile;
   void *_tempObject;
 
-  AsyncWebServerRequest(AsyncWebServer *, AsyncClient *);
+  // Factory function
+  static std::shared_ptr<AsyncWebServerRequest> create(AsyncWebServer *server, AsyncClient *client) {
+    AsyncWebServerRequest *req = new (std::nothrow) AsyncWebServerRequest(server, client);
+    if (req) {
+      req->_this = std::shared_ptr<AsyncWebServerRequest>(req);  // store shared pointer to this request
+      return req->_this;
+    }
+    return {};  // empty shared_ptr
+  }
   ~AsyncWebServerRequest();
+
+  std::shared_ptr<AsyncWebServerRequest> shared_from_this() {
+    return _this;
+  }
 
   AsyncClient *client() {
     return _client;
@@ -524,6 +539,8 @@ public:
    * AsyncClient pointer will be abandoned in this instance,
    * the further ownership of the connection should be managed out of request's life-time scope
    * could be used for long lived connection like SSE or WebSockets
+   * This causes the request object to self-destruct; make sure you're holding a shared_ptr if
+   * you need to keep it alive any longer (see shared_from_this())
    * @note do not call this method unless you know what you are doing, otherwise it may lead to
    * memory leaks and connections lingering
    *
@@ -1763,7 +1780,6 @@ public:
 
   void reset();  // remove all writers and handlers, with onNotFound/onFileUpload/onRequestBody
 
-  void _handleDisconnect(AsyncWebServerRequest *request);
   void _attachHandler(AsyncWebServerRequest *request);
   void _rewriteRequest(AsyncWebServerRequest *request);
 };
