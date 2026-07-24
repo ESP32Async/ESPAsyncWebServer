@@ -60,7 +60,7 @@ static size_t webSocketSendFrameWindow(AsyncClient *client) {
 // function of RFC 6455 framing rules, cheap enough to recompute on demand
 // rather than cache
 static uint8_t webSocketFrameHeaderLen(size_t payloadLen, bool mask) {
-  return 2 + ((payloadLen && mask) ? 4 : 0) + ((payloadLen > 125) ? 2 : 0);
+  return 2 + (mask ? 4 : 0) + ((payloadLen > 125) ? 2 : 0);
 }
 
 // Commits any not-yet-committed bytes of one WS frame (header+payload) to
@@ -90,7 +90,7 @@ static size_t
       hdr[2] = (uint8_t)((len >> 8) & 0xFF);
       hdr[3] = (uint8_t)(len & 0xFF);
     }
-    if (len && mask) {
+    if (mask) {
       hdr[1] |= 0x80;
       memcpy(hdr + (headLen - 4), maskKey, 4);
     }
