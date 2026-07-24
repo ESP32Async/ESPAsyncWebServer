@@ -267,7 +267,7 @@ void AsyncWebSocketClient::_runQueue(asyncsrv::unique_lock_type &lock) {
       } else {
         const size_t window = webSocketSendFrameWindow(_client);
         if (!window) {
-          return;
+          break;  // no space to send right now
         }
         const size_t remaining = target.size() - _sent;
         _framePayloadLen = std::min(remaining, window);
