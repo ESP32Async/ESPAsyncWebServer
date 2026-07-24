@@ -283,7 +283,12 @@ void AsyncWebSocketClient::_runQueue(asyncsrv::unique_lock_type &lock) {
     AsyncWebSocketMessage &target = _sendingControl ? _controlQueue.front() : _messageQueue.front();
     const bool final = _sendingControl || (_sent + _framePayloadLen == target.size());
     const uint8_t frameOpcode = (_sendingControl || _sent == 0) ? target.opcode() : (uint8_t)WS_CONTINUATION;
-    uint8_t *payload = target.data() + (_sendingControl ? 0 : _sent);
+    uint8_t *payload = target.data();
+
+    // Avoid UB pointer arithmetic if payload is nullptr
+    if (payload && !_sendingControl) {
+      payload += _sent;
+    }
 
     const size_t added = webSocketAddFrame(_client, final, frameOpcode, target.mask(), _maskKey, payload, _framePayloadLen, _frameSent);
 
