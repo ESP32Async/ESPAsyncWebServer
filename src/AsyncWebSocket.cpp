@@ -37,13 +37,13 @@
 
 using namespace asyncsrv;
 
-namespace {
-AsyncWebSocketSharedBuffer makeSharedBuffer(const uint8_t *message, size_t len) {
-  auto buffer = std::make_shared<std::vector<uint8_t>>(len);
-  std::memcpy(buffer->data(), message, len);
-  return buffer;
+static AsyncWebSocketSharedBuffer makeSharedBuffer(const uint8_t *message, size_t len) {
+  if (message) {
+    return std::make_shared<std::vector<uint8_t>>(message, message + len);
+  } else {
+    return std::make_shared<std::vector<uint8_t>>(len);
+  }
 }
-}  // namespace
 
 static size_t webSocketSendFrameWindow(AsyncClient *client) {
   if (!client || !client->canSend()) {
