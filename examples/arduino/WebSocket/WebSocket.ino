@@ -19,6 +19,10 @@
 
 #include <ESPAsyncWebServer.h>
 
+#include <algorithm>
+#include <memory>
+#include <vector>
+
 static const char *htmlContent PROGMEM = R"(
 <!DOCTYPE html>
 <html>
@@ -63,12 +67,55 @@ static const size_t htmlContentLength = strlen_P(htmlContent);
 static AsyncWebServer server(80);
 static AsyncWebSocket ws("/ws");
 
+//
+// Masked-broadcast test: sends one AsyncWebSocketSharedBuffer to every connected client, each
+// with its own random mask key.  Validates that masking a shared buffer for one client can't
+// affect what any other client (sharing that same buffer) sends or receives.
+//
+// Triggered by sending the text command "masktest" (optionally "masktest <len>") over an
+// already-open WS connection (see the WS_EVT_DATA handler below). The payload is deterministic
+// (a seq/len header + a repeating 0-9 filler)The decoded payload must be byte-identical for all
+// clients despite each seeing different bytes on the wire.
+//
+// RFC 6455 5.1 forbids the server from masking frames it sends, and requires a compliant client
+// to close the connection on receipt of one.  This test deliberately violates that rule, so it
+// requires a client that tolerates reading masked frames from the server (e.g. websocat4).
+//
+static void fillMaskTestPayload(std::vector<uint8_t> &out, size_t len) {
+  char header[48];
+  const int written = snprintf(header, sizeof(header), "MASKTEST len=%u\n", (unsigned)len);
+  // snprintf's return value can exceed sizeof(header) if truncated; clamp to what's actually in the buffer
+  const size_t headerLen = std::min((size_t)std::max(written, 0), sizeof(header));
+  out.resize(len);
+  const size_t n = std::min(headerLen, len);
+  memcpy(out.data(), header, n);
+  for (size_t i = n; i < len; i++) {
+    out[i] = '0' + ((i - n) % 10);
+  }
+}
+
+// Sends `len` bytes of deterministic content to every connected client as an individually
+// masked TEXT frame, reusing one shared buffer across all of them. Returns the number of
+// clients the frame was successfully enqueued for.
+static size_t sendMaskedBroadcast(size_t len) {
+  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>();
+  fillMaskTestPayload(*buffer, len);
+  size_t sent = 0;
+  for (auto &client : ws.getClients()) {
+    if (client.status() == WS_CONNECTED && client.message(buffer, WS_TEXT, /*mask=*/true)) {
+      sent++;
+    }
+  }
+  Serial.printf("[masktest] len=%u sent to %u client(s), buffer use_count=%ld\n", (unsigned)len, (unsigned)sent, (long)buffer.use_count());
+  return sent;
+}
+
 void setup() {
   Serial.begin(115200);
 
 #if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("esp-captive");
+  WiFi.softAP("esp-captive", nullptr, 11);
 #endif
 
   // serves root html page
@@ -87,6 +134,11 @@ void setup() {
   // Generates 2001 characters (\n at the end) to cause a fragmentation (over TCP MSS):
   // > openssl rand -hex 1000 | websocat ws://192.168.4.1/ws
   //
+  // Triggers the masked-broadcast test (see sendMaskedBroadcast() above).
+  // This requires a client that tolerates reading masked frames from the server (e.g. websocat4),
+  // since it's a deliberate RFC 6455 5.1 violation when used this way.
+  // > echo "masktest 4000" | websocat4 --ws-ignore-invalid-masks ws://192.168.4.1/ws
+  //
   ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
     (void)len;
 
@@ -103,8 +155,14 @@ void setup() {
       Serial.println("ws error");
 
     } else if (type == WS_EVT_PONG) {
-      Serial.println("ws pong");
-
+      if (len == sizeof(uint32_t)) {
+        uint32_t pongTime;
+        memcpy(&pongTime, data, sizeof(pongTime));
+        uint32_t pingDuration = micros() - pongTime;
+        Serial.printf("ws[%" PRIu32 "] pong [%" PRIu32 "] duration: %" PRIu32 " us\n", client->id(), pongTime, pingDuration);
+      } else {
+        Serial.printf("ws[%" PRIu32 "] pong [%u]\n", client->id(), len);
+      }
     } else if (type == WS_EVT_DATA) {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
       Serial.printf(
@@ -117,8 +175,18 @@ void setup() {
         if (info->message_opcode == WS_TEXT) {
           Serial.printf("ws text: %s\n", (char *)data);
           client->ping();
-          // Also send a message in the message queue when we get one
-          ws.textAll("Message received: " + String((char *)data));
+
+          if (strncmp((char *)data, "masktest", 8) == 0) {
+            size_t maskLen = 2000;
+            unsigned long parsed = strtoul((char *)data + 8, nullptr, 10);
+            if (parsed > 0) {
+              maskLen = std::min((size_t)parsed, (size_t)65000);  // stay within a single (non-fragmented) WS frame
+            }
+            sendMaskedBroadcast(maskLen);
+          } else {
+            // Also send a message in the message queue when we get one
+            ws.textAll("Message received: " + String((char *)data));
+          }
         }
 
       } else {
@@ -205,8 +273,10 @@ void loop() {
     ws.textAll(random);
 
     // ping twice (2 control frames)
-    ws.pingAll();
-    ws.pingAll();
+    uint32_t pingTime = micros();
+    ws.pingAll((const uint8_t *)&pingTime, sizeof(pingTime));
+    pingTime = micros();
+    ws.pingAll((const uint8_t *)&pingTime, sizeof(pingTime));
 
 #ifdef ESP32
     Serial.printf("Uptime: %3lu s, Free heap: %" PRIu32 ", Min free heap: %" PRIu32 "\n", millis() / 1000, ESP.getFreeHeap(), ESP.getMinFreeHeap());
