@@ -640,7 +640,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       } else if (_pinfo.opcode == WS_PONG) {
         async_ws_log_v("[%s][%" PRIu32 "] DATA PONG", _server->url(), _clientId);
         if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
-          _server->_handleEvent(this, WS_EVT_PONG, NULL, NULL, 0);
+          _server->_handleEvent(this, WS_EVT_PONG, NULL, data, datalen);
         }
 
       } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
