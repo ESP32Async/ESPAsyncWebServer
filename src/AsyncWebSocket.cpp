@@ -63,6 +63,9 @@ static uint8_t webSocketFrameHeaderLen(size_t payloadLen, bool mask) {
   return 2 + (mask ? 4 : 0) + ((payloadLen > 125) ? 2 : 0);
 }
 
+// Stack-allocated chunk size for masking payload data
+static constexpr size_t WS_MASK_CHUNK_SIZE = 128;
+
 // Commits any not-yet-committed bytes of one WS frame (header+payload) to
 // the client, resuming from `frameSent` bytes already committed by a prior
 // call for this exact frame. final/opcode/mask/maskKey/data/len must stay
@@ -72,7 +75,7 @@ static uint8_t webSocketFrameHeaderLen(size_t payloadLen, bool mask) {
 // never assumes an add() fully succeeds, since some AsyncClient backends
 // (e.g. SSL) can commit a genuine partial amount.
 static size_t
-  webSocketAddFrame(AsyncClient *client, bool final, uint8_t opcode, bool mask, const uint8_t maskKey[4], uint8_t *data, size_t len, size_t frameSent) {
+  webSocketAddFrame(AsyncClient *client, bool final, uint8_t opcode, bool mask, const uint8_t maskKey[4], const uint8_t *data, size_t len, size_t frameSent) {
   if (!client || !client->canSend()) {
     return 0;
   }
@@ -95,7 +98,7 @@ static size_t
       memcpy(hdr + (headLen - 4), maskKey, 4);
     }
 
-    size_t added = client->add((const char *)(hdr + frameSent), headLen - frameSent);
+    size_t added = client->add((const char *)(hdr + frameSent), headLen - frameSent, ASYNC_WRITE_FLAG_COPY | ((len > 0) ? ASYNC_WRITE_FLAG_MORE : 0));
     committed += added;
     frameSent += added;
     if (frameSent < headLen) {
@@ -103,22 +106,29 @@ static size_t
     }
   }
 
-  const size_t payloadSent = frameSent - headLen;
+  size_t payloadSent = frameSent - headLen;
   if (payloadSent < len) {
-    const size_t remaining = len - payloadSent;
+    size_t remaining = len - payloadSent;
     if (mask) {
-      for (size_t i = 0; i < remaining; i++) {
-        data[payloadSent + i] ^= maskKey[(payloadSent + i) % 4];
+      // The data buffer is shared, but each client masks with its own random key.
+      // Mask in to a scratch buffer one chunk at a time to avoid malloc overhead.
+      uint8_t masked_data[WS_MASK_CHUNK_SIZE];
+      while (remaining > 0) {
+        const size_t chunk = std::min(remaining, sizeof(masked_data));
+        for (size_t i = 0; i < chunk; i++) {
+          masked_data[i] = data[payloadSent + i] ^ maskKey[(payloadSent + i) % 4];
+        }
+        const size_t added = client->add((const char *)masked_data, chunk, ASYNC_WRITE_FLAG_COPY | ((chunk == remaining) ? 0 : ASYNC_WRITE_FLAG_MORE));
+        committed += added;
+        if (added < chunk) {
+          break;  // out of space (or partial commit) -- resume here next time
+        }
+        payloadSent += added;
+        remaining -= added;
       }
+    } else {
+      committed += client->add((const char *)(data + payloadSent), remaining, ASYNC_WRITE_FLAG_COPY);
     }
-    size_t added = client->add((const char *)(data + payloadSent), remaining);
-    if (mask && added < remaining) {
-      // undo masking of the unsent tail so a retry masks it correctly from the new offset
-      for (size_t i = added; i < remaining; i++) {
-        data[payloadSent + i] ^= maskKey[(payloadSent + i) % 4];
-      }
-    }
-    committed += added;
   }
 
   return committed;
