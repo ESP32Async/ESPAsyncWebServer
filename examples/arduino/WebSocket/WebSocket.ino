@@ -103,8 +103,14 @@ void setup() {
       Serial.println("ws error");
 
     } else if (type == WS_EVT_PONG) {
-      Serial.println("ws pong");
-
+      if (len == sizeof(uint32_t)) {
+        uint32_t pongTime;
+        memcpy(&pongTime, data, sizeof(pongTime));
+        uint32_t pingDuration = micros() - pongTime;
+        Serial.printf("ws[%" PRIu32 "] pong [%" PRIu32 "] duration: %" PRIu32 " us\n", client->id(), pongTime, pingDuration);
+      } else {
+        Serial.printf("ws[%" PRIu32 "] pong [%u]\n", client->id(), len);
+      }
     } else if (type == WS_EVT_DATA) {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
       Serial.printf(
@@ -205,8 +211,10 @@ void loop() {
     ws.textAll(random);
 
     // ping twice (2 control frames)
-    ws.pingAll();
-    ws.pingAll();
+    uint32_t pingTime = micros();
+    ws.pingAll((const uint8_t *)&pingTime, sizeof(pingTime));
+    pingTime = micros();
+    ws.pingAll((const uint8_t *)&pingTime, sizeof(pingTime));
 
 #ifdef ESP32
     Serial.printf("Uptime: %3lu s, Free heap: %" PRIu32 ", Min free heap: %" PRIu32 "\n", millis() / 1000, ESP.getFreeHeap(), ESP.getMinFreeHeap());
