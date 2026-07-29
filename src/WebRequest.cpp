@@ -668,7 +668,7 @@ bool AsyncWebServerRequest::_parseReqHeader() {
 #else
       const char *substr = std::strstr(lowcase.c_str(), String(T_text_event_stream).c_str());
 #endif
-      if (substr != NULL) {
+      if (substr != NULL && _method == AsyncWebRequestMethod::HTTP_GET) {
         // WebEvent request can be uniquely identified by header:  [Accept: text/event-stream]
         _reqconntype = RCT_EVENT;
       }
