@@ -659,7 +659,13 @@ bool AsyncWebServerRequest::_parseReqHeader() {
       }
     } else if (name.equalsIgnoreCase(T_UPGRADE) && value.equalsIgnoreCase(T_WS)) {
       // WebSocket request can be uniquely identified by header: [Upgrade: websocket]
-      _reqconntype = RCT_WS;
+      // Per RFC 6455 §4.1 the handshake is a GET.  Only classify when the
+      // connection is still a plain HTTP connection so a previously detected
+      // SSE request (or any other classified type) cannot be clobbered by
+      // header ordering.
+      if (_method == AsyncWebRequestMethod::HTTP_GET && (_reqconntype == RCT_DEFAULT || _reqconntype == RCT_HTTP)) {
+        _reqconntype = RCT_WS;
+      }
     } else if (name.equalsIgnoreCase(T_ACCEPT)) {
       String lowcase(value);
       lowcase.toLowerCase();
@@ -668,7 +674,11 @@ bool AsyncWebServerRequest::_parseReqHeader() {
 #else
       const char *substr = std::strstr(lowcase.c_str(), String(T_text_event_stream).c_str());
 #endif
-      if (substr != NULL && _method == AsyncWebRequestMethod::HTTP_GET) {
+      // Server-Sent Events (HTML §9.2) are GET-only connections negotiated via
+      // Accept: text/event-stream.  Only classify when the connection is still
+      // a plain HTTP connection so a previously detected WebSocket upgrade
+      // cannot be clobbered by header ordering.
+      if (substr != NULL && _method == AsyncWebRequestMethod::HTTP_GET && (_reqconntype == RCT_DEFAULT || _reqconntype == RCT_HTTP)) {
         // WebEvent request can be uniquely identified by header:  [Accept: text/event-stream]
         _reqconntype = RCT_EVENT;
       }
