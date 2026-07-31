@@ -663,7 +663,7 @@ bool AsyncWebServerRequest::_parseReqHeader() {
       // connection is still a plain HTTP connection so a previously detected
       // SSE request (or any other classified type) cannot be clobbered by
       // header ordering.
-      if (_method == AsyncWebRequestMethod::HTTP_GET && (_reqconntype == RCT_DEFAULT || _reqconntype == RCT_HTTP)) {
+      if (_method == AsyncWebRequestMethod::HTTP_GET && _reqconntype == RCT_HTTP) {
         _reqconntype = RCT_WS;
       }
     } else if (name.equalsIgnoreCase(T_ACCEPT)) {
@@ -678,7 +678,7 @@ bool AsyncWebServerRequest::_parseReqHeader() {
       // Accept: text/event-stream.  Only classify when the connection is still
       // a plain HTTP connection so a previously detected WebSocket upgrade
       // cannot be clobbered by header ordering.
-      if (substr != NULL && _method == AsyncWebRequestMethod::HTTP_GET && (_reqconntype == RCT_DEFAULT || _reqconntype == RCT_HTTP)) {
+      if (substr != NULL && _method == AsyncWebRequestMethod::HTTP_GET && _reqconntype == RCT_HTTP) {
         // WebEvent request can be uniquely identified by header:  [Accept: text/event-stream]
         _reqconntype = RCT_EVENT;
       }
@@ -1469,18 +1469,11 @@ String AsyncWebServerRequest::urlDecode(const String &text) const {
 
 const char *AsyncWebServerRequest::requestedConnTypeToString() const {
   switch (_reqconntype) {
-    case RCT_NOT_USED: return T_RCT_NOT_USED;
-    case RCT_DEFAULT:  return T_RCT_DEFAULT;
-    case RCT_HTTP:     return T_RCT_HTTP;
-    case RCT_WS:       return T_RCT_WS;
-    case RCT_EVENT:    return T_RCT_EVENT;
-    default:           return T_ERROR;
+    case RCT_HTTP:  return T_RCT_HTTP;
+    case RCT_WS:    return T_RCT_WS;
+    case RCT_EVENT: return T_RCT_EVENT;
+    default:        return T_ERROR;
   }
-}
-
-bool AsyncWebServerRequest::isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2, RequestedConnectionType erct3) const {
-  return ((erct1 != RCT_NOT_USED) && (erct1 == _reqconntype)) || ((erct2 != RCT_NOT_USED) && (erct2 == _reqconntype))
-         || ((erct3 != RCT_NOT_USED) && (erct3 == _reqconntype));
 }
 
 AsyncClient *AsyncWebServerRequest::clientRelease() {

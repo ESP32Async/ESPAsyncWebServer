@@ -395,12 +395,9 @@ public:
  * */
 
 typedef enum {
-  RCT_NOT_USED = -1,
-  RCT_DEFAULT = 0,
-  RCT_HTTP,
-  RCT_WS,
-  RCT_EVENT,
-  RCT_MAX
+  RCT_HTTP = 1,
+  RCT_WS = 2,
+  RCT_EVENT = 3
 } RequestedConnectionType;
 
 // this enum is similar to Arduino WebServer's AsyncAuthType and PsychicHttp
@@ -578,8 +575,22 @@ public:
   RequestedConnectionType requestedConnType() const {
     return _reqconntype;
   }
-  bool isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2 = RCT_NOT_USED, RequestedConnectionType erct3 = RCT_NOT_USED)
-    const;
+#ifndef ESP8266
+  [[deprecated("Use isExpectedRequestedConnType(RequestedConnectionType) instead")]]
+#endif
+  bool isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2, RequestedConnectionType erct3) const {
+    return isExpectedRequestedConnType(erct1) || isExpectedRequestedConnType(erct2) || isExpectedRequestedConnType(erct3);
+  }
+#ifndef ESP8266
+  [[deprecated("Use isExpectedRequestedConnType(RequestedConnectionType) instead")]]
+#endif
+  bool isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2) const {
+    return isExpectedRequestedConnType(erct1) || isExpectedRequestedConnType(erct2);
+  }
+  bool isExpectedRequestedConnType(RequestedConnectionType type) const {
+    return _reqconntype == type;
+  }
+
   bool isWebSocketUpgrade() const {
     return _method == AsyncWebRequestMethod::HTTP_GET && isExpectedRequestedConnType(RCT_WS);
   }
@@ -587,8 +598,9 @@ public:
     return _method == AsyncWebRequestMethod::HTTP_GET && isExpectedRequestedConnType(RCT_EVENT);
   }
   bool isHTTP() const {
-    return isExpectedRequestedConnType(RCT_DEFAULT, RCT_HTTP);
+    return isExpectedRequestedConnType(RCT_HTTP);
   }
+
   void onDisconnect(ArDisconnectHandler fn);
 
   // hash is the string representation of:
