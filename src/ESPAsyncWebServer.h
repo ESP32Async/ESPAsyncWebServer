@@ -361,9 +361,7 @@ public:
   AsyncWebHeader(const char *name, const char *value) : _name(name), _value(value) {}
   AsyncWebHeader(const String &name, const String &value) : _name(name), _value(value) {}
 
-#ifndef ESP8266
   [[deprecated("Use AsyncWebHeader::parse(data) instead")]]
-#endif
   AsyncWebHeader(const String &data)
     : AsyncWebHeader(parse(data)){};
 
@@ -575,15 +573,11 @@ public:
   RequestedConnectionType requestedConnType() const {
     return _reqconntype;
   }
-#ifndef ESP8266
   [[deprecated("Use isExpectedRequestedConnType(RequestedConnectionType) instead")]]
-#endif
   bool isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2, RequestedConnectionType erct3) const {
     return isExpectedRequestedConnType(erct1) || isExpectedRequestedConnType(erct2) || isExpectedRequestedConnType(erct3);
   }
-#ifndef ESP8266
   [[deprecated("Use isExpectedRequestedConnType(RequestedConnectionType) instead")]]
-#endif
   bool isExpectedRequestedConnType(RequestedConnectionType erct1, RequestedConnectionType erct2) const {
     return isExpectedRequestedConnType(erct1) || isExpectedRequestedConnType(erct2);
   }
@@ -631,16 +625,10 @@ public:
     _handler = handler;
   }
 
-#ifndef ESP8266
   [[deprecated("All headers are now collected. Use removeHeader(name) or AsyncHeaderFreeMiddleware if you really need to free some headers.")]]
-#endif
-  void addInterestingHeader(__asyncws_unused const char *name) {
-  }
-#ifndef ESP8266
+  void addInterestingHeader(__asyncws_unused const char *name) {}
   [[deprecated("All headers are now collected. Use removeHeader(name) or AsyncHeaderFreeMiddleware if you really need to free some headers.")]]
-#endif
-  void addInterestingHeader(__asyncws_unused const String &name) {
-  }
+  void addInterestingHeader(__asyncws_unused const String &name) {}
 
   /**
      * @brief issue HTTP redirect response with Location header
@@ -712,9 +700,7 @@ public:
     send(beginChunkedResponse(contentType, callback, templateCallback));
   }
 
-#ifndef ESP8266
   [[deprecated("Replaced by send(int code, const String& contentType, const uint8_t* content, size_t len, AwsTemplateProcessor callback = nullptr)")]]
-#endif
   void send_P(int code, const String &contentType, const uint8_t *content, size_t len, AwsTemplateProcessor callback = nullptr) {
     send(code, contentType, content, len, callback);
   }
@@ -779,16 +765,12 @@ public:
     return beginResponseStream(contentType.c_str(), bufferSize);
   }
 
-#ifndef ESP8266
   [[deprecated("Replaced by beginResponse(int code, const String& contentType, const uint8_t* content, size_t len, AwsTemplateProcessor callback = nullptr)")]]
-#endif
   AsyncWebServerResponse *beginResponse_P(int code, const String &contentType, const uint8_t *content, size_t len, AwsTemplateProcessor callback = nullptr) {
     return beginResponse(code, contentType.c_str(), content, len, callback);
   }
-#ifndef ESP8266
   [[deprecated("Replaced by beginResponse(int code, const String& contentType, const char* content = asyncsrv::empty, AwsTemplateProcessor callback = nullptr)"
   )]]
-#endif
   AsyncWebServerResponse *beginResponse_P(int code, const String &contentType, PGM_P content, AwsTemplateProcessor callback = nullptr);
 
   /**
@@ -1448,9 +1430,7 @@ public:
     _maxAge = seconds;
   }
 
-#ifndef ESP8266
   [[deprecated("Use instead: addCORSHeaders(AsyncWebServerRequest *request, AsyncWebServerResponse *response)")]]
-#endif
   void addCORSHeaders(AsyncWebServerResponse *response) {
     addCORSHeaders(nullptr, response);
   }
@@ -1644,9 +1624,7 @@ public:
     return _headers;
   }
 
-#ifndef ESP8266
   [[deprecated("Use instead: _assembleHead(String& buffer, uint8_t version)")]]
-#endif
   String _assembleHead(uint8_t version) {
     String buffer;
     _assembleHead(buffer, version);
@@ -1690,9 +1668,7 @@ class AsyncCallbackJsonWebHandler;
 typedef std::function<void(AsyncWebServerRequest *request, JsonVariant &json)> ArJsonRequestHandlerFunction;
 
 #if ASYNC_MSG_PACK_SUPPORT == 1
-#ifndef ESP8266
 [[deprecated("Replaced by AsyncCallbackJsonWebHandler")]]
-#endif
 typedef AsyncCallbackJsonWebHandler AsyncCallbackMessagePackWebHandler;
 #endif  // ASYNC_MSG_PACK_SUPPORT
 
