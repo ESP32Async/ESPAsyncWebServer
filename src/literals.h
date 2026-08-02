@@ -139,8 +139,6 @@ static constexpr const char T_LINK[] = "LINK";
 static constexpr const char T_UNLINK[] = "UNLINK";
 
 // Req content types
-static constexpr const char T_RCT_NOT_USED[] = "RCT_NOT_USED";
-static constexpr const char T_RCT_DEFAULT[] = "RCT_DEFAULT";
 static constexpr const char T_RCT_HTTP[] = "RCT_HTTP";
 static constexpr const char T_RCT_WS[] = "RCT_WS";
 static constexpr const char T_RCT_EVENT[] = "RCT_EVENT";
