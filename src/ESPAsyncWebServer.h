@@ -10,6 +10,10 @@
 #include <lwip/tcpbase.h>
 #endif
 
+#if defined(ESP32) && defined(ASYNCWEBSERVER_USE_PSRAM)
+#include <esp_heap_caps.h>
+#endif
+
 #include <algorithm>
 #include <deque>
 #include <functional>
@@ -1520,6 +1524,26 @@ protected:
 public:
   AsyncWebHandler() {}
   virtual ~AsyncWebHandler() {}
+#if defined(ESP32) && defined(ASYNCWEBSERVER_USE_PSRAM)
+  // Opt-in (-D ASYNCWEBSERVER_USE_PSRAM): allocate handler objects in PSRAM
+  // to preserve scarce internal SRAM. All handlers derive from this base
+  // (route handlers, catch-all, AsyncWebSocket, static file handlers), they
+  // are created after PSRAM is initialized and are only read during request
+  // dispatch - never from an ISR or DMA context - so external RAM is safe
+  // and the added latency is irrelevant. Falls back to the internal heap
+  // when PSRAM is absent or exhausted, so the flag is safe to set on
+  // targets without PSRAM as well.
+  void *operator new(size_t size) {
+    void *p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+    if (!p) {
+      p = malloc(size);
+    }
+    return p;
+  }
+  void operator delete(void *ptr) {
+    heap_caps_free(ptr);  // valid for both PSRAM and internal allocations
+  }
+#endif
   AsyncWebHandler &setFilter(ArRequestFilterFunction fn);
   AsyncWebHandler &setAuthentication(const char *username, const char *password, AsyncAuthType authMethod = AsyncAuthType::AUTH_DIGEST);
   AsyncWebHandler &setAuthentication(const String &username, const String &password, AsyncAuthType authMethod = AsyncAuthType::AUTH_DIGEST) {
