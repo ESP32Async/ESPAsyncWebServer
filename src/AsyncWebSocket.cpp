@@ -624,7 +624,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           "[%s][%" PRIu32 "] DATA _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _server->url(),
           _clientId, _pinfo.index, _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
         );
-        const size_t datalen = std::min((size_t)(_pinfo.len - _pinfo.index), plen);
+        const size_t datalen = static_cast<size_t>(std::min<uint64_t>(_pinfo.len - _pinfo.index, plen));
         if (!_handleClientFrame(data, datalen, datalen == plen)) {  // datalen == plen means that we are processing the last part of the current TCP packet
           return;                                                   // client is now destroyed, so we must return immediately to avoid accessing any member
         }
