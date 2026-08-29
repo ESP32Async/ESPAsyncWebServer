@@ -88,14 +88,27 @@ typedef enum {
   WS_CONNECTED,
   WS_DISCONNECTING
 } AwsClientStatus;
-typedef enum {
-  WS_CONTINUATION,
-  WS_TEXT,
-  WS_BINARY,
-  WS_DISCONNECT = 0x08,
-  WS_PING,
-  WS_PONG
+typedef enum {  // RFC6455 frame types, section 5.2
+  WS_CONTINUATION = 0x0,
+  WS_TEXT = 0x1,
+  WS_BINARY = 0x2,
+  WS_DISCONNECT = 0x8,
+  WS_PING = 0x9,
+  WS_PONG = 0xA
 } AwsFrameType;
+typedef enum {  // RFC6455 close reason codes, section 7.4.1
+  WS_CLOSE_NORMAL = 1000,
+  WS_CLOSE_GOING_AWAY = 1001,
+  WS_CLOSE_PROTOCOL_ERROR = 1002,
+  WS_CLOSE_UNSUPPORTED_DATA = 1003,
+  WS_CLOSE_NO_STATUS_RECEIVED = 1005,
+  WS_CLOSE_ABNORMAL_CLOSURE = 1006,
+  WS_CLOSE_INVALID_PAYLOAD = 1007,
+  WS_CLOSE_POLICY_VIOLATION = 1008,
+  WS_CLOSE_MESSAGE_TOO_BIG = 1009,
+  WS_CLOSE_MANDATORY_EXTENSION = 1010,
+  WS_CLOSE_INTERNAL_ERROR = 1011,
+} AwsCloseCode;
 typedef enum {
   WS_EVT_CONNECT,
   WS_EVT_DISCONNECT,
@@ -185,6 +198,7 @@ private:
   // The following fields are used to parse incoming frames. They are reset when a frame is fully received.
   AwsParseState _pstate;
   AwsFrameInfo _pinfo;
+  std::unique_ptr<uint8_t[]> _pbuffer;  // Payload buffer for torn control frames
 
   bool _queueControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false);
   bool _queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
