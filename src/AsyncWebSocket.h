@@ -57,6 +57,8 @@ class AsyncWebSocket;
 class AsyncWebSocketResponse;
 class AsyncWebSocketClient;
 
+enum class AwsParseState : uint8_t;
+
 typedef struct {
   /** Message type as defined by enum AwsFrameType.
      * Note: Applications will only see WS_TEXT and WS_BINARY.
@@ -161,7 +163,7 @@ private:
   AsyncWebSocket *_server;
   uint32_t _clientId;
   AwsClientStatus _status;
-  uint8_t _pstate;
+
   uint32_t _lastMessageTime;
   uint32_t _keepAlivePeriod;
   mutable asyncsrv::mutex_type _queue_lock;
@@ -180,6 +182,8 @@ private:
   size_t _framePayloadLen{0};   // payload length committed to the header of the in-flight frame
   size_t _frameSent{0};         // bytes of (header+in-flight payload) committed so far for the in-flight frame; 0 when idle
 
+  // The following fields are used to parse incoming frames. They are reset when a frame is fully received.
+  AwsParseState _pstate;
   AwsFrameInfo _pinfo;
 
   bool _queueControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false);
@@ -192,6 +196,9 @@ private:
   // this function is called when a text message is received, in order to copy the buffer and place a null terminator at the end of the buffer for easier handling of text messages.
   // Returns true on success, false on failure (e.g. memory allocation failure)
   bool _handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet);
+
+  // Internal function to handle a frame from the client.  Header information is stored in _pinfo.
+  bool _handleClientFrame(uint8_t *data, size_t datalen, bool last);
 
 public:
   void *_tempObject;
