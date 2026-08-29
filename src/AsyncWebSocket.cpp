@@ -51,6 +51,7 @@ enum class AwsParseState : uint8_t {
   Mask_2,
   Mask_3,
   Payload,
+  Error
 };
 
 static AsyncWebSocketSharedBuffer makeSharedBuffer(const uint8_t *message, size_t len) {
@@ -545,6 +546,15 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         // Second header byte
         _pinfo.masked = ((data[0] & 0x80) != 0) ? 1 : 0;
         _pinfo.len = data[0] & 0x7F;
+        // Validate length for control frames (must be <= 125)
+        if ((_pinfo.opcode & 0x08) != 0 && _pinfo.len > 125) {
+          async_ws_log_v(
+            "[%s][%" PRIu32 "] DATA control frame length error: opcode: %" PRIu8 ", len: %" PRIu64 "\n", _server->url(), _clientId, _pinfo.opcode, _pinfo.len
+          );
+          close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Send disconnect message with protocol error code
+          _pstate = AwsParseState::Error;
+          return;  // Abort processing this frame
+        }
         // Select length type
         if (_pinfo.len == 126) {
           _pstate = AwsParseState::Length2_1;
@@ -636,6 +646,10 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
         }
         break;
       }
+
+      case AwsParseState::Error:
+        async_ws_log_v("[%s][%" PRIu32 "] DATA error state, ignoring data len: %" PRIu64, _server->url(), _clientId, plen);
+        return;  // ignore any further data
     }  // end switch over _pstate
 
     if (consume_byte) {
@@ -686,53 +700,35 @@ bool AsyncWebSocketClient::_handleClientFrame(uint8_t *data, size_t datalen, boo
 
   if ((datalen + _pinfo.index) < _pinfo.len) {  // more fragments to read for this frame
     if (datalen > 0) {
-      async_ws_log_v(
-        "[%s][%" PRIu32 "] DATA processing next fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
-        (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
-      );
-      if (!_handleDataEvent(data, datalen, last)) {
-        return false;  // stop processing on failure
-      }
-    }
-
-    // track index for next fragment
-    _pinfo.index += datalen;
-  } else if ((datalen + _pinfo.index) == _pinfo.len) {  // this is the last fragment for this frame
-    if (_pinfo.opcode == WS_DISCONNECT) {
-      async_ws_log_v("[%s][%" PRIu32 "] DATA WS_DISCONNECT", _server->url(), _clientId);
-
-      if (datalen) {
-        uint16_t reasonCode = (uint16_t)(data[0] << 8) + data[1];
-        char *reasonString = (char *)(data + 2);
-        if (reasonCode > 1001) {
-          _server->_handleEvent(this, WS_EVT_ERROR, (void *)&reasonCode, (uint8_t *)reasonString, strlen(reasonString));
+      if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
+        async_ws_log_v(
+          "[%s][%" PRIu32 "] DATA processing next fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
+          (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
+        );
+        if (!_handleDataEvent(data, datalen, last)) {
+          return false;  // stop processing on failure
         }
-      }
-      if (_status == WS_DISCONNECTING) {
-        _status = WS_DISCONNECTED;
-        if (_client) {
-          _client->close();
-        }
-        return false;  // our object is now destroyed, so we must return immediately to avoid accessing any member
       } else {
-        _status = WS_DISCONNECTING;
-        if (_client) {
-          _client->ackLater();
+        // Control frame fragmented across TCP packets.  We must buffer the data until we have the complete frame.
+        if (!_pbuffer) {
+          uint8_t *pbuf = new (std::nothrow) uint8_t[(size_t)_pinfo.len];  // cast is safe because _pinfo.len is guaranteed to be <= 125 for control frames
+          if (!pbuf) {
+            async_ws_log_e("[%s][%" PRIu32 "] DATA failed to allocate buffer for control frame", _server->url(), _clientId);
+            close(WS_CLOSE_INTERNAL_ERROR, nullptr);  // Close the connection with a protocol error code
+            _pstate = AwsParseState::Error;
+            return false;
+          }
+          _pbuffer.reset(pbuf);
         }
-        _queueControl(WS_DISCONNECT, data, datalen);
+        // Save data in buffer
+        memcpy(_pbuffer.get() + _pinfo.index, data, datalen);
       }
 
-    } else if (_pinfo.opcode == WS_PING) {
-      async_ws_log_v("[%s][%" PRIu32 "] DATA PING", _server->url(), _clientId);
-      _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
-      _queueControl(WS_PONG, data, datalen);
-
-    } else if (_pinfo.opcode == WS_PONG) {
-      async_ws_log_v("[%s][%" PRIu32 "] DATA PONG", _server->url(), _clientId);
-      if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
-        _server->_handleEvent(this, WS_EVT_PONG, NULL, data, datalen);
-      }
-    } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
+      // track index for next fragment
+      _pinfo.index += datalen;
+    }
+  } else if ((datalen + _pinfo.index) == _pinfo.len) {  // this is the last fragment for this frame
+    if (_pinfo.opcode < WS_DISCONNECT) {                // most likely case: continuation or text/binary frame
       async_ws_log_v(
         "[%s][%" PRIu32 "] DATA processing final fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
         (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
@@ -747,20 +743,67 @@ bool AsyncWebSocketClient::_handleClientFrame(uint8_t *data, size_t datalen, boo
       } else {
         _pinfo.num += 1;
       }
+    } else {  // control frame
+      if (_pbuffer) {
+        memcpy(_pbuffer.get() + _pinfo.index, data, datalen);
+        data = _pbuffer.get();
+        datalen = _pinfo.len;
+      }
+
+      if (_pinfo.opcode == WS_DISCONNECT) {
+        async_ws_log_v("[%s][%" PRIu32 "] DATA WS_DISCONNECT", _server->url(), _clientId);
+
+        // Pass up the close frame error information
+        if (datalen >= 2) {
+          uint16_t reasonCode = (uint16_t)(data[0] << 8) + data[1];
+          char *reasonString = (char *)(data + 2);
+          if (reasonCode > WS_CLOSE_GOING_AWAY) {
+            _server->_handleEvent(this, WS_EVT_ERROR, (void *)&reasonCode, (uint8_t *)reasonString, strnlen(reasonString, datalen - 2));
+          }
+        }
+        if (_status == WS_DISCONNECTING) {
+          _status = WS_DISCONNECTED;
+          if (_client) {
+            _client->close();
+          }
+          return false;  // our object is now destroyed, so we must return immediately to avoid accessing any member
+        } else {
+          _status = WS_DISCONNECTING;
+          if (_client) {
+            _client->ackLater();
+          }
+          _queueControl(WS_DISCONNECT, data, datalen);
+        }
+
+      } else if (_pinfo.opcode == WS_PING) {
+        async_ws_log_v("[%s][%" PRIu32 "] DATA PING", _server->url(), _clientId);
+        _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
+        _queueControl(WS_PONG, data, datalen);
+
+      } else if (_pinfo.opcode == WS_PONG) {
+        async_ws_log_v("[%s][%" PRIu32 "] DATA PONG", _server->url(), _clientId);
+        if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
+          _server->_handleEvent(this, WS_EVT_PONG, NULL, data, datalen);
+        }
+      } else {
+        async_ws_log_v("[%s][%" PRIu32 "] DATA unknown control frame: %" PRIu8, _server->url(), _clientId, _pinfo.opcode);
+        close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Close the connection with a protocol error code
+        _pstate = AwsParseState::Error;
+        return false;
+      }
     }
 
     _pinfo.index = _pinfo.len;  // mark packet as complete
+    _pbuffer.reset();           // free any control frame buffer
   } else {
     // unexpected frame protocol error - how is this possible?
     async_ws_log_v(
       "[%s][%" PRIu32 "] DATA frame error: len: %u, index: %" PRIu64 ", total: %" PRIu64 "\n", _server->url(), _clientId, datalen, _pinfo.index, _pinfo.len
     );
 
-    _status = WS_DISCONNECTING;
-    if (_client) {
-      _client->ackLater();
-    }
-    _queueControl(WS_DISCONNECT, data, datalen);
+    close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Close the connection with a protocol error code
+    _pstate = AwsParseState::Error;
+    return false;
   }
 
   return true;
