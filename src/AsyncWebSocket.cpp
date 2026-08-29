@@ -31,11 +31,27 @@
 #include <utility>
 #include <cstdarg>
 
-#define STATE_FRAME_START 0
-#define STATE_FRAME_MASK  1
-#define STATE_FRAME_DATA  2
-
 using namespace asyncsrv;
+
+enum class AwsParseState : uint8_t {
+  Start = 0,
+  Length,
+  Length2_1,
+  Length2_2,
+  Length8_1,
+  Length8_2,
+  Length8_3,
+  Length8_4,
+  Length8_5,
+  Length8_6,
+  Length8_7,
+  Length8_8,
+  Mask_0,
+  Mask_1,
+  Mask_2,
+  Mask_3,
+  Payload,
+};
 
 static AsyncWebSocketSharedBuffer makeSharedBuffer(const uint8_t *message, size_t len) {
   if (message) {
@@ -167,8 +183,8 @@ const char *AWSC_PING_PAYLOAD = "ESPAsyncWebServer-PING";
 const size_t AWSC_PING_PAYLOAD_LEN = 22;
 
 AsyncWebSocketClient::AsyncWebSocketClient(AsyncClient *client, AsyncWebSocket *server)
-  : _client(client), _server(server), _clientId(_server->_getNextId()), _status(WS_CONNECTED), _pstate(STATE_FRAME_START), _lastMessageTime(millis()),
-    _keepAlivePeriod(0), _tempObject(NULL) {
+  : _client(client), _server(server), _clientId(_server->_getNextId()), _status(WS_CONNECTED), _lastMessageTime(millis()), _keepAlivePeriod(0),
+    _pstate(AwsParseState::Start), _tempObject(NULL) {
 
   _client->setRxTimeout(0);
   _client->onError(
@@ -511,189 +527,243 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
 
   while (plen > 0) {
     async_ws_log_v(
-      "[%s][%" PRIu32 "] DATA plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _server->url(), _clientId, static_cast<uint32_t>(plen), _pstate,
-      static_cast<uint8_t>(_status)
+      "[%s][%" PRIu32 "] DATA plen: %" PRIu32 ", _pstate: %" PRIu8 ", _status: %" PRIu8, _server->url(), _clientId, static_cast<uint32_t>(plen),
+      static_cast<uint8_t>(_pstate), static_cast<uint8_t>(_status)
     );
 
-    if (_pstate == STATE_FRAME_START) {
-      const uint8_t *fdata = data;
+    bool consume_byte = true;
 
-      _pinfo.index = 0;
-      _pinfo.final = (fdata[0] & 0x80) != 0;
-      _pinfo.opcode = fdata[0] & 0x0F;
-      _pinfo.masked = ((fdata[1] & 0x80) != 0) ? 1 : 0;
-      _pinfo.len = fdata[1] & 0x7F;
-
-      data += 2;
-      plen -= 2;
-
-      if (_pinfo.len == 126 && plen >= 2) {
-        _pinfo.len = fdata[3] | (uint16_t)(fdata[2]) << 8;
-        data += 2;
-        plen -= 2;
-
-      } else if (_pinfo.len == 127 && plen >= 8) {
-        _pinfo.len = fdata[9] | (uint16_t)(fdata[8]) << 8 | (uint32_t)(fdata[7]) << 16 | (uint32_t)(fdata[6]) << 24 | (uint64_t)(fdata[5]) << 32
-                     | (uint64_t)(fdata[4]) << 40 | (uint64_t)(fdata[3]) << 48 | (uint64_t)(fdata[2]) << 56;
-        data += 8;
-        plen -= 8;
-      }
-    }
-
-    async_ws_log_v(
-      "[%s][%" PRIu32 "] DATA _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _server->url(), _clientId,
-      _pinfo.index, _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
-    );
-
-    // Handle fragmented mask data - Safari may split the 4-byte mask across multiple packets
-    // _pinfo.masked is 1 if we need to start reading mask bytes
-    // _pinfo.masked is 2, 3, or 4 if we have partially read the mask
-    // _pinfo.masked is 5 if the mask is complete
-    while (_pinfo.masked && _pstate <= STATE_FRAME_MASK && _pinfo.masked < 5) {
-      // check if we have some data
-      if (plen == 0) {
-        // Safari close frame edge case: masked bit set but no mask data
-        if (_pinfo.opcode == WS_DISCONNECT) {
-          async_ws_log_v("[%s][%" PRIu32 "] DATA close frame with incomplete mask, treating as unmasked", _server->url(), _clientId);
-          _pinfo.masked = 0;
-          _pinfo.index = 0;
-          _pinfo.len = 0;
-          _pstate = STATE_FRAME_START;
-          break;
+    switch (_pstate) {
+      case AwsParseState::Start:
+        // First header byte
+        _pinfo.index = 0;
+        _pinfo.final = (data[0] & 0x80) != 0;
+        _pinfo.opcode = data[0] & 0x0F;
+        _pstate = AwsParseState::Length;
+        break;
+      case AwsParseState::Length:
+        // Second header byte
+        _pinfo.masked = ((data[0] & 0x80) != 0) ? 1 : 0;
+        _pinfo.len = data[0] & 0x7F;
+        // Select length type
+        if (_pinfo.len == 126) {
+          _pstate = AwsParseState::Length2_1;
+        } else if (_pinfo.len == 127) {
+          _pstate = AwsParseState::Length8_1;
+        } else {
+          _pstate = (_pinfo.masked) ? AwsParseState::Mask_0 : AwsParseState::Payload;
         }
+        break;
 
-        // wait for more data
-        _pstate = STATE_FRAME_MASK;
-        async_ws_log_v("[%s][%" PRIu32 "] DATA waiting for more mask data: read: %" PRIu8 "/4", _server->url(), _clientId, _pinfo.masked - 1);
-        return;
+      // 2-byte length form
+      case AwsParseState::Length2_1:
+        _pinfo.len = (data[0] << 8);
+        _pstate = AwsParseState::Length2_2;
+        break;
+      case AwsParseState::Length2_2:
+        _pinfo.len += data[0];
+        _pstate = (_pinfo.masked) ? AwsParseState::Mask_0 : AwsParseState::Payload;
+        break;
+
+      // 8-byte length form, tediously unrolled
+      case AwsParseState::Length8_1:
+        _pinfo.len = (uint64_t)data[0] << 56;
+        _pstate = AwsParseState::Length8_2;
+        break;
+      case AwsParseState::Length8_2:
+        _pinfo.len += (uint64_t)data[0] << 48;
+        _pstate = AwsParseState::Length8_3;
+        break;
+      case AwsParseState::Length8_3:
+        _pinfo.len += (uint64_t)data[0] << 40;
+        _pstate = AwsParseState::Length8_4;
+        break;
+      case AwsParseState::Length8_4:
+        _pinfo.len += (uint64_t)data[0] << 32;
+        _pstate = AwsParseState::Length8_5;
+        break;
+      case AwsParseState::Length8_5:
+        _pinfo.len += (uint64_t)data[0] << 24;
+        _pstate = AwsParseState::Length8_6;
+        break;
+      case AwsParseState::Length8_6:
+        _pinfo.len += (uint64_t)data[0] << 16;
+        _pstate = AwsParseState::Length8_7;
+        break;
+      case AwsParseState::Length8_7:
+        _pinfo.len += (uint64_t)data[0] << 8;
+        _pstate = AwsParseState::Length8_8;
+        break;
+      case AwsParseState::Length8_8:
+        _pinfo.len += (uint64_t)data[0];
+        _pstate = (_pinfo.masked) ? AwsParseState::Mask_0 : AwsParseState::Payload;
+        break;
+
+      // Mask bytes
+      case AwsParseState::Mask_0:
+        _pinfo.mask[0] = data[0];
+        _pstate = AwsParseState::Mask_1;
+        break;
+      case AwsParseState::Mask_1:
+        _pinfo.mask[1] = data[0];
+        _pstate = AwsParseState::Mask_2;
+        break;
+      case AwsParseState::Mask_2:
+        _pinfo.mask[2] = data[0];
+        _pstate = AwsParseState::Mask_3;
+        break;
+      case AwsParseState::Mask_3:
+        _pinfo.mask[3] = data[0];
+        _pstate = AwsParseState::Payload;
+        break;
+
+      // And finally, payload processing
+      case AwsParseState::Payload:
+      {
+        async_ws_log_v(
+          "[%s][%" PRIu32 "] DATA _pinfo: index: %" PRIu64 ", final: %" PRIu8 ", opcode: %" PRIu8 ", masked: %" PRIu8 ", len: %" PRIu64, _server->url(),
+          _clientId, _pinfo.index, _pinfo.final, _pinfo.opcode, _pinfo.masked, _pinfo.len
+        );
+        const size_t datalen = std::min((size_t)(_pinfo.len - _pinfo.index), plen);
+        if (!_handleClientFrame(data, datalen, datalen == plen)) {  // datalen == plen means that we are processing the last part of the current TCP packet
+          return;                                                   // client is now destroyed, so we must return immediately to avoid accessing any member
+        }
+        consume_byte = false;
+        data += datalen;
+        plen -= datalen;
+        if (_pinfo.index >= _pinfo.len) {
+          _pstate = AwsParseState::Start;
+        }
+        break;
       }
+    }  // end switch over _pstate
 
-      // accumulate mask bytes
-      _pinfo.mask[_pinfo.masked - 1] = data[0];
+    if (consume_byte) {
+      // Advance the buffer by one byte.  Centralized to save copy-and-paste in so many states.
       data += 1;
       plen -= 1;
-      _pinfo.masked++;
     }
+  }  // end while(plen > 0)
 
-    // all mask bytes read if we were reading them
-    _pstate = STATE_FRAME_DATA;
+  // data completely consumed
+  if ((_pinfo.opcode == WS_DISCONNECT) && (_pstate == AwsParseState::Mask_0) && (_pinfo.len == 0)) {
+    // Safari close frame edge case: masked bit set but no mask data
+    async_ws_log_v("[%s][%" PRIu32 "] DATA close frame with incomplete mask, treating as unmasked", _server->url(), _clientId);
+    _pinfo.masked = 0;
+    _pstate = AwsParseState::Payload;
+  }
 
-    // restore masked to 1 for backward compatibility
-    if (_pinfo.masked >= 5) {
-      async_ws_log_v("[%s][%" PRIu32 "] DATA mask read complete", _server->url(), _clientId);
-      _pinfo.masked = 1;
+  // A zero-length frame could be at the end of the packet; dispatch it now.
+  if ((_pstate == AwsParseState::Payload) && (_pinfo.len == 0)) {
+    if (!_handleClientFrame(data, 0, true)) {
+      return;
     }
+    _pstate = AwsParseState::Start;
+  }
+}
 
-    const size_t datalen = std::min((size_t)(_pinfo.len - _pinfo.index), plen);
+bool AsyncWebSocketClient::_handleClientFrame(uint8_t *data, size_t datalen, bool last) {
+  // Process a frame from the client.  Header information is stored in _pinfo.
+  // Returns true on successful handling, false on error.
 
-    if (_pinfo.masked) {
-      for (size_t i = 0; i < datalen; i++) {
-        data[i] ^= _pinfo.mask[(_pinfo.index + i) % 4];
-      }
+  if (_pinfo.masked) {
+    for (size_t i = 0; i < datalen; i++) {
+      data[i] ^= _pinfo.mask[(_pinfo.index + i) % 4];
     }
+  }
 
-    if (_pinfo.index == 0) {  // first fragment of the frame
-      // init message_opcode for this frame
-      // note: For next WS_CONTINUATION frames, they have opcode 0, so message_opcode will stay like the first frame
-      if (_pinfo.opcode == WS_TEXT || _pinfo.opcode == WS_BINARY) {
-        _pinfo.message_opcode = _pinfo.opcode;
-      }
-      // init frame number to 0 if only 1 frame or if this is the first frame of a fragmented message
-      if (_pinfo.final || datalen < _pinfo.len) {
-        _pinfo.num = 0;
-      }
+  if (_pinfo.index == 0) {  // first fragment of the frame
+    // init message_opcode for this frame
+    // note: For next WS_CONTINUATION frames, they have opcode 0, so message_opcode will stay like the first frame
+    if (_pinfo.opcode == WS_TEXT || _pinfo.opcode == WS_BINARY) {
+      _pinfo.message_opcode = _pinfo.opcode;
     }
+    // init frame number to 0 if only 1 frame or if this is the first frame of a fragmented message
+    if (_pinfo.final || datalen < _pinfo.len) {
+      _pinfo.num = 0;
+    }
+  }
 
-    if ((datalen + _pinfo.index) < _pinfo.len) {  // more fragments to read for this frame
-      _pstate = STATE_FRAME_DATA;
-
-      if (datalen > 0) {
-        async_ws_log_v(
-          "[%s][%" PRIu32 "] DATA processing next fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
-          (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
-        );
-        if (!_handleDataEvent(data, datalen, datalen == plen)) {  // datalen == plen means that we are processing the last part of the current TCP packet
-          return;                                                 // stop processing on failure
-        }
-      }
-
-      // track index for next fragment
-      _pinfo.index += datalen;
-
-    } else if ((datalen + _pinfo.index) == _pinfo.len) {  // this is the last fragment for this frame
-      _pstate = STATE_FRAME_START;
-
-      if (_pinfo.opcode == WS_DISCONNECT) {
-        async_ws_log_v("[%s][%" PRIu32 "] DATA WS_DISCONNECT", _server->url(), _clientId);
-
-        if (datalen) {
-          uint16_t reasonCode = (uint16_t)(data[0] << 8) + data[1];
-          char *reasonString = (char *)(data + 2);
-          if (reasonCode > 1001) {
-            _server->_handleEvent(this, WS_EVT_ERROR, (void *)&reasonCode, (uint8_t *)reasonString, strlen(reasonString));
-          }
-        }
-        if (_status == WS_DISCONNECTING) {
-          _status = WS_DISCONNECTED;
-          if (_client) {
-            _client->close();
-          }
-          return;  // our object is now destroyed, so we must return immediately to avoid accessing any member
-        } else {
-          _status = WS_DISCONNECTING;
-          if (_client) {
-            _client->ackLater();
-          }
-          _queueControl(WS_DISCONNECT, data, datalen);
-        }
-
-      } else if (_pinfo.opcode == WS_PING) {
-        async_ws_log_v("[%s][%" PRIu32 "] DATA PING", _server->url(), _clientId);
-        _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
-        _queueControl(WS_PONG, data, datalen);
-
-      } else if (_pinfo.opcode == WS_PONG) {
-        async_ws_log_v("[%s][%" PRIu32 "] DATA PONG", _server->url(), _clientId);
-        if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
-          _server->_handleEvent(this, WS_EVT_PONG, NULL, data, datalen);
-        }
-
-      } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
-        async_ws_log_v(
-          "[%s][%" PRIu32 "] DATA processing final fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
-          (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
-        );
-
-        if (!_handleDataEvent(data, datalen, datalen == plen)) {  // datalen == plen means that we are processing the last part of the current TCP packet
-          return;                                                 // stop processing on failure
-        }
-
-        if (_pinfo.final) {
-          _pinfo.num = 0;
-        } else {
-          _pinfo.num += 1;
-        }
-      }
-
-    } else {
-      // unexpected frame error, close connection
-      _pstate = STATE_FRAME_START;
-
+  if ((datalen + _pinfo.index) < _pinfo.len) {  // more fragments to read for this frame
+    if (datalen > 0) {
       async_ws_log_v(
-        "[%s][%" PRIu32 "] DATA frame error: len: %u, index: %" PRIu64 ", total: %" PRIu64 "\n", _server->url(), _clientId, datalen, _pinfo.index, _pinfo.len
+        "[%s][%" PRIu32 "] DATA processing next fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
+        (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
+      );
+      if (!_handleDataEvent(data, datalen, last)) {
+        return false;  // stop processing on failure
+      }
+    }
+
+    // track index for next fragment
+    _pinfo.index += datalen;
+  } else if ((datalen + _pinfo.index) == _pinfo.len) {  // this is the last fragment for this frame
+    if (_pinfo.opcode == WS_DISCONNECT) {
+      async_ws_log_v("[%s][%" PRIu32 "] DATA WS_DISCONNECT", _server->url(), _clientId);
+
+      if (datalen) {
+        uint16_t reasonCode = (uint16_t)(data[0] << 8) + data[1];
+        char *reasonString = (char *)(data + 2);
+        if (reasonCode > 1001) {
+          _server->_handleEvent(this, WS_EVT_ERROR, (void *)&reasonCode, (uint8_t *)reasonString, strlen(reasonString));
+        }
+      }
+      if (_status == WS_DISCONNECTING) {
+        _status = WS_DISCONNECTED;
+        if (_client) {
+          _client->close();
+        }
+        return false;  // our object is now destroyed, so we must return immediately to avoid accessing any member
+      } else {
+        _status = WS_DISCONNECTING;
+        if (_client) {
+          _client->ackLater();
+        }
+        _queueControl(WS_DISCONNECT, data, datalen);
+      }
+
+    } else if (_pinfo.opcode == WS_PING) {
+      async_ws_log_v("[%s][%" PRIu32 "] DATA PING", _server->url(), _clientId);
+      _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
+      _queueControl(WS_PONG, data, datalen);
+
+    } else if (_pinfo.opcode == WS_PONG) {
+      async_ws_log_v("[%s][%" PRIu32 "] DATA PONG", _server->url(), _clientId);
+      if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
+        _server->_handleEvent(this, WS_EVT_PONG, NULL, data, datalen);
+      }
+    } else if (_pinfo.opcode < WS_DISCONNECT) {  // continuation or text/binary frame
+      async_ws_log_v(
+        "[%s][%" PRIu32 "] DATA processing final fragment of %s frame %" PRIu32 ", index: %" PRIu64 ", len: %" PRIu32 "", _server->url(), _clientId,
+        (_pinfo.message_opcode == WS_TEXT) ? "text" : "binary", _pinfo.num, _pinfo.index, (uint32_t)datalen
       );
 
-      _status = WS_DISCONNECTING;
-      if (_client) {
-        _client->ackLater();
+      if (!_handleDataEvent(data, datalen, last)) {
+        return false;  // stop processing on failure
       }
-      _queueControl(WS_DISCONNECT, data, datalen);
-      break;
+
+      if (_pinfo.final) {
+        _pinfo.num = 0;
+      } else {
+        _pinfo.num += 1;
+      }
     }
 
-    data += datalen;
-    plen -= datalen;
+    _pinfo.index = _pinfo.len;  // mark packet as complete
+  } else {
+    // unexpected frame protocol error - how is this possible?
+    async_ws_log_v(
+      "[%s][%" PRIu32 "] DATA frame error: len: %u, index: %" PRIu64 ", total: %" PRIu64 "\n", _server->url(), _clientId, datalen, _pinfo.index, _pinfo.len
+    );
+
+    _status = WS_DISCONNECTING;
+    if (_client) {
+      _client->ackLater();
+    }
+    _queueControl(WS_DISCONNECT, data, datalen);
   }
+
+  return true;
 }
 
 bool AsyncWebSocketClient::_handleDataEvent(uint8_t *data, size_t len, bool endOfPaquet) {
