@@ -1544,6 +1544,8 @@ WebRequestMethod stringToMethod(const String &m) {
     return AsyncWebRequestMethod::HTTP_UNBIND;
   } else if (m == T_ACL) {
     return AsyncWebRequestMethod::HTTP_ACL;
+  } else if (m == T_QUERY) {
+    return AsyncWebRequestMethod::HTTP_QUERY;
   } else {
     return AsyncWebRequestMethod::HTTP_INVALID;
   }
@@ -1579,6 +1581,8 @@ const char *methodToString(WebRequestMethod method) {
     /* RFC-2068, section 19.6.1.2 */
     case AsyncWebRequestMethod::HTTP_LINK:   return T_LINK;
     case AsyncWebRequestMethod::HTTP_UNLINK: return T_UNLINK;
+    /* RFC 10008 */
+    case AsyncWebRequestMethod::HTTP_QUERY: return T_QUERY;
     // Unsupported
     default: return T_UNKNOWN;
   }

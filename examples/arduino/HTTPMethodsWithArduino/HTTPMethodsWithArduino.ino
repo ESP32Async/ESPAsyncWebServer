@@ -87,6 +87,12 @@ void setup() {
     request->send(200, "text/plain", "Hello");
   });
 
+  // HTTP_Method.h / http_parser.h is included above: use the namespaced bit, not HTTP_QUERY.
+  // curl -v -X QUERY -H 'Content-Type: application/json' -d '{"q":1}' http://192.168.4.1/query
+  server.on("/query", AsyncWebRequestMethod::HTTP_QUERY, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", request->methodToString());
+  });
+
 #if ASYNC_JSON_SUPPORT == 1
   // curl -v http://192.168.4.1/test => Not Implemented
   // curl -v -X POST -H 'Content-Type: application/json' -d '{"name":"You"}' http://192.168.4.1/test => OK
@@ -116,6 +122,10 @@ void setup() {
   assert(composite3 == composite4);
   assert(composite1 != composite3);
   assert(composite5 == AsyncWebRequestMethod::HTTP_GET);
+
+  WebRequestMethodComposite queryMethod = AsyncWebRequestMethod::HTTP_QUERY;
+  assert(queryMethod.matches(AsyncWebRequestMethod::HTTP_QUERY));
+  assert(!queryMethod.matches(AsyncWebRequestMethod::HTTP_GET));
 }
 
 // not needed

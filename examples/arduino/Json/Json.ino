@@ -87,6 +87,20 @@ void setup() {
 
   server.addHandler(handler);
 
+  // curl -v -X QUERY -H 'Content-Type: application/json' -d '{"q":1}' http://192.168.4.1/json-query
+  AsyncCallbackJsonWebHandler *queryHandler = new AsyncCallbackJsonWebHandler("/json-query");
+  queryHandler->setMethod(HTTP_QUERY);
+  queryHandler->onRequest([](AsyncWebServerRequest *request, JsonVariant &json) {
+    serializeJson(json, Serial);
+    Serial.println();
+    AsyncJsonResponse *response = new AsyncJsonResponse();
+    JsonObject root = response->getRoot().to<JsonObject>();
+    root["hello"] = json.as<JsonObject>()["q"];
+    response->setLength();
+    request->send(response);
+  });
+  server.addHandler(queryHandler);
+
   // New Json API since 3.8.2, which works for both Json and MessagePack bodies
   // curl -v -X POST -H 'Content-Type: application/json' -d '{"name":"You"}' http://192.168.4.1/json3
 
