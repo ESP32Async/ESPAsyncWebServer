@@ -36,6 +36,7 @@ static constexpr const char T__opaque[] = "\", opaque=\"";
 static constexpr const char T_100_CONTINUE[] = "100-continue";
 static constexpr const char T_13[] = "13";
 static constexpr const char T_ACCEPT[] = "Accept";
+static constexpr const char T_Accept_Query[] = "Accept-Query";
 static constexpr const char T_Accept_Ranges[] = "Accept-Ranges";
 static constexpr const char T_attachment[] = "attachment; filename=\"";
 static constexpr const char T_AUTH[] = "Authorization";
@@ -137,6 +138,7 @@ static constexpr const char T_ACL[] = "ACL";
 static constexpr const char T_PURGE[] = "PURGE";
 static constexpr const char T_LINK[] = "LINK";
 static constexpr const char T_UNLINK[] = "UNLINK";
+static constexpr const char T_QUERY[] = "QUERY";
 
 // Req content types
 static constexpr const char T_RCT_HTTP[] = "RCT_HTTP";

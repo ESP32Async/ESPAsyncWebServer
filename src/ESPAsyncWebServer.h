@@ -151,6 +151,9 @@ enum AsyncWebRequestMethodType : uint32_t {
   HTTP_LINK = 1u << 22,
   HTTP_UNLINK = 1u << 23,
 
+  /* RFC 10008 */
+  HTTP_QUERY = 1u << 24,
+
   /* icecast */
   // HTTP_SOURCE
 
