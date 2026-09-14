@@ -56,75 +56,6 @@ using ArAuthorizeConnectHandler = ArAuthorizeFunction;
 using AsyncEvent_SharedData_t = std::shared_ptr<String>;
 
 /**
- * @brief Async Event Message container with shared message content data
- *
- */
-class AsyncEventSourceMessage {
-
-private:
-  const AsyncEvent_SharedData_t _data;
-  size_t _sent{0};   // num of bytes already sent
-  size_t _acked{0};  // num of bytes acked
-
-public:
-  AsyncEventSourceMessage(AsyncEvent_SharedData_t data) : _data(data){};
-#if defined(ESP32)
-  AsyncEventSourceMessage(const char *data, size_t len) : _data(std::make_shared<String>(data, len)){};
-#elif defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350)
-  AsyncEventSourceMessage(const char *data, size_t len) : _data(std::make_shared<String>()) {
-    if (data && len > 0) {
-      _data->concat(data, len);
-    }
-  };
-#else
-  // esp8266's String does not have constructor with data/length arguments. Use a concat method here
-  AsyncEventSourceMessage(const char *data, size_t len) {
-    _data->concat(data, len);
-  };
-#endif
-
-  /**
-     * @brief acknowledge sending len bytes of data
-     * @note if num of bytes to ack is larger then the unacknowledged message length the number of carried over bytes are returned
-     *
-     * @param len bytes to acknowledge
-     * @param time
-     * @return size_t number of extra bytes carried over
-     */
-  size_t ack(size_t len, uint32_t time = 0);
-
-  /**
-     * @brief write message data to client's buffer
-     * @note this method does NOT call client's send
-     *
-     * @param client
-     * @return size_t number of bytes written
-     */
-  size_t write(AsyncClient *client);
-
-  /**
-     * @brief writes message data to client's buffer and calls client's send method
-     *
-     * @param client
-     * @return size_t returns num of bytes the clien was able to send()
-     */
-  size_t send(AsyncClient *client);
-
-  // returns true if full message's length were acked
-  bool finished() {
-    return _acked == _data->length();
-  }
-
-  /**
-     * @brief returns true if all data has been sent already
-     *
-     */
-  bool sent() {
-    return _sent == _data->length();
-  }
-};
-
-/**
  * @brief class holds a sse messages queue for a particular client's connection
  *
  */
@@ -136,9 +67,9 @@ private:
   size_t _inflight{0};                    // num of unacknowledged bytes that has been written to socket buffer
   size_t _max_inflight{SSE_MAX_INFLIGH};  // max num of unacknowledged bytes that could be written to socket buffer
   bool _ack_pending = false;
-  std::list<AsyncEventSourceMessage> _messageQueue;
+  size_t _sent{0};  // num of bytes already sent in the head message
+  std::list<AsyncEvent_SharedData_t> _messageQueue;
   mutable asyncsrv::mutex_type _lockmq;
-  bool _queueMessage(const char *message, size_t len);
   bool _queueMessage(AsyncEvent_SharedData_t &&msg);
   void _runQueue();
 
@@ -187,7 +118,19 @@ public:
 
   [[deprecated("Use _write(AsyncEvent_SharedData_t message) instead to share same data with multiple SSE clients")]]
   bool write(const char *message, size_t len) {
-    return connected() && _queueMessage(message, len);
+    if (!connected()) {
+      return false;
+    }
+    // Portable String construction - not all platforms have String(char*, size_t)
+#if defined(ESP32)
+    return _queueMessage(std::make_shared<String>(message, len));
+#else
+    auto data = std::make_shared<String>();
+    if (message && len) {
+      data->concat(message, len);
+    }
+    return _queueMessage(std::move(data));
+#endif
   };
 
   // close client's connection
