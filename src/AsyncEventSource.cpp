@@ -208,13 +208,8 @@ bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
     return false;
   }
 
-  /*
-    throttle queue run
-    if Q is filled for >25% then network/CPU is congested, since there is no zero-copy mode for socket buff
-    forcing Q run will only eat more heap ram and blow the buffer, let's just keep data in our own queue
-    the queue will be processed at least on each onAck()/onPoll() call from AsyncTCP
-  */
-  if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
+  // Send new content if we're not waiting on network buffer space
+  if (!_ack_pending) {
     _runQueue();
   }
 
@@ -237,13 +232,8 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
     return false;
   }
 
-  /*
-    throttle queue run
-    if Q is filled for >25% then network/CPU is congested, since there is no zero-copy mode for socket buff
-    forcing Q run will only eat more heap ram and blow the buffer, let's just keep data in our own queue
-    the queue will be processed at least on each onAck()/onPoll() call from AsyncTCP
-  */
-  if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
+  // Send new content if we're not waiting on network buffer space
+  if (!_ack_pending) {
     _runQueue();
   }
   return true;
@@ -268,6 +258,8 @@ void AsyncEventSourceClient::_onAck(size_t len __attribute__((unused)), uint32_t
       _messageQueue.pop_front();
     }
   }
+
+  _ack_pending = false;  // some space has been cleared
 
   // try to send another batch of data
   if (_messageQueue.size()) {
@@ -322,8 +314,9 @@ void AsyncEventSourceClient::_runQueue() {
       const size_t bytes_written = i->write(_client);
       total_bytes_written += bytes_written;
       _inflight += bytes_written;
-      if (bytes_written == 0 || _inflight > _max_inflight) {
+      if (!i->sent() || _inflight > _max_inflight) {
         // Serial.print("_");
+        _ack_pending = true;  // Output buffer is saturated.
         break;
       }
     }

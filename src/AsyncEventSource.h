@@ -135,6 +135,7 @@ private:
   uint32_t _lastId{0};
   size_t _inflight{0};                    // num of unacknowledged bytes that has been written to socket buffer
   size_t _max_inflight{SSE_MAX_INFLIGH};  // max num of unacknowledged bytes that could be written to socket buffer
+  bool _ack_pending = false;
   std::list<AsyncEventSourceMessage> _messageQueue;
   mutable asyncsrv::mutex_type _lockmq;
   bool _queueMessage(const char *message, size_t len);
