@@ -119,11 +119,11 @@ size_t AsyncEventSourceMessage::write(AsyncClient *client) {
     return 0;
   }
 
-  if (_sent >= _data->length() || !client->canSend()) {
+  if (_sent >= _data->length()) {
     return 0;
   }
 
-  size_t len = std::min(_data->length() - _sent, client->space());
+  size_t len = _data->length() - _sent;
   /*
     add() would call lwip's tcp_write() under the AsyncTCP hood with apiflags argument.
     By default apiflags=ASYNC_WRITE_FLAG_COPY
