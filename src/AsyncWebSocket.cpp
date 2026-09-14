@@ -551,9 +551,9 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
           async_ws_log_v(
             "[%s][%" PRIu32 "] DATA control frame length error: opcode: %" PRIu8 ", len: %" PRIu64 "\n", _server->url(), _clientId, _pinfo.opcode, _pinfo.len
           );
-          close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Send disconnect message with protocol error code
           _pstate = AwsParseState::Error;
-          return;  // Abort processing this frame
+          close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Send disconnect message with protocol error code
+          return;                                   // Abort processing this frame
         }
         // Select length type
         if (_pinfo.len == 126) {
@@ -648,7 +648,7 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
       }
 
       case AwsParseState::Error:
-        async_ws_log_v("[%s][%" PRIu32 "] DATA error state, ignoring data len: %" PRIu64, _server->url(), _clientId, plen);
+        async_ws_log_v("[%s][%" PRIu32 "] DATA error state, ignoring data len: %" PRIu32, _server->url(), _clientId, static_cast<uint32_t>(plen));
         return;  // ignore any further data
     }  // end switch over _pstate
 
@@ -714,8 +714,8 @@ bool AsyncWebSocketClient::_handleClientFrame(uint8_t *data, size_t datalen, boo
           uint8_t *pbuf = new (std::nothrow) uint8_t[(size_t)_pinfo.len];  // cast is safe because _pinfo.len is guaranteed to be <= 125 for control frames
           if (!pbuf) {
             async_ws_log_e("[%s][%" PRIu32 "] DATA failed to allocate buffer for control frame", _server->url(), _clientId);
-            close(WS_CLOSE_INTERNAL_ERROR, nullptr);  // Close the connection with a protocol error code
             _pstate = AwsParseState::Error;
+            close(WS_CLOSE_INTERNAL_ERROR, nullptr);  // Close the connection with a protocol error code
             return false;
           }
           _pbuffer.reset(pbuf);
@@ -773,13 +773,12 @@ bool AsyncWebSocketClient::_handleClientFrame(uint8_t *data, size_t datalen, boo
             _client->ackLater();
           }
           _queueControl(WS_DISCONNECT, data, datalen);
+          return false;  // our object *may* be destroyed; we can no longer process any further data.
         }
-
       } else if (_pinfo.opcode == WS_PING) {
         async_ws_log_v("[%s][%" PRIu32 "] DATA PING", _server->url(), _clientId);
         _server->_handleEvent(this, WS_EVT_PING, NULL, NULL, 0);
         _queueControl(WS_PONG, data, datalen);
-
       } else if (_pinfo.opcode == WS_PONG) {
         async_ws_log_v("[%s][%" PRIu32 "] DATA PONG", _server->url(), _clientId);
         if (datalen != AWSC_PING_PAYLOAD_LEN || memcmp(AWSC_PING_PAYLOAD, data, AWSC_PING_PAYLOAD_LEN) != 0) {
@@ -787,8 +786,8 @@ bool AsyncWebSocketClient::_handleClientFrame(uint8_t *data, size_t datalen, boo
         }
       } else {
         async_ws_log_v("[%s][%" PRIu32 "] DATA unknown control frame: %" PRIu8, _server->url(), _clientId, _pinfo.opcode);
-        close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Close the connection with a protocol error code
         _pstate = AwsParseState::Error;
+        close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Close the connection with a protocol error code
         return false;
       }
     }
@@ -801,8 +800,8 @@ bool AsyncWebSocketClient::_handleClientFrame(uint8_t *data, size_t datalen, boo
       "[%s][%" PRIu32 "] DATA frame error: len: %u, index: %" PRIu64 ", total: %" PRIu64 "\n", _server->url(), _clientId, datalen, _pinfo.index, _pinfo.len
     );
 
-    close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Close the connection with a protocol error code
     _pstate = AwsParseState::Error;
+    close(WS_CLOSE_PROTOCOL_ERROR, nullptr);  // Close the connection with a protocol error code
     return false;
   }
 
