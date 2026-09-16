@@ -1422,10 +1422,10 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket
   sha1.getBytes(hash);
 #endif
 #endif
-  base64_encodestate _state;
-  base64_init_encodestate(&_state);
-  int len = base64_encode_block((const char *)hash, 20, buffer, &_state);
-  len = base64_encode_blockend((buffer + len), &_state);
+  base64_encodestate b64state;
+  base64_init_encodestate(&b64state);
+  int len = base64_encode_block((const char *)hash, 20, buffer, &b64state);
+  len = base64_encode_blockend((buffer + len), &b64state);
   addHeader(WS_STR_CONNECTION, WS_STR_UPGRADE);
   addHeader(WS_STR_UPGRADE, T_WS);
   addHeader(WS_STR_ACCEPT, buffer);
