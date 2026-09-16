@@ -44,47 +44,48 @@ AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
     _itemBufferIndex(0), _itemIsFile(false), _chunkStartIndex(0), _chunkOffset(0), _chunkSize(0), _chunkedParseState(CHUNK_NONE), _chunkedLastChar(0),
     _tempObject(NULL) {
   c->onError(
-    [](void *r, AsyncClient *c, int8_t error) {
-      (void)c;
+    [](void *r, AsyncClient *client, int8_t error) {
+      (void)client;
       // async_ws_log_e("AsyncWebServerRequest::_onError");
       static_cast<AsyncWebServerRequest *>(r)->_onError(error);
     },
     this
   );
   c->onAck(
-    [](void *r, AsyncClient *c, size_t len, uint32_t time) {
-      (void)c;
+    [](void *r, AsyncClient *client, size_t len, uint32_t time) {
+      (void)client;
       // async_ws_log_e("AsyncWebServerRequest::_onAck");
       static_cast<AsyncWebServerRequest *>(r)->_onAck(len, time);
     },
     this
   );
   c->onDisconnect(
-    [](void *r, AsyncClient *c) {
+    [](void *r, AsyncClient *client) {
+      (void)client;
       // async_ws_log_e("AsyncWebServerRequest::_onDisconnect");
       static_cast<AsyncWebServerRequest *>(r)->_onDisconnect();
     },
     this
   );
   c->onTimeout(
-    [](void *r, AsyncClient *c, uint32_t time) {
-      (void)c;
+    [](void *r, AsyncClient *client, uint32_t time) {
+      (void)client;
       // async_ws_log_e("AsyncWebServerRequest::_onTimeout");
       static_cast<AsyncWebServerRequest *>(r)->_onTimeout(time);
     },
     this
   );
   c->onData(
-    [](void *r, AsyncClient *c, void *buf, size_t len) {
-      (void)c;
+    [](void *r, AsyncClient *client, void *buf, size_t len) {
+      (void)client;
       // async_ws_log_e("AsyncWebServerRequest::_onData");
       static_cast<AsyncWebServerRequest *>(r)->_onData(buf, len);
     },
     this
   );
   c->onPoll(
-    [](void *r, AsyncClient *c) {
-      (void)c;
+    [](void *r, AsyncClient *client) {
+      (void)client;
       // async_ws_log_e("AsyncWebServerRequest::_onPoll");
       static_cast<AsyncWebServerRequest *>(r)->_onPoll();
     },
@@ -188,9 +189,9 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
       len = std::min(len, _contentLength - _parsedLength);
       if (_isMultipart) {
         if (needParse) {
-          size_t i;
-          for (i = 0; i < len; i++) {
-            _parseMultipartPostByte(((uint8_t *)buf)[i], i == len - 1);
+          size_t idx;
+          for (idx = 0; idx < len; idx++) {
+            _parseMultipartPostByte(((uint8_t *)buf)[idx], idx == len - 1);
             _parsedLength++;
           }
         } else {
@@ -201,12 +202,12 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
           if (_contentType.startsWith(T_app_xform_urlencoded)) {
             _isPlainPost = true;
           } else if (_contentType == T_text_plain && isParamChar(((char *)buf)[0])) {
-            size_t i = 0;
+            size_t idx = 0;
             char ch;
             do {
-              ch = ((char *)buf)[i];
-            } while (i++ < len && isParamChar(ch));
-            if (i < len && ((char *)buf)[i - 1] == '=') {
+              ch = ((char *)buf)[idx];
+            } while (idx++ < len && isParamChar(ch));
+            if (idx < len && ((char *)buf)[idx - 1] == '=') {
               _isPlainPost = true;
             }
           }
@@ -218,10 +219,10 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
           }
           _parsedLength += len;
         } else if (needParse) {
-          size_t i;
-          for (i = 0; i < len; i++) {
+          size_t idx;
+          for (idx = 0; idx < len; idx++) {
             _parsedLength++;
-            _parsePlainPostChar(((uint8_t *)buf)[i]);
+            _parsePlainPostChar(((uint8_t *)buf)[idx]);
           }
         } else {
           _parsedLength += len;
