@@ -99,52 +99,6 @@ static String generateEventMessage(const char *message, const char *event, uint3
   return str;
 }
 
-// Message
-
-size_t AsyncEventSourceMessage::ack(size_t len, __attribute__((unused)) uint32_t time) {
-  // If the whole message is now acked...
-  if (_acked + len > _data->length()) {
-    // Return the number of extra bytes acked (they will be carried on to the next message)
-    const size_t extra = _acked + len - _data->length();
-    _acked = _data->length();
-    return extra;
-  }
-  // Return that no extra bytes left.
-  _acked += len;
-  return 0;
-}
-
-size_t AsyncEventSourceMessage::write(AsyncClient *client) {
-  if (!client) {
-    return 0;
-  }
-
-  if (_sent >= _data->length() || !client->canSend()) {
-    return 0;
-  }
-
-  size_t len = std::min(_data->length() - _sent, client->space());
-  /*
-    add() would call lwip's tcp_write() under the AsyncTCP hood with apiflags argument.
-    By default apiflags=ASYNC_WRITE_FLAG_COPY
-    we could have used apiflags with this flag unset to pass data by reference and avoid copy to socket buffer,
-    but looks like it does not work for Arduino's lwip in ESP32/IDF
-    it is enforced in https://github.com/espressif/esp-lwip/blob/0606eed9d8b98a797514fdf6eabb4daf1c8c8cd9/src/core/tcp_out.c#L422C5-L422C30
-    if LWIP_NETIF_TX_SINGLE_PBUF is set, and it is set indeed in IDF
-    https://github.com/espressif/esp-idf/blob/a0f798cfc4bbd624aab52b2c194d219e242d80c1/components/lwip/port/include/lwipopts.h#L744
-
-    So let's just keep it enforced ASYNC_WRITE_FLAG_COPY and keep in mind that there is no zero-copy
-  */
-  size_t written = client->add(_data->c_str() + _sent, len, ASYNC_WRITE_FLAG_COPY);  //  ASYNC_WRITE_FLAG_MORE
-  _sent += written;
-  return written;
-}
-
-size_t AsyncEventSourceMessage::send(AsyncClient *client) {
-  size_t sent = write(client);
-  return sent && client->send() ? sent : 0;
-}
-
 // Client
 
 AsyncEventSourceClient::AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId)
@@ -192,35 +146,6 @@ AsyncEventSourceClient::~AsyncEventSourceClient() {
   close();
 }
 
-bool AsyncEventSourceClient::_queueMessage(const char *message, size_t len) {
-  // Protect message queue access (size checks and modifications) which is not thread-safe.
-  asyncsrv::lock_guard_type lock(_lockmq);
-
-  if (_messageQueue.size() >= SSE_MAX_QUEUED_MESSAGES) {
-    async_ws_log_w("Event message queue overflow: discard message");
-    return false;
-  }
-
-  if (_client) {
-    _messageQueue.emplace_back(message, len);
-  } else {
-    _messageQueue.clear();
-    return false;
-  }
-
-  /*
-    throttle queue run
-    if Q is filled for >25% then network/CPU is congested, since there is no zero-copy mode for socket buff
-    forcing Q run will only eat more heap ram and blow the buffer, let's just keep data in our own queue
-    the queue will be processed at least on each onAck()/onPoll() call from AsyncTCP
-  */
-  if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
-    _runQueue();
-  }
-
-  return true;
-}
-
 bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
   // Protect message queue access (size checks and modifications) which is not thread-safe.
   asyncsrv::lock_guard_type lock(_lockmq);
@@ -230,6 +155,10 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
     return false;
   }
 
+  if (!msg || msg->length() == 0) {
+    return false;  // Invalid message
+  }
+
   if (_client) {
     _messageQueue.emplace_back(std::move(msg));
   } else {
@@ -237,19 +166,14 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
     return false;
   }
 
-  /*
-    throttle queue run
-    if Q is filled for >25% then network/CPU is congested, since there is no zero-copy mode for socket buff
-    forcing Q run will only eat more heap ram and blow the buffer, let's just keep data in our own queue
-    the queue will be processed at least on each onAck()/onPoll() call from AsyncTCP
-  */
-  if (_client && _client->canSend() && _messageQueue.size() < SSE_MAX_QUEUED_MESSAGES >> 2) {
+  // Send new content if we're not waiting on network buffer space
+  if (!_ack_pending && (_inflight < _max_inflight)) {
     _runQueue();
   }
   return true;
 }
 
-void AsyncEventSourceClient::_onAck(size_t len __attribute__((unused)), uint32_t time __attribute__((unused))) {
+void AsyncEventSourceClient::_onAck(size_t len, uint32_t time __attribute__((unused))) {
   // Protect message queue access (size checks and modifications) which is not thread-safe.
   asyncsrv::lock_guard_type lock(_lockmq);
 
@@ -260,14 +184,7 @@ void AsyncEventSourceClient::_onAck(size_t len __attribute__((unused)), uint32_t
     _inflight = 0;
   }
 
-  // acknowledge as much messages's data as we got confirmed len from a AsyncTCP
-  while (len && _messageQueue.size()) {
-    len = _messageQueue.front().ack(len);
-    if (_messageQueue.front().finished()) {
-      // now we could release full ack'ed messages, we were keeping it unless send confirmed from AsyncTCP
-      _messageQueue.pop_front();
-    }
-  }
+  _ack_pending = false;  // some space has been cleared
 
   // try to send another batch of data
   if (_messageQueue.size()) {
@@ -278,7 +195,7 @@ void AsyncEventSourceClient::_onAck(size_t len __attribute__((unused)), uint32_t
 void AsyncEventSourceClient::_onPoll() {
   // Protect message queue access (size checks and modifications) which is not thread-safe.
   asyncsrv::lock_guard_type lock(_lockmq);
-  if (_messageQueue.size()) {
+  if ((_messageQueue.size()) && (_inflight < _max_inflight)) {
     _runQueue();
   }
 }
@@ -317,15 +234,36 @@ void AsyncEventSourceClient::_runQueue() {
 
   // there is no need to lock the mutex here, 'cause all the calls to this method must be already lock'ed
   size_t total_bytes_written = 0;
-  for (auto i = _messageQueue.begin(); i != _messageQueue.end(); ++i) {
-    if (!i->sent()) {
-      const size_t bytes_written = i->write(_client);
-      total_bytes_written += bytes_written;
-      _inflight += bytes_written;
-      if (bytes_written == 0 || _inflight > _max_inflight) {
-        // Serial.print("_");
-        break;
-      }
+  while (!_messageQueue.empty()) {
+    auto &data = _messageQueue.front();
+    size_t len = data->length() - _sent;
+    /*
+      add() would call lwip's tcp_write() under the AsyncTCP hood with apiflags argument.
+      By default apiflags=ASYNC_WRITE_FLAG_COPY
+      we could have used apiflags with this flag unset to pass data by reference and avoid copy to socket buffer,
+      but looks like it does not work for Arduino's lwip in ESP32/IDF
+      it is enforced in https://github.com/espressif/esp-lwip/blob/0606eed9d8b98a797514fdf6eabb4daf1c8c8cd9/src/core/tcp_out.c#L422C5-L422C30
+      if LWIP_NETIF_TX_SINGLE_PBUF is set, and it is set indeed in IDF
+      https://github.com/espressif/esp-idf/blob/a0f798cfc4bbd624aab52b2c194d219e242d80c1/components/lwip/port/include/lwipopts.h#L744
+
+      So let's just keep it enforced ASYNC_WRITE_FLAG_COPY and keep in mind that there is no zero-copy
+    */
+    size_t bytes_written = _client->add(data->c_str() + _sent, len, ASYNC_WRITE_FLAG_COPY);  //  ASYNC_WRITE_FLAG_MORE
+    if (bytes_written == 0) {
+      break;
+    }
+    total_bytes_written += bytes_written;
+    _inflight += bytes_written;
+    if ((_sent + bytes_written) == data->length()) {
+      _messageQueue.pop_front();
+      _sent = 0;
+    } else {
+      _sent += bytes_written;
+    }
+    if (_sent || _inflight > _max_inflight) {
+      // Serial.print("_");
+      _ack_pending = true;  // Output buffer is saturated.
+      break;
     }
   }
 
