@@ -50,7 +50,9 @@
 class AsyncEventSource;
 class AsyncEventSourceResponse;
 class AsyncEventSourceClient;
+using AsyncEventSourceClientId = uint32_t;
 using ArEventHandlerFunction = std::function<void(AsyncEventSourceClient *client)>;
+using ArEventConnectHandlerFunction = std::function<void(AsyncWebServerRequest *request, AsyncEventSourceClient *client)>;
 using ArAuthorizeConnectHandler = ArAuthorizeFunction;
 // shared message object container
 using AsyncEvent_SharedData_t = std::shared_ptr<String>;
@@ -130,8 +132,10 @@ public:
  */
 class AsyncEventSourceClient {
 private:
+  friend class AsyncEventSource;
   AsyncClient *_client;
   AsyncEventSource *_server;
+  AsyncEventSourceClientId _id{0};
   uint32_t _lastId{0};
   size_t _inflight{0};                    // num of unacknowledged bytes that has been written to socket buffer
   size_t _max_inflight{SSE_MAX_INFLIGH};  // max num of unacknowledged bytes that could be written to socket buffer
@@ -150,7 +154,9 @@ public:
    * @param server
    * @param lastId
    */
-  AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId = 0);
+  AsyncEventSourceClient(
+    AsyncClient *client, AsyncEventSource *server, uint32_t lastId = 0, AsyncWebServerRequest *request = nullptr
+  );
   ~AsyncEventSourceClient();
 
   /**
@@ -203,6 +209,9 @@ public:
   uint32_t lastId() const {
     return _lastId;
   }
+  AsyncEventSourceClientId id() const {
+    return _id;
+  }
   size_t packetsWaiting() const {
     asyncsrv::lock_guard_type lock(_lockmq);
     return _messageQueue.size();
@@ -246,7 +255,9 @@ private:
   // since simultaneous access from different tasks is possible
   mutable asyncsrv::mutex_type _client_queue_lock;
   ArEventHandlerFunction _connectcb = nullptr;
+  ArEventConnectHandlerFunction _requestConnectcb = nullptr;
   ArEventHandlerFunction _disconnectcb = nullptr;
+  AsyncEventSourceClientId _nextClientId{1};
 
   // this method manipulates in-fligh data size for connected client depending on number of active connections
   void _adjust_inflight_window();
@@ -270,6 +281,9 @@ public:
   // close all connected clients
   void close();
 
+  // close one connected client by its stable event-source ID
+  bool closeClient(AsyncEventSourceClientId id);
+
   /**
      * @brief set on-connect callback for the client
      * used to deliver messages to client on first connect
@@ -278,6 +292,14 @@ public:
      */
   void onConnect(ArEventHandlerFunction cb) {
     _connectcb = cb;
+  }
+
+  /**
+   * @brief set an on-connect callback that also receives the originating request
+   * @note the request pointer is valid only for the duration of the callback
+   */
+  void onConnectWithRequest(ArEventConnectHandlerFunction cb) {
+    _requestConnectcb = cb;
   }
 
   /**
@@ -311,7 +333,7 @@ public:
   size_t avgPacketsWaiting() const;
 
   // system callbacks (do not call from user code!)
-  void _addClient(AsyncEventSourceClient *client);
+  void _addClient(AsyncEventSourceClient *client, AsyncWebServerRequest *request = nullptr);
   void _handleDisconnect(AsyncEventSourceClient *client);
   bool canHandle(AsyncWebServerRequest *request) const final;
   void handleRequest(AsyncWebServerRequest *request) final;
