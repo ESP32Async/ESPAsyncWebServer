@@ -516,6 +516,8 @@ void AsyncWebSocketClient::_onData(void *pbuf, size_t plen) {
     );
 
     if (_pstate == STATE_FRAME_START) {
+      if (plen < 2) break;  // torn base header: the delivery ends inside the 2 header bytes
+
       const uint8_t *fdata = data;
 
       _pinfo.index = 0;
