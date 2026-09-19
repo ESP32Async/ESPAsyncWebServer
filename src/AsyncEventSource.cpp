@@ -147,7 +147,9 @@ size_t AsyncEventSourceMessage::send(AsyncClient *client) {
 
 // Client
 
-AsyncEventSourceClient::AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId)
+AsyncEventSourceClient::AsyncEventSourceClient(
+  AsyncClient *client, AsyncEventSource *server, uint32_t lastId, AsyncWebServerRequest *request
+)
   : _client(client), _server(server), _lastId(lastId) {
 
   _client->setRxTimeout(0);
@@ -181,7 +183,7 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncClient *client, AsyncEventSo
     this
   );
 
-  _server->_addClient(this);
+  _server->_addClient(this, request);
   _client->setNoDelay(true);
 }
 
@@ -349,13 +351,24 @@ void AsyncEventSource::authorizeConnect(ArAuthorizeConnectHandler cb) {
   addMiddleware(m);
 }
 
-void AsyncEventSource::_addClient(AsyncEventSourceClient *client) {
+void AsyncEventSource::_addClient(AsyncEventSourceClient *client, AsyncWebServerRequest *request) {
   if (!client) {
     return;
   }
 
+  {
+    asyncsrv::lock_guard_type lock(_client_queue_lock);
+    client->_id = _nextClientId++;
+    if (_nextClientId == 0) {
+      _nextClientId = 1;
+    }
+  }
+
   if (_connectcb) {
     _connectcb(client);
+  }
+  if (_requestConnectcb) {
+    _requestConnectcb(request, client);
   }
 
   asyncsrv::lock_guard_type lock(_client_queue_lock);
@@ -393,6 +406,37 @@ void AsyncEventSource::close() {
       c->close();
     }
   }
+}
+
+bool AsyncEventSource::closeClient(AsyncEventSourceClientId id) {
+  if (id == 0) {
+    return false;
+  }
+
+  std::unique_ptr<AsyncEventSourceClient> client;
+  {
+    asyncsrv::lock_guard_type lock(_client_queue_lock);
+    for (auto i = _clients.begin(); i != _clients.end(); ++i) {
+      if ((*i)->id() == id) {
+        client = std::move(*i);
+        _clients.erase(i);
+        _adjust_inflight_window();
+        break;
+      }
+    }
+  }
+
+  if (!client) {
+    return false;
+  }
+
+  client->close();
+  if (client->connected()) {
+    asyncsrv::lock_guard_type lock(_client_queue_lock);
+    _clients.emplace_back(std::move(client));
+    _adjust_inflight_window();
+  }
+  return true;
 }
 
 // pmb fix
@@ -480,5 +524,5 @@ void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
   request->client()->write(out.c_str(), _headLength);
   // Add a new AsyncEventSourceClient to the server's list of clients
   // This adopts the ownership of the AsyncTCP's client pointer from `request` parameter
-  new AsyncEventSourceClient(request->clientRelease(), _server, lastId);
+  new AsyncEventSourceClient(request->clientRelease(), _server, lastId, request);
 }
