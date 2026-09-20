@@ -101,9 +101,7 @@ static String generateEventMessage(const char *message, const char *event, uint3
 
 // Client
 
-AsyncEventSourceClient::AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId)
-  : _client(client), _server(server), _lastId(lastId) {
-
+AsyncEventSourceClient::AsyncEventSourceClient(ConstructToken, AsyncClient *client, uint32_t lastId) : _client(client), _server(nullptr), _lastId(lastId) {
   _client->setRxTimeout(0);
   _client->onError(NULL, NULL);
   _client->onAck(
@@ -129,13 +127,14 @@ AsyncEventSourceClient::AsyncEventSourceClient(AsyncClient *client, AsyncEventSo
   );
   _client->onDisconnect(
     [this](void *r, AsyncClient *c) {
-      static_cast<AsyncEventSourceClient *>(r)->_onDisconnect();
+      // Hold this object in scope until we're done
+      auto locked_client = static_cast<AsyncEventSourceClient *>(r)->shared();
+      locked_client->_onDisconnect();
       delete c;
     },
     this
   );
 
-  _server->_addClient(this);
   _client->setNoDelay(true);
 }
 
@@ -211,7 +210,9 @@ void AsyncEventSourceClient::_onDisconnect() {
     return;
   }
   _client = nullptr;
-  _server->_handleDisconnect(this);
+  if (_server) {
+    _server->_handleDisconnect(this);
+  }
 }
 
 void AsyncEventSourceClient::close() {
@@ -287,18 +288,18 @@ void AsyncEventSource::authorizeConnect(ArAuthorizeConnectHandler cb) {
   addMiddleware(m);
 }
 
-void AsyncEventSource::_addClient(AsyncEventSourceClient *client) {
+void AsyncEventSource::_addClient(std::shared_ptr<AsyncEventSourceClient> client) {
   if (!client) {
     return;
   }
 
   if (_connectcb) {
-    _connectcb(client);
+    _connectcb(client.get());
   }
 
   asyncsrv::lock_guard_type lock(_client_queue_lock);
-  _clients.emplace_back(client);
-
+  client->_server = this;
+  _clients.emplace_back(std::move(client));
   _adjust_inflight_window();
 }
 
@@ -309,6 +310,7 @@ void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
   asyncsrv::lock_guard_type lock(_client_queue_lock);
   for (auto i = _clients.begin(); i != _clients.end(); ++i) {
     if (i->get() == client) {
+      client->_server = nullptr;
       _clients.erase(i);
       break;
     }
@@ -317,20 +319,22 @@ void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
 }
 
 void AsyncEventSource::close() {
-  // While the whole loop is not done, the linked list is locked and so the
-  // iterator should remain valid even when AsyncEventSource::_handleDisconnect()
-  // is called very early
-  asyncsrv::lock_guard_type lock(_client_queue_lock);
-  for (const auto &c : _clients) {
-    if (c->connected()) {
-      /**
-       * @brief: Fix self-deadlock by using recursive_mutex instead.
-       * Due to c->close() shall call the callback function _onDisconnect()
-       * The calling flow _onDisconnect() --> _handleDisconnect() --> deadlock
-      */
-      c->close();
+  // Stack local clients list to hold out the clients for cleanup outside the lock
+  decltype(_clients) clients_old;
+  {
+    // Release all clients from the server
+    asyncsrv::lock_guard_type lock(_client_queue_lock);
+    for (const auto &c : _clients) {
+      c->_server = nullptr;
     }
+    // Pull the clients out of the active list into the old list for cleanup outside the lock
+    std::swap(_clients, clients_old);
   }
+  // Close all clients that were previously active
+  for (const auto &c : clients_old) {
+    c->close();
+  }
+  // Client pointers will be released when clients_old goes out of scope.
 }
 
 // pmb fix
@@ -416,7 +420,7 @@ void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
     lastId = strtoul(request->getHeader(T_Last_Event_ID)->value().c_str(), nullptr, 10);
   }
   request->client()->write(out.c_str(), _headLength);
+
   // Add a new AsyncEventSourceClient to the server's list of clients
-  // This adopts the ownership of the AsyncTCP's client pointer from `request` parameter
-  new AsyncEventSourceClient(request->clientRelease(), _server, lastId);
+  _server->_addClient(AsyncEventSourceClient::create(request->clientRelease(), lastId));
 }

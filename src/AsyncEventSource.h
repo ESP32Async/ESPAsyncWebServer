@@ -59,7 +59,7 @@ using AsyncEvent_SharedData_t = std::shared_ptr<String>;
  * @brief class holds a sse messages queue for a particular client's connection
  *
  */
-class AsyncEventSourceClient {
+class AsyncEventSourceClient : public std::enable_shared_from_this<AsyncEventSourceClient> {
 private:
   AsyncClient *_client;
   AsyncEventSource *_server;
@@ -73,16 +73,31 @@ private:
   bool _queueMessage(AsyncEvent_SharedData_t &&msg);
   void _runQueue();
 
+  // system callbacks
+  void _onAck(size_t len, uint32_t time);
+  void _onPoll();
+  void _onTimeout(uint32_t time);
+  void _onDisconnect();
+
+  friend class AsyncEventSource;
+  struct ConstructToken {
+    explicit ConstructToken() = default;
+  };
+
 public:
+  // Real constructor that requires a ConstructToken to enforce controlled creation through the create() method.
+  AsyncEventSourceClient(ConstructToken, AsyncClient *client, uint32_t lastId);
+
   /**
    * @brief Construct a new Async Event Source Client object
    * @note constructor is normally passed a client object from AsyncWebServerRequest::releaseClient(); see AsyncEventSourceResponse::_respond()
    *
    * @param client
-   * @param server
    * @param lastId
    */
-  AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId = 0);
+  static std::shared_ptr<AsyncEventSourceClient> create(AsyncClient *client, uint32_t lastId = 0) {
+    return std::make_shared<AsyncEventSourceClient>(ConstructToken{}, client, lastId);
+  }
   ~AsyncEventSourceClient();
 
   /**
@@ -152,6 +167,11 @@ public:
     return _messageQueue.size();
   };
 
+  // get shared pointer to this object
+  std::shared_ptr<AsyncEventSourceClient> shared() {
+    return shared_from_this();
+  }
+
   /**
      * @brief Sets max amount of bytes that could be written to client's socket while awaiting delivery acknowledge
      * used to throttle message delivery length to tradeoff memory consumption
@@ -169,12 +189,6 @@ public:
   size_t get_max_inflight_bytes() const {
     return _max_inflight;
   }
-
-  // system callbacks (do not call if from user code!)
-  void _onAck(size_t len, uint32_t time);
-  void _onPoll();
-  void _onTimeout(uint32_t time);
-  void _onDisconnect();
 };
 
 /**
@@ -185,7 +199,7 @@ public:
 class AsyncEventSource : public AsyncWebHandler {
 private:
   String _url;
-  std::list<std::unique_ptr<AsyncEventSourceClient>> _clients;
+  std::list<std::shared_ptr<AsyncEventSourceClient>> _clients;
   // Same as for individual messages, protect mutations of _clients list
   // since simultaneous access from different tasks is possible
   mutable asyncsrv::mutex_type _client_queue_lock;
@@ -255,7 +269,7 @@ public:
   size_t avgPacketsWaiting() const;
 
   // system callbacks (do not call from user code!)
-  void _addClient(AsyncEventSourceClient *client);
+  void _addClient(std::shared_ptr<AsyncEventSourceClient> client);
   void _handleDisconnect(AsyncEventSourceClient *client);
   bool canHandle(AsyncWebServerRequest *request) const final;
   void handleRequest(AsyncWebServerRequest *request) final;
