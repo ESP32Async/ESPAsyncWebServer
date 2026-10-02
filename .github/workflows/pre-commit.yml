@@ -73,7 +73,7 @@ jobs:
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
 
       - name: Push changes using pre-commit-ci-lite
-        uses: pre-commit-ci/lite-action@v1.1.0
+        uses: pre-commit-ci/lite-action@v1.2.0
         # Only push changes in PRs
         if: ${{ always() && github.event_name == 'pull_request' }}
         with:
