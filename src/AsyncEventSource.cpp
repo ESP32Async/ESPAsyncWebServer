@@ -250,7 +250,7 @@ void AsyncEventSourceClient::_runQueue() {
     */
     size_t bytes_written = _client->add(data->c_str() + _sent, len, ASYNC_WRITE_FLAG_COPY);  //  ASYNC_WRITE_FLAG_MORE
     if (bytes_written == 0) {
-      break;
+      break;  // Send buffer is 100% full
     }
     total_bytes_written += bytes_written;
     _inflight += bytes_written;
@@ -261,10 +261,15 @@ void AsyncEventSourceClient::_runQueue() {
       _sent += bytes_written;
     }
     if (_sent || _inflight > _max_inflight) {
-      // Serial.print("_");
-      _ack_pending = true;  // Output buffer is saturated.
+      // Incomplete message or inflight bytes exceed the maximum allowed
       break;
     }
+  }
+
+  // If we exited the loop with messages still in the queue, it means we couldn't send all of them;
+  // flag that we're waiting for an acknowledgment from the client
+  if (!_messageQueue.empty()) {
+    _ack_pending = true;
   }
 
   // flush socket
