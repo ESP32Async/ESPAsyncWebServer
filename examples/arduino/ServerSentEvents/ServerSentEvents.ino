@@ -70,13 +70,13 @@ void setup() {
     request->send(200, "text/html", (uint8_t *)htmlContent, htmlContentLength);
   });
 
-  events.onConnect([](AsyncEventSourceClient *client) {
-    Serial.printf("SSE Client connected!");
+  events.onConnectWithRequest([](AsyncWebServerRequest *request, AsyncEventSourceClient *client) {
+    Serial.printf("SSE Client %" PRIu32 " connected to %s!", client->id(), request->url().c_str());
     client->send("hello!", NULL, millis(), 1000);
   });
 
   events.onDisconnect([](AsyncEventSourceClient *client) {
-    Serial.printf("SSE Client disconnected!");
+    Serial.printf("SSE Client %" PRIu32 " disconnected!", client->id());
   });
 
   server.addHandler(&events);
