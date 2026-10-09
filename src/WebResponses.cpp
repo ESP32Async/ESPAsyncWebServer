@@ -499,8 +499,14 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
     request->client()->send();
     _writtenLength += payloadlen;
 #if ASYNCWEBSERVER_USE_CHUNK_INFLIGHT
-    _in_flight += payloadlen;
-    --_in_flight_credit;  // take a credit
+    // Take a credit only for data actually put in flight.  When the source
+    // had nothing yet (RESPONSE_TRY_AGAIN), nothing will be acked to return
+    // the credit, and polls don't return credits, so spending one here would
+    // stall the response for good once the credits run out.
+    if (payloadlen) {
+      _in_flight += payloadlen;
+      --_in_flight_credit;  // take a credit
+    }
 #endif
     if (_send_buffer_len == 0) {
       // buffer empty, we can release mem, otherwise need to keep it till next run (should not happen under normal conditions)
