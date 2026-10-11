@@ -714,7 +714,7 @@ public:
   }
 #else
   void send_P(int code, const String &contentType, PGM_P content, AwsTemplateProcessor callback = nullptr) {
-    send(beginResponse_P(code, contentType, content, callback));
+    send(beginResponse(code, contentType, content, callback));
   }
 #endif
 
