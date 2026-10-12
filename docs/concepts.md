@@ -79,6 +79,9 @@ flowchart TD
   A `Handler` registered with `addHandler(ref)` or `addHandler(ptr, false)` is **non-owning** — the caller manages
   its lifetime. This lets you place handlers in static RAM, PSRAM, or any custom memory region.
   See [Routing — Handler Ownership and Memory Placement](routing.md#handler-ownership-and-memory-placement).
+- The server maintains a **route table** (`addRoute()`) that decouples URI/method matching from the handler object.
+  Routes are evaluated before legacy handlers. One handler object can serve multiple routes.
+  See [Routing — Route Table](routing.md#route-table-one-handler-multiple-routes).
 
 ### Responses and how do they work
 

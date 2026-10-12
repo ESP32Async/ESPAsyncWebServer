@@ -300,7 +300,16 @@ void AsyncCallbackWebHandler::setUri(AsyncURIMatcher uri) {
 }
 
 bool AsyncCallbackWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  if (!_onRequest || !request->isHTTP() || !_method.matches(request->method())) {
+  if (!_onRequest || !request->isHTTP()) {
+    return false;
+  }
+  // Phase 2: if this handler is registered via addRoute(), the server already
+  // matched the URI and method — canHandle() only needs to confirm it's HTTP.
+  if (_routeManaged) {
+    return true;
+  }
+  // Phase 1 / legacy: handler does its own URI + method matching.
+  if (!_method.matches(request->method())) {
     return false;
   }
   return _uri.matches(request);

@@ -239,6 +239,90 @@ server.setCatchAllHandler(catchAll);  // non-owning — catchAll lives in static
 
 See the [CustomAllocation example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/CustomAllocation/CustomAllocation.ino) for a complete sketch.
 
+## Route Table: One Handler, Multiple Routes
+
+The `addRoute()` API decouples **URI matching** from the **handler object**. The server's routing table stores `{ URI matcher, HTTP method, handler pointer }`, so a single handler object can serve multiple routes.
+
+Routes are evaluated in insertion order, **before** legacy handlers (registered via `addHandler()` or `on()`).
+
+| Registration | Ownership | Use case |
+|---|---|---|
+| `server.addRoute(uri, method, new MyHandler())` | Server owns | Default, backward compatible |
+| `server.addRoute(uri, method, ptr, false)` | Non-owning (pointer) | Heap or PSRAM via placement new |
+| `server.addRoute(uri, method, myHandler)` | Non-owning (reference) | Stack, static, or global object |
+
+### One Handler, Multiple Routes
+
+```cpp
+static AsyncWebServer server(80);
+
+// One handler object — lives in static RAM
+static AsyncCallbackWebHandler greetHandler;
+
+void setup() {
+  greetHandler.onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Hello from " + request->url());
+  });
+
+  // Same handler on three different routes:
+  server.addRoute(AsyncURIMatcher::exact("/hello"), HTTP_GET, greetHandler);
+  server.addRoute(AsyncURIMatcher::exact("/hi"), HTTP_GET, greetHandler);
+  server.addRoute(AsyncURIMatcher::prefix("/greet/"), HTTP_GET, greetHandler);
+
+  server.begin();
+}
+```
+
+### Method-Based Routing
+
+The route table also filters by HTTP method — a `GET` route won't match a `POST` request:
+
+```cpp
+static AsyncCallbackWebHandler handler;
+handler.onRequest([](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "GET response");
+});
+handler.onBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {});
+
+// Only GET /data matches this route; POST /data falls through to the next handler
+server.addRoute(AsyncURIMatcher::exact("/data"), HTTP_GET, handler);
+```
+
+### PSRAM Handler on Multiple Routes (ESP32)
+
+```cpp
+#include <esp_heap_caps.h>
+
+void setup() {
+  void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  auto *handler = new (mem) AsyncCallbackWebHandler();
+  handler->onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // Same PSRAM handler on two routes — non-owning:
+  server.addRoute(AsyncURIMatcher::prefix("/api/"), HTTP_GET, handler, false);
+  server.addRoute(AsyncURIMatcher::exact("/status"), HTTP_GET, handler, false);
+
+  server.begin();
+}
+```
+
+### Removing Routes
+
+```cpp
+// Remove a specific route by URI + method:
+server.removeRoute(AsyncURIMatcher::exact("/hello"), HTTP_GET);
+
+// removeHandler() also works for route-registered handlers:
+server.removeHandler(&greetHandler);  // removes ALL routes pointing to this handler
+```
+
+> [!NOTE]
+> Routes and legacy handlers (`on()`, `addHandler()`, `serveStatic()`) coexist. Routes are checked first. Existing code using `on()` / `addHandler()` works identically — no migration required.
+
+See the [MultiRoute example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/MultiRoute/MultiRoute.ino) for a complete sketch.
+
 ## Remove handlers and rewrites
 
 Server goes through handlers in same order as they were added. You can't simple add handler with same path to override them.

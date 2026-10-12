@@ -1044,6 +1044,21 @@ public:
 
   bool matches(AsyncWebServerRequest *request) const;
 
+  /**
+   * @brief Compare two matchers by their string value.
+   *
+   * Used by removeRoute() to find a route to remove. Two matchers are equal
+   * if they have the same URI string value (case-sensitive comparison).
+   * Matcher type and modifiers are not compared — two matchers with the same
+   * string but different types are considered equal for removal purposes.
+   */
+  bool operator==(const AsyncURIMatcher &other) const {
+    return _value == other._value;
+  }
+  bool operator!=(const AsyncURIMatcher &other) const {
+    return !(*this == other);
+  }
+
   // static factory methods for common match types:
   // - AsyncURIMatcher::all() - matches everything
   // - AsyncURIMatcher::none() - matches nothing
@@ -1689,9 +1704,20 @@ protected:
     std::unique_ptr<AsyncWebHandler> owned;    // non-null if server owns it
   };
 
+  // Route entry: decouples URI matching from the handler object (Phase 2).
+  // The server's routing table stores these so one handler can serve multiple routes.
+  // `hasMatcher` is false for legacy handlers registered via addHandler() (matched by canHandle()).
+  struct RouteEntry {
+    AsyncURIMatcher uri;                       // URI matcher (moved in, cheap for non-regex)
+    WebRequestMethodComposite method;          // HTTP method mask
+    bool hasMatcher;                           // true if uri/method matching is done by the server
+    HandlerEntry entry;                        // ownership tracking (same as _handlers)
+  };
+
   AsyncServer _server;
   std::list<std::shared_ptr<AsyncWebRewrite>> _rewrites;
-  std::list<HandlerEntry> _handlers;
+  std::list<HandlerEntry> _handlers;           // legacy handlers (canHandle-based dispatch)
+  std::list<RouteEntry> _routes;               // route table (uri+method-based dispatch)
   // May be nullptr if the user explicitly opted out of a catch-all handler.
   // When nullptr, unmatched requests get a bare 501 response (no handler chain runs).
   AsyncCallbackWebHandler *_catchAllHandler = nullptr;
@@ -1867,6 +1893,55 @@ public:
   AsyncWebHandler &addHandler(AsyncWebHandler &handler);
 
   bool removeHandler(AsyncWebHandler *handler);
+
+  // ========================================================================
+  // Phase 2: Route table API — decouple URI matching from handler objects.
+  // One handler can serve multiple routes. Routes are evaluated before
+  // legacy handlers (registered via addHandler).
+  // ========================================================================
+
+  /**
+   * @brief Register a route: URI matcher + HTTP method + handler.
+   *
+   * The server takes ownership of the handler by default. Pass
+   * `takeOwnership = false` for a non-owning registration.
+   *
+   * The same handler can be attached to multiple routes:
+   * @code
+   * AsyncCallbackWebHandler handler;
+   * handler.onRequest([](AsyncWebServerRequest *req) { req->send(200, "text/plain", "OK"); });
+   * server.addRoute(AsyncURIMatcher::exact("/foo"), HTTP_GET, handler);
+   * server.addRoute(AsyncURIMatcher::exact("/bar"), HTTP_GET, handler);  // same object
+   * @endcode
+   *
+   * Routes are evaluated in insertion order, before legacy handlers.
+   *
+   * @param uri URI matcher (e.g. AsyncURIMatcher::exact("/path"))
+   * @param method HTTP method mask (e.g. HTTP_GET, HTTP_GET | HTTP_POST)
+   * @param handler Pointer to the handler. Must remain valid while registered.
+   * @param takeOwnership If true (default), server owns and deletes the handler.
+   * @return Reference to the registered handler.
+   */
+  AsyncWebHandler &addRoute(AsyncURIMatcher uri, WebRequestMethodComposite method, AsyncWebHandler *handler, bool takeOwnership = true);
+
+  /**
+   * @brief Register a route with a user-managed handler (non-owning).
+   *
+   * @param uri URI matcher
+   * @param method HTTP method mask
+   * @param handler Reference to the handler. Must remain valid while registered.
+   * @return Reference to the registered handler (same object).
+   */
+  AsyncWebHandler &addRoute(AsyncURIMatcher uri, WebRequestMethodComposite method, AsyncWebHandler &handler);
+
+  /**
+   * @brief Remove a route by URI matcher and method.
+   *
+   * @param uri The URI matcher to match (exact copy comparison)
+   * @param method The HTTP method mask to match
+   * @return true if a route was removed
+   */
+  bool removeRoute(const AsyncURIMatcher &uri, WebRequestMethodComposite method);
 
   /**
    * @brief Replace the catch-all (not-found) handler with a user-provided one.

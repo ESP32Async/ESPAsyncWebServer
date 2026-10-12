@@ -92,3 +92,23 @@ server.setCatchAllHandler(nullptr);                  // remove catch-all entirel
 > When using non-owning registration, you are responsible for keeping the handler alive while it is registered with the server, and for destroying it after unregistration. For PSRAM handlers, remember to call the destructor explicitly and then `heap_caps_free()` the memory block.
 
 See the [CustomAllocation example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/CustomAllocation/CustomAllocation.ino) and the [Routing](routing.md#handler-ownership-and-memory-placement) documentation for more details.
+
+## Route Table: One Handler, Multiple Routes
+
+The `addRoute()` API decouples URI matching from the handler object — the server's routing table stores the URI matcher and HTTP method alongside a handler pointer. This lets **one handler object serve multiple routes**:
+
+```cpp
+static AsyncCallbackWebHandler handler;
+handler.onRequest([](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "OK");
+});
+
+// Same handler, three routes (non-owning, static RAM):
+server.addRoute(AsyncURIMatcher::exact("/foo"), HTTP_GET, handler);
+server.addRoute(AsyncURIMatcher::exact("/bar"), HTTP_GET, handler);
+server.addRoute(AsyncURIMatcher::exact("/status"), HTTP_GET, handler, false);  // non-owning ptr
+```
+
+Routes are evaluated before legacy handlers (`on()`, `addHandler()`, `serveStatic()`). Existing code works identically — no migration required.
+
+See the [MultiRoute example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/MultiRoute/MultiRoute.ino) and the [Routing](routing.md#route-table-one-handler-multiple-routes) documentation for more details.

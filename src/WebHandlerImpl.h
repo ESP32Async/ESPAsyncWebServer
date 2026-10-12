@@ -61,6 +61,10 @@ protected:
   ArUploadHandlerFunction _onUpload;
   ArBodyHandlerFunction _onBody;
   bool _isRegex;
+  // When true, canHandle() returns true for any HTTP request — URI/method
+  // matching is delegated to the server's route table (Phase 2: addRoute()).
+  // Set automatically when registered via AsyncWebServer::addRoute().
+  bool _routeManaged = false;
 
 public:
   AsyncCallbackWebHandler() : _uri(), _method(AsyncWebRequestMethod::HTTP_ALL), _onRequest(NULL), _onUpload(NULL), _onBody(NULL), _isRegex(false) {}
@@ -76,6 +80,15 @@ public:
   }
   void onBody(ArBodyHandlerFunction fn) {
     _onBody = fn;
+  }
+
+  // For internal use by AsyncWebServer::addRoute() — marks this handler as
+  // route-managed so canHandle() skips URI/method checks (the server does them).
+  void _setRouteManaged(bool v) {
+    _routeManaged = v;
+  }
+  bool _isRouteManaged() const {
+    return _routeManaged;
   }
 
   bool canHandle(AsyncWebServerRequest *request) const final;

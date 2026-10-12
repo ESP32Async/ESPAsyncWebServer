@@ -127,6 +127,62 @@ bool AsyncWebServer::removeHandler(AsyncWebHandler *handler) {
       return true;
     }
   }
+  // Also check routes — a handler registered via addRoute() should be removable via removeHandler()
+  for (auto i = _routes.begin(); i != _routes.end(); ++i) {
+    if (i->entry.handler == handler) {
+      _routes.erase(i);
+      return true;
+    }
+  }
+  return false;
+}
+
+// ========================================================================
+// Phase 2: Route table API
+// ========================================================================
+
+// Helper: if the handler is an AsyncCallbackWebHandler, mark it as route-managed
+// so its canHandle() skips URI/method checks (the server's route table does them).
+static void _markRouteManaged(AsyncWebHandler *handler) {
+  auto *cb = dynamic_cast<AsyncCallbackWebHandler *>(handler);
+  if (cb) {
+    cb->_setRouteManaged(true);
+  }
+}
+
+AsyncWebHandler &AsyncWebServer::addRoute(AsyncURIMatcher uri, WebRequestMethodComposite method, AsyncWebHandler *handler, bool takeOwnership) {
+  _markRouteManaged(handler);
+  RouteEntry route;
+  route.uri = std::move(uri);
+  route.method = method;
+  route.hasMatcher = true;
+  route.entry.handler = handler;
+  if (takeOwnership) {
+    route.entry.owned.reset(handler);
+  }
+  _routes.push_back(std::move(route));
+  return *handler;
+}
+
+AsyncWebHandler &AsyncWebServer::addRoute(AsyncURIMatcher uri, WebRequestMethodComposite method, AsyncWebHandler &handler) {
+  _markRouteManaged(&handler);
+  RouteEntry route;
+  route.uri = std::move(uri);
+  route.method = method;
+  route.hasMatcher = true;
+  route.entry.handler = &handler;
+  // entry.owned stays null — non-owning registration
+  _routes.push_back(std::move(route));
+  return handler;
+}
+
+bool AsyncWebServer::removeRoute(const AsyncURIMatcher &uri, WebRequestMethodComposite method) {
+  for (auto i = _routes.begin(); i != _routes.end(); ++i) {
+    if (i->uri == uri && i->method == method) {
+      _routes.erase(i);
+      return true;
+    }
+  }
   return false;
 }
 
@@ -161,6 +217,17 @@ void AsyncWebServer::_rewriteRequest(AsyncWebServerRequest *request) {
 }
 
 void AsyncWebServer::_attachHandler(AsyncWebServerRequest *request) {
+  // Phase 2: routes are evaluated first — URI + method matching is done by the server.
+  // The first matching route wins.
+  for (auto &route : _routes) {
+    if (route.method.matches(request->method()) && route.uri.matches(request)) {
+      if (route.entry.handler->filter(request)) {
+        request->setHandler(route.entry.handler);
+        return;
+      }
+    }
+  }
+  // Phase 1: legacy handlers — matched by canHandle() (backward compatible).
   for (auto &entry : _handlers) {
     if (entry.handler->filter(request) && entry.handler->canHandle(request)) {
       request->setHandler(entry.handler);
@@ -243,6 +310,7 @@ void AsyncWebServer::setCatchAllHandler(AsyncCallbackWebHandler &handler) {
 void AsyncWebServer::reset() {
   _rewrites.clear();
   _handlers.clear();
+  _routes.clear();
 
   if (_catchAllHandler) {
     _catchAllHandler->onRequest(NULL);
