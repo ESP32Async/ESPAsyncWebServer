@@ -123,6 +123,137 @@ Usage:
 
 See the [Rewrite example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Rewrite/Rewrite.ino).
 
+## Handler Ownership and Memory Placement
+
+By default, handlers created by `server.on()`, `server.serveStatic()`, or passed to `server.addHandler(new MyHandler())` are **owned by the server** — it deletes them on `removeHandler()`, `reset()`, or destruction.
+
+When you need to control **where** a handler object lives in memory (e.g. to use PSRAM on ESP32, or to avoid heap allocation entirely), register it as **non-owning**:
+
+| Registration | Ownership | Use case |
+|---|---|---|
+| `server.addHandler(new MyHandler())` | Server owns | Default, backward compatible |
+| `server.addHandler(myHandler)` | Non-owning (borrow) | Static or global object (see warning below about stack) |
+| `server.addHandler(*psramHandler)` | Non-owning (borrow) | PSRAM via placement new |
+
+With non-owning registration, **you** are responsible for keeping the handler alive while it is registered, and for destroying it after unregistration.
+
+> [!TIP]
+> For objects that live for the entire lifetime of the application (like handlers), static or global allocation is preferable over heap allocation. It results in simpler code, avoids heap fragmentation, and requires no lifetime tracking overhead.
+
+> [!WARNING]
+> Borrowing a **stack-allocated** object is risky unless you have architected your program to keep it in scope for as long as the server uses it. The usual Arduino-style `setup()` / `loop()` pattern does **not** guarantee this — a handler declared as a local variable inside `setup()` would be destroyed when `setup()` returns, leaving the server with a dangling pointer. Use `static` or global storage instead.
+
+### Static / Global RAM (no heap allocation)
+
+```cpp
+static AsyncWebServer server(80);
+
+// Lives in .bss — zero heap usage
+static AsyncCallbackWebHandler statusHandler;
+
+void setup() {
+  statusHandler.setUri(AsyncURIMatcher::exact("/status"));
+  statusHandler.onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+  server.addHandler(statusHandler);  // non-owning reference overload
+  server.begin();
+}
+```
+
+### PSRAM (ESP32)
+
+There are two ways to place a handler in PSRAM:
+
+**1. Placement new with `heap_caps_malloc`:**
+
+```cpp
+#include <esp_heap_caps.h>
+
+void setup() {
+  auto *handler = new (heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) AsyncCallbackWebHandler();
+  handler->setUri(AsyncURIMatcher::exact("/status"));
+  handler->onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+  server.addHandler(*handler);  // non-owning borrow — manage PSRAM lifetime yourself
+  server.begin();
+}
+```
+
+**2. Static object in PSRAM via `EXT_RAM_BSS_ATTR`** (requires `CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y`, typically only available when using Arduino as an ESP-IDF component):
+
+```cpp
+EXT_RAM_BSS_ATTR static AsyncCallbackWebHandler statusHandler;
+
+void setup() {
+  statusHandler.setUri(AsyncURIMatcher::exact("/status"));
+  statusHandler.onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+  server.addHandler(statusHandler);  // non-owning — handler lives in PSRAM .bss
+  server.begin();
+}
+```
+
+> [!NOTE]
+> On ESP32, `delete` works on objects allocated with `heap_caps_malloc()` because `delete` maps to `free()` which maps to `heap_caps_free()`. This is specific to Espressif's implementation (GNU libstdc++ + ESP-IDF libc) and is not guaranteed on all platforms.
+
+### Works with All Handler Types
+
+The same registration pattern applies to any `AsyncWebHandler` subclass: `AsyncCallbackWebHandler`, `AsyncStaticWebHandler`, `AsyncWebSocket`, `AsyncEventSource`, `AsyncCallbackJsonWebHandler`, or your own custom subclass.
+
+```cpp
+static AsyncWebSocket ws("/ws");
+ws.onEvent([](AsyncWebSocket *s, AsyncWebSocketClient *c, AwsEventType t, void *a, uint8_t *d, size_t l) {
+  if (t == WS_EVT_DATA) s->text(c->id(), "echo");
+});
+server.addHandler(ws);  // non-owning — ws lives in static RAM
+```
+
+### Custom Catch-All Handler
+
+A catch-all (not-found) handler is **always installed**. It can be customized in two ways:
+
+**At construction time** — pass your handler as a second argument to the `AsyncWebServer` constructor:
+
+| Constructor | Ownership |
+|---|---|
+| `AsyncWebServer server(80)` | Server creates & owns a default catch-all |
+| `AsyncWebServer server(80, new AsyncCallbackWebHandler())` | Server owns |
+| `AsyncWebServer server(80, myHandler)` | Non-owning (borrow by reference) |
+| `AsyncWebServer server(80, *psramHandler)` | Non-owning (borrow from PSRAM) |
+
+```cpp
+static AsyncCallbackWebHandler catchAll;
+
+void setup() {
+  catchAll.onRequest([](AsyncWebServerRequest *request) {
+    request->send(404, "text/plain", "Not found: " + request->url());
+  });
+  // Pass custom catch-all at construction — non-owning, lives in static RAM
+  AsyncWebServer server(80, catchAll);
+  server.begin();
+}
+```
+
+**After construction** — replace it with `setCatchAllHandler()`:
+
+| Registration | Ownership |
+|---|---|
+| `server.setCatchAllHandler(new AsyncCallbackWebHandler())` | Server owns |
+| `server.setCatchAllHandler(myHandler)` | Non-owning (borrow by reference) |
+| `server.setCatchAllHandler(*psramHandler)` | Non-owning (borrow from PSRAM) |
+
+```cpp
+server.setCatchAllHandler(catchAll);  // non-owning — catchAll lives in static RAM
+```
+
+> [!NOTE]
+> A catch-all handler is always required — passing `nullptr` to the constructor or `setCatchAllHandler()` is a programming error (asserts in debug builds). `catchAllHandler()` safely returns a reference to the installed catch-all.
+
+See the [CustomAllocation example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/CustomAllocation/CustomAllocation.ino) for a complete sketch.
+
 ## Remove handlers and rewrites
 
 Server goes through handlers in same order as they were added. You can't simple add handler with same path to override them.

@@ -85,6 +85,107 @@
 #define ASYNCWEBSERVER_NO_GLOBAL_HTTP_METHODS
 #endif
 
+namespace asyncsrv {
+
+/**
+ * @brief A tagged pointer that tracks ownership in a single machine word.
+ *
+ * Stores a pointer to T with the low bit used as an ownership flag.
+ * If the low bit is set, the MaybeOwned owns the object and will delete it
+ * on destruction/reset. If clear, it is a non-owning (borrowed) reference.
+ *
+ * This halves the per-entry storage compared to a struct with a raw pointer
+ * plus a unique_ptr (one pointer instead of two on 32-bit platforms).
+ *
+ * Requires alignof(T) >= 2, which is always true for polymorphic types
+ * (they have a vtable pointer, guaranteeing alignment).
+ */
+template <typename T>
+class MaybeOwned {
+  static constexpr uintptr_t OWNED = 1;
+  uintptr_t _p;  // low bit set = owned
+
+  explicit MaybeOwned(uintptr_t p) noexcept : _p(p) {}
+
+public:
+  /// Adopt (take ownership of) a heap-allocated pointer.
+  static MaybeOwned adopt(T *p) noexcept {
+    static_assert(alignof(T) >= 2, "MaybeOwned: need a free low bit (alignof(T) >= 2)");
+    return MaybeOwned(reinterpret_cast<uintptr_t>(p) | OWNED);
+  }
+
+  /// Borrow (non-owning reference to) an existing object.
+  static MaybeOwned borrow(T &r) noexcept {
+    static_assert(alignof(T) >= 2, "MaybeOwned: need a free low bit (alignof(T) >= 2)");
+    return MaybeOwned(reinterpret_cast<uintptr_t>(&r));
+  }
+
+  /// Borrow (non-owning) from a pointer.
+  static MaybeOwned borrow(T *p) noexcept {
+    static_assert(alignof(T) >= 2, "MaybeOwned: need a free low bit (alignof(T) >= 2)");
+    return MaybeOwned(reinterpret_cast<uintptr_t>(p));
+  }
+
+  constexpr MaybeOwned() noexcept : _p(0) {}
+  constexpr MaybeOwned(std::nullptr_t) noexcept : _p(0) {}
+  ~MaybeOwned() {
+    reset();
+  }
+
+  MaybeOwned(const MaybeOwned &) = delete;
+  MaybeOwned &operator=(const MaybeOwned &) = delete;
+
+  MaybeOwned(MaybeOwned &&o) noexcept : _p(o._p) {
+    o._p = 0;
+  }
+  MaybeOwned &operator=(MaybeOwned &&o) noexcept {
+    if (this != &o) {
+      reset();
+      _p = o._p;
+      o._p = 0;
+    }
+    return *this;
+  }
+  MaybeOwned &operator=(std::nullptr_t) noexcept {
+    reset();
+    return *this;
+  }
+
+  /// Delete the owned object (if any) and become empty.
+  void reset() noexcept {
+    if (_p & OWNED) {
+      delete get();
+    }
+    _p = 0;
+  }
+
+  /// Get the raw pointer (ownership flag stripped).
+  T *get() const noexcept {
+    return reinterpret_cast<T *>(_p & ~OWNED);
+  }
+
+  /// True if this MaybeOwned owns the object.
+  bool isOwned() const noexcept {
+    return (_p & OWNED) != 0;
+  }
+
+  T &operator*() const noexcept {
+    return *get();
+  }
+  T *operator->() const noexcept {
+    return get();
+  }
+  explicit operator bool() const noexcept {
+    return get() != nullptr;
+  }
+
+  void swap(MaybeOwned &o) noexcept {
+    std::swap(_p, o._p);
+  }
+};
+
+}  // namespace asyncsrv
+
 class AsyncWebServer;
 class AsyncWebServerRequest;
 class AsyncWebServerResponse;
@@ -1683,11 +1784,74 @@ class AsyncWebServer : public AsyncMiddlewareChain {
 protected:
   AsyncServer _server;
   std::list<std::shared_ptr<AsyncWebRewrite>> _rewrites;
-  std::list<std::unique_ptr<AsyncWebHandler>> _handlers;
-  AsyncCallbackWebHandler *_catchAllHandler;
+  // Unified handler list: each entry is an asyncsrv::MaybeOwned<AsyncWebHandler>.
+  // A single tagged pointer tracks both the handler address and ownership,
+  // halving the per-entry memory compared to a raw pointer + unique_ptr pair.
+  std::list<asyncsrv::MaybeOwned<AsyncWebHandler>> _handlers;
+  // Catch-all handler, also tracked with asyncsrv::MaybeOwned for consistent ownership semantics.
+  // A catch-all handler is always installed (never nullptr).
+  asyncsrv::MaybeOwned<AsyncCallbackWebHandler> _catchAllHandler;
 
 public:
+  /**
+   * @brief Construct a server with a default internal catch-all handler.
+   *
+   * The server creates and owns an `AsyncCallbackWebHandler` used when no
+   * registered handler matches a request.
+   */
   AsyncWebServer(uint16_t port);
+
+  /**
+   * @brief Construct a server with a user-provided, server-owned catch-all handler.
+   *
+   * The server takes ownership and will delete the handler on destruction.
+   * The pointer must not be nullptr — a catch-all handler is always required.
+   *
+   * Example (heap-allocated, server-owned):
+   * @code
+   * AsyncWebServer server(80, new AsyncCallbackWebHandler());
+   * @endcode
+   *
+   * Example (PSRAM on ESP32 — server-owned, non-owning borrow also possible):
+   * @code
+   * auto *catchAll = new (heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) AsyncCallbackWebHandler();
+   * AsyncWebServer server(80, catchAll);  // server owns and will delete
+   * @endcode
+   *
+   * @param port TCP port to listen on.
+   * @param catchAllHandler Pointer to the catch-all handler. Must not be nullptr.
+   *                        The server takes ownership and will delete it.
+   */
+  AsyncWebServer(uint16_t port, AsyncCallbackWebHandler *catchAllHandler);
+
+  /**
+   * @brief Construct a server with a user-provided catch-all handler (non-owning).
+   *
+   * The server stores a non-owning reference (borrow). The caller is responsible
+   * for keeping the handler alive and for destroying it after the server is gone.
+   * This is the natural choice for static, global, or PSRAM-allocated catch-all
+   * handlers — it makes the non-owning intent explicit at the call site.
+   *
+   * @warning Do not pass a stack-allocated (automatic) object unless it
+   *          outlives the server. Use static or global storage instead.
+   *
+   * Example (static RAM):
+   * @code
+   * static AsyncCallbackWebHandler catchAll;
+   * AsyncWebServer server(80, catchAll);  // non-owning
+   * @endcode
+   *
+   * Example (PSRAM on ESP32 — non-owning reference):
+   * @code
+   * auto* catchAll = new (heap_caps_malloc(sizeof(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)) AsyncCallbackWebHandler();
+   * AsyncWebServer server(80, *catchAll);  // non-owning borrow
+   * @endcode
+   *
+   * @param port TCP port to listen on.
+   * @param catchAllHandler Reference to the catch-all handler. Must remain valid.
+   */
+  AsyncWebServer(uint16_t port, AsyncCallbackWebHandler &catchAllHandler);
+
   ~AsyncWebServer();
 
   void begin();
@@ -1748,8 +1912,115 @@ public:
      */
   bool removeRewrite(const char *from, const char *to);
 
+  /**
+   * @brief Register a server-owned handler.
+   *
+   * The server takes ownership and will delete the handler on
+   * removeHandler(), reset(), or destruction.
+   *
+   * Example (heap-allocated, server-owned — backward compatible):
+   * @code
+   * server.addHandler(new MyHandler());
+   * @endcode
+   *
+   * @param handler Pointer to a heap-allocated handler. The server takes ownership.
+   * @return Reference to the registered handler.
+   */
   AsyncWebHandler &addHandler(AsyncWebHandler *handler);
+
+  /**
+   * @brief Register a user-managed handler by reference (non-owning borrow).
+   *
+   * The server stores a non-owning reference. The caller is responsible for
+   * keeping the handler alive while it is registered, and for destroying it
+   * after unregistration (or at program end).
+   *
+   * This is the C++ idiom for borrowing: passing by reference makes the
+   * non-owning intent explicit at the call site. It is the natural choice
+   * for static, global, or PSRAM-allocated handlers.
+   *
+   * @warning Do not pass a stack-allocated (automatic) object unless you
+   *          guarantee it outlives the server. In typical Arduino sketches,
+   *          a local variable inside setup() is destroyed when setup()
+   *          returns — use static or global storage instead.
+   *
+   * Example (static RAM — no heap allocation):
+   * @code
+   * static AsyncCallbackWebHandler handler;
+   * handler.setUri(AsyncURIMatcher::exact("/status"));
+   * handler.onRequest([](AsyncWebServerRequest *req) { req->send(200, "text/plain", "OK"); });
+   * server.addHandler(handler);
+   * @endcode
+   *
+   * Example (PSRAM on ESP32 — non-owning reference):
+   * @code
+   * void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+   * auto *h = new (mem) AsyncCallbackWebHandler();
+   * h->setUri(AsyncURIMatcher::exact("/status"));
+   * h->onRequest([](AsyncWebServerRequest *req) { req->send(200, "text/plain", "OK"); });
+   * server.addHandler(*h);  // borrow — user manages lifetime
+   * @endcode
+   *
+   * @param handler Reference to the handler to register.
+   * @return Reference to the registered handler (same object).
+   */
+  AsyncWebHandler &addHandler(AsyncWebHandler &handler);
+
+  /**
+   * @brief Remove a handler from the server.
+   *
+   * If the handler was server-owned, it is deleted. If it was non-owning
+   * (registered by reference), only the registration is removed — the caller
+   * still owns the object.
+   *
+   * @param handler Pointer to the handler to remove.
+   * @return true if the handler was found and removed, false otherwise.
+   */
   bool removeHandler(AsyncWebHandler *handler);
+
+  /**
+   * @brief Replace the catch-all (not-found) handler with a server-owned one.
+   *
+   * The server takes ownership and will delete the handler on reset() or
+   * destruction. The pointer must not be nullptr — a catch-all handler is
+   * always required.
+   *
+   * If the previously installed catch-all was server-owned, it is deleted
+   * when replaced.
+   *
+   * Example (heap-allocated, server-owned):
+   * @code
+   * server.setCatchAllHandler(new AsyncCallbackWebHandler());
+   * @endcode
+   *
+   * @param handler Pointer to the replacement catch-all handler. Must not be nullptr.
+   *                The server takes ownership and will delete it.
+   */
+  void setCatchAllHandler(AsyncCallbackWebHandler *handler);
+
+  /**
+   * @brief Replace the catch-all (not-found) handler with a user-provided one (non-owning).
+   *
+   * The server stores a non-owning reference. The caller is responsible for
+   * keeping the handler alive and for destroying it after replacement or at
+   * program end.
+   *
+   * This overload is the natural choice for static, global, or PSRAM-allocated
+   * catch-all handlers — it makes the non-owning intent explicit at the call site.
+   *
+   * @warning Do not pass a stack-allocated (automatic) object unless it
+   *          outlives the server. Use static or global storage instead.
+   *
+   * Example (static RAM):
+   * @code
+   * static AsyncCallbackWebHandler catchAll;
+   * catchAll.onRequest([](AsyncWebServerRequest *req) { req->send(404, "text/plain", "Not found"); });
+   * server.setCatchAllHandler(catchAll);
+   * @endcode
+   *
+   * @param handler Reference to the replacement catch-all handler. Must remain valid.
+   */
+  void setCatchAllHandler(AsyncCallbackWebHandler &handler);
 
   AsyncCallbackWebHandler &on(AsyncURIMatcher uri, ArRequestHandlerFunction onRequest) {
     return on(std::move(uri), AsyncWebRequestMethod::HTTP_ALL, onRequest);
