@@ -40,8 +40,11 @@ const char *fs::FileOpenMode::write = "w";
 const char *fs::FileOpenMode::append = "a";
 #endif
 
-AsyncWebServer::AsyncWebServer(uint16_t port) : _server(port) {
-  _catchAllHandler = new AsyncCallbackWebHandler();
+AsyncWebServer::AsyncWebServer(uint16_t port) : AsyncWebServer(port, new AsyncCallbackWebHandler(), true) {}
+
+AsyncWebServer::AsyncWebServer(uint16_t port, AsyncCallbackWebHandler *catchAllHandler, bool takeOwnership) : _server(port) {
+  _catchAllHandler = catchAllHandler;
+  _catchAllHandlerOwned = takeOwnership && catchAllHandler != nullptr;
   _server.onClient(
     [](void *s, AsyncClient *c) {
       if (c == NULL) {
@@ -58,10 +61,14 @@ AsyncWebServer::AsyncWebServer(uint16_t port) : _server(port) {
   );
 }
 
+AsyncWebServer::AsyncWebServer(uint16_t port, AsyncCallbackWebHandler &catchAllHandler) : AsyncWebServer(port, &catchAllHandler, false) {}
+
 AsyncWebServer::~AsyncWebServer() {
   reset();
   end();
-  delete _catchAllHandler;
+  if (_catchAllHandlerOwned && _catchAllHandler) {
+    delete _catchAllHandler;
+  }
   _catchAllHandler = nullptr;  // Prevent potential use-after-free
 }
 
@@ -94,14 +101,28 @@ AsyncWebRewrite &AsyncWebServer::rewrite(const char *from, const char *to) {
   return *_rewrites.back().get();
 }
 
-AsyncWebHandler &AsyncWebServer::addHandler(AsyncWebHandler *handler) {
-  _handlers.emplace_back(handler);
-  return *(_handlers.back().get());
+AsyncWebHandler &AsyncWebServer::addHandler(AsyncWebHandler *handler, bool takeOwnership) {
+  HandlerEntry entry;
+  entry.handler = handler;
+  if (takeOwnership) {
+    entry.owned.reset(handler);
+  }
+  _handlers.push_back(std::move(entry));
+  return *handler;
+}
+
+AsyncWebHandler &AsyncWebServer::addHandler(AsyncWebHandler &handler) {
+  HandlerEntry entry;
+  entry.handler = &handler;
+  // entry.owned stays null — non-owning registration
+  _handlers.push_back(std::move(entry));
+  return handler;
 }
 
 bool AsyncWebServer::removeHandler(AsyncWebHandler *handler) {
   for (auto i = _handlers.begin(); i != _handlers.end(); ++i) {
-    if (i->get() == handler) {
+    if (i->handler == handler) {
+      // unique_ptr in entry.owned will delete if owned; non-owned entries are just removed
       _handlers.erase(i);
       return true;
     }
@@ -140,13 +161,14 @@ void AsyncWebServer::_rewriteRequest(AsyncWebServerRequest *request) {
 }
 
 void AsyncWebServer::_attachHandler(AsyncWebServerRequest *request) {
-  for (auto &h : _handlers) {
-    if (h->filter(request) && h->canHandle(request)) {
-      request->setHandler(h.get());
+  for (auto &entry : _handlers) {
+    if (entry.handler->filter(request) && entry.handler->canHandle(request)) {
+      request->setHandler(entry.handler);
       return;
     }
   }
-  // ESP_LOGD("AsyncWebServer", "No handler found for %s, using _catchAllHandler pointer: %p", request->url().c_str(), _catchAllHandler);
+  // If no handler matched and no catch-all is installed, setHandler(nullptr) leaves
+  // _handler null — _runMiddlewareChain() skips the handler chain and _send() replies 501.
   request->setHandler(_catchAllHandler);
 }
 
@@ -179,28 +201,54 @@ AsyncStaticWebHandler &AsyncWebServer::serveStatic(const char *uri, fs::FS &fs, 
 }
 
 void AsyncWebServer::onNotFound(ArRequestHandlerFunction fn) {
-  _catchAllHandler->onRequest(fn);
+  if (_catchAllHandler) {
+    _catchAllHandler->onRequest(fn);
+  }
 }
 
 void AsyncWebServer::onFileUpload(ArUploadHandlerFunction fn) {
-  _catchAllHandler->onUpload(fn);
+  if (_catchAllHandler) {
+    _catchAllHandler->onUpload(fn);
+  }
 }
 
 void AsyncWebServer::onRequestBody(ArBodyHandlerFunction fn) {
-  _catchAllHandler->onBody(fn);
+  if (_catchAllHandler) {
+    _catchAllHandler->onBody(fn);
+  }
 }
 
 AsyncWebHandler &AsyncWebServer::catchAllHandler() const {
+  // Crashes if no catch-all handler is installed (_catchAllHandler == nullptr).
+  // Use setCatchAllHandler() to install one, or check onNotFound() behavior beforehand.
   return *_catchAllHandler;
+}
+
+void AsyncWebServer::setCatchAllHandler(AsyncCallbackWebHandler *handler, bool takeOwnership) {
+  if (_catchAllHandlerOwned && _catchAllHandler && _catchAllHandler != handler) {
+    delete _catchAllHandler;
+  }
+  _catchAllHandler = handler;
+  _catchAllHandlerOwned = takeOwnership && handler != nullptr;
+}
+
+void AsyncWebServer::setCatchAllHandler(AsyncCallbackWebHandler &handler) {
+  if (_catchAllHandlerOwned && _catchAllHandler && _catchAllHandler != &handler) {
+    delete _catchAllHandler;
+  }
+  _catchAllHandler = &handler;
+  _catchAllHandlerOwned = false;
 }
 
 void AsyncWebServer::reset() {
   _rewrites.clear();
   _handlers.clear();
 
-  _catchAllHandler->onRequest(NULL);
-  _catchAllHandler->onUpload(NULL);
-  _catchAllHandler->onBody(NULL);
+  if (_catchAllHandler) {
+    _catchAllHandler->onRequest(NULL);
+    _catchAllHandler->onUpload(NULL);
+    _catchAllHandler->onBody(NULL);
+  }
 }
 
 AsyncURIMatcher::AsyncURIMatcher(String uri, uint16_t modifiers) : _value(std::move(uri)) {

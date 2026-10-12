@@ -123,6 +123,122 @@ Usage:
 
 See the [Rewrite example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Rewrite/Rewrite.ino).
 
+## Handler Ownership and Memory Placement
+
+By default, handlers created by `server.on()`, `server.serveStatic()`, or passed to `server.addHandler(new MyHandler())` are **owned by the server** — it deletes them on `removeHandler()`, `reset()`, or destruction.
+
+When you need to control **where** a handler object lives in memory (e.g. to use PSRAM on ESP32, or to avoid heap allocation entirely), register it as **non-owning**:
+
+| Registration | Ownership | Use case |
+|---|---|---|
+| `server.addHandler(new MyHandler())` | Server owns | Default, backward compatible |
+| `server.addHandler(ptr, false)` | Non-owning (pointer) | Heap or PSRAM via placement new |
+| `server.addHandler(myHandler)` | Non-owning (reference) | Stack, static, or global object |
+
+With non-owning registration, **you** are responsible for keeping the handler alive while it is registered, and for destroying it after unregistration.
+
+### Static / Global RAM (no heap allocation)
+
+```cpp
+static AsyncWebServer server(80);
+
+// Lives in .bss — zero heap usage
+static AsyncCallbackWebHandler statusHandler;
+
+void setup() {
+  statusHandler.setUri(AsyncURIMatcher::exact("/status"));
+  statusHandler.onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+  server.addHandler(statusHandler);  // non-owning reference overload
+  server.begin();
+}
+```
+
+### PSRAM (ESP32)
+
+```cpp
+#include <esp_heap_caps.h>
+
+void setup() {
+  void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  auto *handler = new (mem) AsyncCallbackWebHandler();
+  handler->setUri(AsyncURIMatcher::exact("/status"));
+  handler->onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+  server.addHandler(handler, false);  // non-owning — manage PSRAM lifetime yourself
+  server.begin();
+}
+```
+
+### WebSocket / EventSource / Static File Handlers
+
+The same pattern works for any `AsyncWebHandler` subclass — `AsyncWebSocket`, `AsyncEventSource`, `AsyncStaticWebHandler`, `AsyncCallbackJsonWebHandler`:
+
+```cpp
+static AsyncWebSocket ws("/ws");
+ws.onEvent([](AsyncWebSocket *s, AsyncWebSocketClient *c, AwsEventType t, void *a, uint8_t *d, size_t l) {
+  if (t == WS_EVT_DATA) s->text(c->id(), "echo");
+});
+server.addHandler(ws);  // non-owning — ws lives in static RAM
+
+static AsyncStaticWebHandler staticHandler("/static", LittleFS, "/www");
+server.addHandler(staticHandler);  // non-owning
+```
+
+### Custom Catch-All Handler
+
+The catch-all (not-found) handler can be customized in two ways:
+
+**At construction time** — pass your handler as a second argument to the `AsyncWebServer` constructor:
+
+| Constructor | Ownership |
+|---|---|
+| `AsyncWebServer server(80)` | Server creates & owns a default catch-all |
+| `AsyncWebServer server(80, new AsyncCallbackWebHandler())` | Server owns |
+| `AsyncWebServer server(80, ptr, false)` | Non-owning (pointer) |
+| `AsyncWebServer server(80, myHandler)` | Non-owning (reference) |
+| `AsyncWebServer server(80, nullptr)` | **No catch-all** — unmatched requests get a bare 501 |
+
+```cpp
+static AsyncCallbackWebHandler catchAll;
+
+void setup() {
+  catchAll.onRequest([](AsyncWebServerRequest *request) {
+    request->send(404, "text/plain", "Not found: " + request->url());
+  });
+  // Pass custom catch-all at construction — non-owning, lives in static RAM
+  AsyncWebServer server(80, catchAll);
+  server.begin();
+}
+```
+
+**After construction** — replace it with `setCatchAllHandler()`:
+
+| Registration | Ownership |
+|---|---|
+| `server.setCatchAllHandler(new AsyncCallbackWebHandler())` | Server owns (default) |
+| `server.setCatchAllHandler(ptr, false)` | Non-owning (pointer) |
+| `server.setCatchAllHandler(myHandler)` | Non-owning (reference) |
+| `server.setCatchAllHandler(nullptr)` | **Remove catch-all** — unmatched requests get a bare 501 |
+
+```cpp
+server.setCatchAllHandler(catchAll);  // non-owning — catchAll lives in static RAM
+```
+
+> [!NOTE]
+> When no catch-all handler is installed (`nullptr`), `onNotFound()`, `onFileUpload()`, `onRequestBody()`, and `reset()` are no-ops. Use `catchAllHandlerPtr()` to safely check for the catch-all handler — it returns `nullptr` instead of crashing. Unmatched requests receive a bare `501 Not Implemented` response with the message "Handler did not handle the request".
+>
+> The older `catchAllHandler()` method is deprecated — it crashes if no catch-all is installed. Replace it with:
+> ```cpp
+> if (auto *catchAll = server.catchAllHandlerPtr()) {
+>   catchAll->addMiddleware(myMiddleware);
+> }
+> ```
+
+See the [CustomAllocation example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/CustomAllocation/CustomAllocation.ino) for a complete sketch.
+
 ## Remove handlers and rewrites
 
 Server goes through handlers in same order as they were added. You can't simple add handler with same path to override them.

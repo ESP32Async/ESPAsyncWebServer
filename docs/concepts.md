@@ -75,6 +75,10 @@ flowchart TD
 - `Handlers` are evaluated in the order they are attached to the server. The `canHandle` is called only
   if the `Filter` that was set to the `Handler` return true.
 - The first `Handler` that can handle the request is selected, not further `Filter` and `canHandle` are called.
+- A `Handler` registered with `addHandler(ptr)` is **owned by the server** (deleted on removal or server destruction).
+  A `Handler` registered with `addHandler(ref)` or `addHandler(ptr, false)` is **non-owning** — the caller manages
+  its lifetime. This lets you place handlers in static RAM, PSRAM, or any custom memory region.
+  See [Routing — Handler Ownership and Memory Placement](routing.md#handler-ownership-and-memory-placement).
 
 ### Responses and how do they work
 

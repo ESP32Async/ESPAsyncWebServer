@@ -1681,13 +1681,80 @@ typedef AsyncCallbackJsonWebHandler AsyncCallbackMessagePackWebHandler;
 
 class AsyncWebServer : public AsyncMiddlewareChain {
 protected:
+  // Handler entry: tracks ownership explicitly.
+  // If `owned` is non-null, the server owns the handler and will delete it.
+  // If `owned` is null, the handler is user-managed (non-owning registration).
+  struct HandlerEntry {
+    AsyncWebHandler *handler;                  // always valid, used for dispatch
+    std::unique_ptr<AsyncWebHandler> owned;    // non-null if server owns it
+  };
+
   AsyncServer _server;
   std::list<std::shared_ptr<AsyncWebRewrite>> _rewrites;
-  std::list<std::unique_ptr<AsyncWebHandler>> _handlers;
-  AsyncCallbackWebHandler *_catchAllHandler;
+  std::list<HandlerEntry> _handlers;
+  // May be nullptr if the user explicitly opted out of a catch-all handler.
+  // When nullptr, unmatched requests get a bare 501 response (no handler chain runs).
+  AsyncCallbackWebHandler *_catchAllHandler = nullptr;
+  bool _catchAllHandlerOwned = false;
 
 public:
+  /**
+   * @brief Construct a server with a default internal catch-all handler.
+   *
+   * Delegates to AsyncWebServer(port, new AsyncCallbackWebHandler(), true).
+   * The server creates and owns an `AsyncCallbackWebHandler` used when no
+   * registered handler matches a request.
+   */
   AsyncWebServer(uint16_t port);
+
+  /**
+   * @brief Construct a server with a user-provided catch-all handler.
+   *
+   * The server takes ownership by default and will delete the handler on
+   * destruction. Pass `takeOwnership = false` for a non-owning registration
+   * (the caller manages the handler's lifetime). This is useful to place the
+   * catch-all in PSRAM or static RAM.
+   *
+   * Pass `nullptr` to opt out of a catch-all handler entirely. Unmatched
+   * requests will then receive a bare 501 response. Note that onNotFound(),
+   * onFileUpload(), onRequestBody() and reset() are no-ops when no catch-all
+   * is installed. Use catchAllHandlerPtr() to safely access the catch-all.
+   *
+   * Example (PSRAM on ESP32):
+   * @code
+   * void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+   * auto *catchAll = new (mem) AsyncCallbackWebHandler();
+   * AsyncWebServer server(80, catchAll, false);  // non-owning
+   * @endcode
+   *
+   * Example (no catch-all at all):
+   * @code
+   * AsyncWebServer server(80, nullptr);  // unmatched requests → bare 501
+   * @endcode
+   *
+   * @param port TCP port to listen on.
+   * @param catchAllHandler Pointer to the catch-all handler, or nullptr for none.
+   * @param takeOwnership If true (default), the server owns and will delete the handler.
+   */
+  AsyncWebServer(uint16_t port, AsyncCallbackWebHandler *catchAllHandler, bool takeOwnership = true);
+
+  /**
+   * @brief Construct a server with a user-provided catch-all handler (non-owning).
+   *
+   * The server stores a non-owning reference. The caller is responsible for
+   * keeping the handler alive and for destroying it after the server is gone.
+   *
+   * Example (static RAM):
+   * @code
+   * AsyncCallbackWebHandler catchAll;
+   * AsyncWebServer server(80, catchAll);  // non-owning
+   * @endcode
+   *
+   * @param port TCP port to listen on.
+   * @param catchAllHandler Reference to the catch-all handler. Must remain valid.
+   */
+  AsyncWebServer(uint16_t port, AsyncCallbackWebHandler &catchAllHandler);
+
   ~AsyncWebServer();
 
   void begin();
@@ -1748,8 +1815,116 @@ public:
      */
   bool removeRewrite(const char *from, const char *to);
 
-  AsyncWebHandler &addHandler(AsyncWebHandler *handler);
+  /**
+   * @brief Register a handler for the server.
+   *
+   * The server takes ownership by default and will delete the handler on
+   * removeHandler(), reset(), or destruction. Pass `takeOwnership = false`
+   * for a non-owning registration (the caller manages the handler's lifetime).
+   *
+   * Example (owning, heap-allocated — default, backward compatible):
+   * @code
+   * server.addHandler(new MyHandler());
+   * @endcode
+   *
+   * Example (non-owning, user-managed — e.g. PSRAM via placement new on ESP32):
+   * @code
+   * void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+   * auto *h = new (mem) AsyncCallbackWebHandler();
+   * h->setUri(AsyncURIMatcher::exact("/status"));
+   * h->onRequest([](AsyncWebServerRequest *req) { req->send(200, "text/plain", "OK"); });
+   * server.addHandler(h, false);  // non-owning — user manages lifetime
+   * @endcode
+   *
+   * @param handler Pointer to the handler to register. Must remain valid while registered.
+   * @param takeOwnership If true (default), the server owns and will delete the handler.
+   *                      If false, the server stores a non-owning reference.
+   * @return Reference to the registered handler.
+   */
+  AsyncWebHandler &addHandler(AsyncWebHandler *handler, bool takeOwnership = true);
+
+  /**
+   * @brief Register a user-managed handler by reference (non-owning).
+   *
+   * The server stores a non-owning reference. The caller is responsible for
+   * keeping the handler alive while it is registered, and for destroying it
+   * after unregistration (or at program end).
+   *
+   * This overload is the natural choice for stack, static, or PSRAM-allocated
+   * handlers — it makes the non-owning intent explicit at the call site.
+   *
+   * Example (static RAM — no heap allocation):
+   * @code
+   * AsyncCallbackWebHandler handler;
+   * handler.setUri(AsyncURIMatcher::exact("/status"));
+   * handler.onRequest([](AsyncWebServerRequest *req) { req->send(200, "text/plain", "OK"); });
+   * server.addHandler(handler);
+   * @endcode
+   *
+   * @param handler Reference to the handler to register.
+   * @return Reference to the registered handler (same object).
+   */
+  AsyncWebHandler &addHandler(AsyncWebHandler &handler);
+
   bool removeHandler(AsyncWebHandler *handler);
+
+  /**
+   * @brief Replace the catch-all (not-found) handler with a user-provided one.
+   *
+   * The server takes ownership by default and will delete the handler on
+   * reset() or destruction. Pass `takeOwnership = false` for a non-owning
+   * replacement (the caller manages the handler's lifetime).
+   *
+   * Pass `nullptr` to remove the catch-all handler entirely. Unmatched
+   * requests will then receive a bare 501 response.
+   *
+   * If the previously installed catch-all was server-owned, it is deleted
+   * when replaced.
+   *
+   * Example (owning, heap-allocated — default):
+   * @code
+   * server.setCatchAllHandler(new AsyncCallbackWebHandler());
+   * @endcode
+   *
+   * Example (non-owning, PSRAM on ESP32):
+   * @code
+   * void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+   * auto *catchAll = new (mem) AsyncCallbackWebHandler();
+   * catchAll->onRequest([](AsyncWebServerRequest *req) { req->send(404, "text/plain", "Not found"); });
+   * server.setCatchAllHandler(catchAll, false);  // non-owning
+   * @endcode
+   *
+   * Example (remove catch-all entirely):
+   * @code
+   * server.setCatchAllHandler(nullptr);  // unmatched requests → bare 501
+   * @endcode
+   *
+   * @param handler Pointer to the replacement catch-all handler, or nullptr for none.
+   * @param takeOwnership If true (default), the server owns and will delete the handler.
+   *                      If false, the server stores a non-owning reference.
+   */
+  void setCatchAllHandler(AsyncCallbackWebHandler *handler, bool takeOwnership = true);
+
+  /**
+   * @brief Replace the catch-all (not-found) handler with a user-provided one (non-owning).
+   *
+   * The server stores a non-owning reference. The caller is responsible for
+   * keeping the handler alive and for destroying it after replacement or at
+   * program end.
+   *
+   * This overload is the natural choice for stack, static, or PSRAM-allocated
+   * catch-all handlers — it makes the non-owning intent explicit at the call site.
+   *
+   * Example (static RAM):
+   * @code
+   * AsyncCallbackWebHandler catchAll;
+   * catchAll.onRequest([](AsyncWebServerRequest *req) { req->send(404, "text/plain", "Not found"); });
+   * server.setCatchAllHandler(catchAll);
+   * @endcode
+   *
+   * @param handler Reference to the replacement catch-all handler. Must remain valid.
+   */
+  void setCatchAllHandler(AsyncCallbackWebHandler &handler);
 
   AsyncCallbackWebHandler &on(AsyncURIMatcher uri, ArRequestHandlerFunction onRequest) {
     return on(std::move(uri), AsyncWebRequestMethod::HTTP_ALL, onRequest);
@@ -1765,10 +1940,43 @@ public:
 
   AsyncStaticWebHandler &serveStatic(const char *uri, fs::FS &fs, const char *path, const char *cache_control = NULL);
 
+  // All of the following are no-ops when no catch-all handler is installed (_catchAllHandler == nullptr).
   void onNotFound(ArRequestHandlerFunction fn);   // called when handler is not assigned
   void onFileUpload(ArUploadHandlerFunction fn);  // handle file uploads
   void onRequestBody(ArBodyHandlerFunction fn);   // handle posts with plain body content (JSON often transmitted this way as a request)
-  // give access to the handler used to catch all requests, so that middleware can be added to it
+
+  /**
+   * @brief Get a pointer to the catch-all handler, or nullptr if none is installed.
+   *
+   * Safe to call at any time. Returns nullptr when the server was constructed
+   * with `nullptr` or when setCatchAllHandler(nullptr) was called.
+   * Does not transfer ownership.
+   *
+   * Example:
+   * @code
+   * if (auto *catchAll = server.catchAllHandlerPtr()) {
+   *   catchAll->addMiddleware(myMiddleware);
+   * }
+   * @endcode
+   *
+   * @return Pointer to the catch-all handler, or nullptr if none is installed.
+   */
+  AsyncCallbackWebHandler *catchAllHandlerPtr() const {
+    return _catchAllHandler;
+  }
+
+  /**
+   * @brief Get a reference to the catch-all handler.
+   *
+   * @deprecated Use catchAllHandlerPtr() instead — it is safe to call even when
+   *             no catch-all handler is installed (returns nullptr).
+   *             This method crashes (undefined behavior) if no catch-all handler
+   *             is installed.
+   *
+   * Give access to the handler used to catch all requests, so that middleware
+   * can be added to it.
+   */
+  [[deprecated("Use catchAllHandlerPtr() instead — it returns nullptr instead of crashing when no catch-all is installed.")]]
   AsyncWebHandler &catchAllHandler() const;
 
   void reset();  // remove all writers and handlers, with onNotFound/onFileUpload/onRequestBody

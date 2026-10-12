@@ -38,3 +38,57 @@ Recommended configurations:
 - You can not use yield or delay or any function that uses them inside the callbacks
 - The server is smart enough to know when to close the connection and free resources
 - You can not send more than one response to a single request
+
+## Memory placement: PSRAM and static allocation
+
+On ESP32 targets with PSRAM, internal SRAM is often the scarcest resource (lwIP segments, WiFi buffers, and other networking allocations all live there). Handler objects — `AsyncCallbackWebHandler`, `AsyncStaticWebHandler`, `AsyncWebSocket`, `AsyncEventSource`, `AsyncCallbackJsonWebHandler` — are long-lived: they are created once at setup and only read during request dispatch. Moving them out of internal SRAM can free significant memory.
+
+By default, handlers created by `server.on()` or `server.serveStatic()` are allocated on the internal heap and owned by the server. To control where handler objects live, register them as **non-owning**:
+
+```cpp
+// Static RAM — no heap allocation at all
+static AsyncCallbackWebHandler handler;
+handler.setUri(AsyncURIMatcher::exact("/status"));
+handler.onRequest([](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "OK");
+});
+server.addHandler(handler);  // non-owning reference overload
+```
+
+```cpp
+// PSRAM — placement new with heap_caps_malloc (ESP32)
+#include <esp_heap_caps.h>
+
+void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+auto *handler = new (mem) AsyncCallbackWebHandler();
+handler->setUri(AsyncURIMatcher::exact("/status"));
+handler->onRequest([](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "OK");
+});
+server.addHandler(handler, false);  // non-owning — manage lifetime yourself
+```
+
+The same applies to the catch-all (not-found) handler — either at construction time or afterwards:
+
+```cpp
+// At construction — non-owning (reference), lives in static RAM
+static AsyncCallbackWebHandler myCatchAll;
+AsyncWebServer server(80, myCatchAll);
+
+// At construction — non-owning (pointer), e.g. PSRAM
+AsyncWebServer server(80, psramCatchAll, false);
+
+// At construction — no catch-all at all (unmatched → bare 501)
+AsyncWebServer server(80, nullptr);
+
+// After construction
+server.setCatchAllHandler(myCatchAllHandler);        // non-owning (reference)
+server.setCatchAllHandler(psramCatchAll, false);     // non-owning (pointer)
+server.setCatchAllHandler(new AsyncCallbackWebHandler());  // server-owned (default)
+server.setCatchAllHandler(nullptr);                  // remove catch-all entirely
+```
+
+> [!NOTE]
+> When using non-owning registration, you are responsible for keeping the handler alive while it is registered with the server, and for destroying it after unregistration. For PSRAM handlers, remember to call the destructor explicitly and then `heap_caps_free()` the memory block.
+
+See the [CustomAllocation example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/CustomAllocation/CustomAllocation.ino) and the [Routing](routing.md#handler-ownership-and-memory-placement) documentation for more details.

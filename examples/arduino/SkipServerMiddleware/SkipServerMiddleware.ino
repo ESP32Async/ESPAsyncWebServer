@@ -54,9 +54,11 @@ void setup() {
   });
 
   // we skip all global middleware from the catchall handler
-  server.catchAllHandler().skipServerMiddlewares();
-  // we apply a specific middleware to the catchall handler only to log requests without a handler defined
-  server.catchAllHandler().addMiddleware(&logging);
+  if (auto *catchAll = server.catchAllHandlerPtr()) {
+    catchAll->skipServerMiddlewares();
+    // we apply a specific middleware to the catchall handler only to log requests without a handler defined
+    catchAll->addMiddleware(&logging);
+  }
 
   // standard 404 handler: will display the request in the console i na curl-like style
   // curl -v -H "Foo: Bar"  http://192.168.4.1/foo
