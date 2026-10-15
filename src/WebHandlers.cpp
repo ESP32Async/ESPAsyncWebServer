@@ -296,14 +296,32 @@ AsyncStaticWebHandler &AsyncStaticWebHandler::setTemplateProcessor(AwsTemplatePr
 }
 
 void AsyncCallbackWebHandler::setUri(AsyncURIMatcher uri) {
-  _uri = std::move(uri);
+  _uris.clear();
+  _uris.push_back(std::move(uri));
+}
+
+void AsyncCallbackWebHandler::addUri(AsyncURIMatcher uri) {
+  _uris.push_back(std::move(uri));
+}
+
+void AsyncCallbackWebHandler::clearUris() {
+  _uris.clear();
 }
 
 bool AsyncCallbackWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  if (!_onRequest || !request->isHTTP() || !_method.matches(request->method())) {
+  if (!_onRequest || !request->isHTTP()) {
     return false;
   }
-  return _uri.matches(request);
+  if (!_method.matches(request->method())) {
+    return false;
+  }
+  // Match against any of the registered URI matchers
+  for (const auto &uri : _uris) {
+    if (uri.matches(request)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void AsyncCallbackWebHandler::handleRequest(AsyncWebServerRequest *request) {

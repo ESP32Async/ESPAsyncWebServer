@@ -90,3 +90,24 @@ server.setCatchAllHandler(new AsyncCallbackWebHandler());  // server-owned
 > When using non-owning registration, you are responsible for keeping the handler alive while it is registered with the server, and for destroying it after unregistration. For PSRAM handlers, remember to call the destructor explicitly and then `heap_caps_free()` the memory block.
 
 See the [CustomAllocation example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/CustomAllocation/CustomAllocation.ino) and the [Routing](routing.md#handler-ownership-and-memory-placement) documentation for more details.
+
+## Multiple URIs per Handler
+
+One handler object can serve **multiple URIs** — the handler holds a list of URI matchers. One HTTP method mask applies to all its URIs; use separate handlers for different methods:
+
+```cpp
+static AsyncCallbackWebHandler handler;
+handler.onRequest([](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "OK");
+});
+handler.setMethod(HTTP_GET);
+
+// Same handler, three URIs (non-owning, static RAM):
+handler.setUri(AsyncURIMatcher::exact("/foo"));
+handler.addUri(AsyncURIMatcher::exact("/bar"));
+handler.addUri(AsyncURIMatcher::exact("/status"));
+
+server.addHandler(handler);  // non-owning (reference)
+```
+
+See the [MultiRoute example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/MultiRoute/MultiRoute.ino) and the [Routing](routing.md#multiple-uris-per-handler) documentation for more details.

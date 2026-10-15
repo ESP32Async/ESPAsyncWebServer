@@ -55,7 +55,10 @@ public:
 class AsyncCallbackWebHandler : public AsyncWebHandler {
 private:
 protected:
-  AsyncURIMatcher _uri;
+  // A handler can serve multiple URIs — one method mask applies to all of them.
+  // Use separate handlers when different URIs need different HTTP methods
+  // (e.g. a GET handler and a POST handler with onBody/onUpload callbacks).
+  std::list<AsyncURIMatcher> _uris;
   WebRequestMethodComposite _method;
   ArRequestHandlerFunction _onRequest;
   ArUploadHandlerFunction _onUpload;
@@ -63,8 +66,33 @@ protected:
   bool _isRegex;
 
 public:
-  AsyncCallbackWebHandler() : _uri(), _method(AsyncWebRequestMethod::HTTP_ALL), _onRequest(NULL), _onUpload(NULL), _onBody(NULL), _isRegex(false) {}
+  AsyncCallbackWebHandler() : _method(AsyncWebRequestMethod::HTTP_ALL), _onRequest(NULL), _onUpload(NULL), _onBody(NULL), _isRegex(false) {}
+
+  /**
+   * @brief Set the URI matcher, replacing any previously added matchers.
+   *
+   * Backward-compatible: same behavior as before when only one URI is used.
+   * Use addUri() to serve additional URIs with the same handler.
+   */
   void setUri(AsyncURIMatcher uri);
+
+  /**
+   * @brief Add an additional URI matcher.
+   *
+   * The same handler object will serve all added URIs, matched against the
+   * single method mask set via setMethod().
+   *
+   * @code
+   * handler.setUri(AsyncURIMatcher::exact("/hello"));
+   * handler.addUri(AsyncURIMatcher::exact("/hi"));
+   * handler.addUri(AsyncURIMatcher::prefix("/greet/"));
+   * @endcode
+   */
+  void addUri(AsyncURIMatcher uri);
+
+  /// Remove all URI matchers (the handler will no longer match any request).
+  void clearUris();
+
   void setMethod(WebRequestMethodComposite method) {
     _method = std::move(method);
   }

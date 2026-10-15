@@ -117,21 +117,34 @@ constexpr static WebRequestMethodComposite JsonHandlerMethods =
 
 #if ARDUINOJSON_VERSION_MAJOR == 6
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest, size_t maxJsonBufferSize)
-  : _uri(std::move(uri)), _method(JsonHandlerMethods), _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize), _maxContentLength(16384) {}
+  : _method(JsonHandlerMethods), _onRequest(onRequest), maxJsonBufferSize(maxJsonBufferSize), _maxContentLength(16384) {
+  _uris.push_back(std::move(uri));
+}
 #else
 AsyncCallbackJsonWebHandler::AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest)
-  : _uri(std::move(uri)), _method(JsonHandlerMethods), _onRequest(onRequest), _maxContentLength(16384) {}
+  : _method(JsonHandlerMethods), _onRequest(onRequest), _maxContentLength(16384) {
+  _uris.push_back(std::move(uri));
+}
 #endif
 
 bool AsyncCallbackJsonWebHandler::canHandle(AsyncWebServerRequest *request) const {
-  if (!_onRequest || !request->isHTTP() || !_method.matches(request->method())) {
+  if (!_onRequest || !request->isHTTP()) {
     return false;
   }
-
-  if (!_uri.matches(request)) {
+  if (!_method.matches(request->method())) {
     return false;
   }
-
+  // Match against any of the registered URI matchers
+  bool uriMatched = false;
+  for (const auto &uri : _uris) {
+    if (uri.matches(request)) {
+      uriMatched = true;
+      break;
+    }
+  }
+  if (!uriMatched) {
+    return false;
+  }
 #if ASYNC_MSG_PACK_SUPPORT == 1
   return request->method() == AsyncWebRequestMethod::HTTP_GET || request->contentType().equalsIgnoreCase(asyncsrv::T_application_json)
          || request->contentType().equalsIgnoreCase(asyncsrv::T_application_msgpack);

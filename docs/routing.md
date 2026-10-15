@@ -68,6 +68,100 @@ server.on(AsyncURIMatcher::regex("^/user/([0-9]+)$"), handler);
 #endif
 ```
 
+## Multiple URIs per Handler
+
+A handler can serve **multiple URIs** by holding a list of matchers instead of a single one:
+
+| Method | Effect |
+|---|---|
+| `handler.setUri(matcher)` | Replace the list with one matcher (backward-compatible) |
+| `handler.addUri(matcher)` | Append an additional URI matcher |
+| `handler.clearUris()` | Remove all URI matchers |
+
+One HTTP method mask (`setMethod()`) applies to **all** URIs of a handler. When different URIs need different methods (e.g. `GET` vs `POST` with body/upload callbacks), use separate handler objects.
+
+### One Handler, Multiple URIs
+
+```cpp
+static AsyncWebServer server(80);
+
+// One handler object — lives in static RAM
+static AsyncCallbackWebHandler greetHandler;
+
+void setup() {
+  greetHandler.onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Hello from " + request->url());
+  });
+  greetHandler.setMethod(HTTP_GET);
+
+  // Same handler object serving three different URIs:
+  greetHandler.setUri(AsyncURIMatcher::exact("/hello"));
+  greetHandler.addUri(AsyncURIMatcher::exact("/hi"));
+  greetHandler.addUri(AsyncURIMatcher::prefix("/greet/"));
+
+  // Non-owning registration (by reference) — handler lives in static RAM:
+  server.addHandler(greetHandler);
+
+  server.begin();
+}
+```
+
+### Different Methods Need Different Handlers
+
+The method mask applies to all URIs of a handler, so a `POST` endpoint gets its own handler:
+
+```cpp
+static AsyncCallbackWebHandler getHandler;
+getHandler.setMethod(HTTP_GET);
+getHandler.setUri(AsyncURIMatcher::exact("/data"));
+getHandler.onRequest([](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "GET response");
+});
+server.addHandler(getHandler);
+
+static AsyncCallbackWebHandler postHandler;
+postHandler.setMethod(HTTP_POST);
+postHandler.setUri(AsyncURIMatcher::exact("/data"));
+postHandler.onRequest([](AsyncWebServerRequest *request) {
+  request->send(200, "text/plain", "POST received");
+});
+server.addHandler(postHandler);
+```
+
+### PSRAM Handler on Multiple URIs (ESP32)
+
+```cpp
+#include <esp_heap_caps.h>
+
+void setup() {
+  void *mem = heap_caps_malloc(sizeof(AsyncCallbackWebHandler), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  auto *handler = new (mem) AsyncCallbackWebHandler();
+  handler->onRequest([](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", "{\"ok\":true}");
+  });
+  handler->setMethod(HTTP_GET);
+
+  // Same PSRAM handler serving two URIs — non-owning (borrow by reference):
+  handler->setUri(AsyncURIMatcher::prefix("/api/"));
+  handler->addUri(AsyncURIMatcher::exact("/status"));
+  server.addHandler(*handler);
+
+  server.begin();
+}
+```
+
+### Removing a Handler
+
+```cpp
+// Removes the handler entirely — it no longer matches any URI:
+server.removeHandler(&greetHandler);
+```
+
+> [!NOTE]
+> This is fully backward compatible. Existing code using `on()`, `addHandler()`, `serveStatic()`, and single-URI handlers (`setUri()`) works identically — no migration required.
+
+See the [MultiRoute example](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/MultiRoute/MultiRoute.ino) for a complete sketch.
+
 ## Param Rewrite With Matching
 
 It is possible to rewrite the request url with parameter match. Here is an example with one parameter:
