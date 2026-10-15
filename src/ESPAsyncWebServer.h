@@ -100,8 +100,7 @@ namespace asyncsrv {
  * Requires alignof(T) >= 2, which is always true for polymorphic types
  * (they have a vtable pointer, guaranteeing alignment).
  */
-template <typename T>
-class MaybeOwned {
+template<typename T> class MaybeOwned {
   static constexpr uintptr_t OWNED = 1;
   uintptr_t _p;  // low bit set = owned
 

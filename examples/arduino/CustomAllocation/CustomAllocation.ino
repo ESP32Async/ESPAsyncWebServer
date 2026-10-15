@@ -61,8 +61,7 @@ static void *apiHandlerMem = nullptr;
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial)
-    ;
+  while (!Serial);
 
 #if ASYNCWEBSERVER_WIFI_SUPPORTED
   WiFi.mode(WIFI_AP);
@@ -100,8 +99,7 @@ void setup() {
       });
       // Non-owning borrow: the server stores a reference; we manage PSRAM lifetime.
       server.addHandler(*apiHandler);
-      Serial.printf("API handler allocated in PSRAM at %p (%u bytes free in PSRAM)\n",
-                    apiHandlerMem, ESP.getFreePsram());
+      Serial.printf("API handler allocated in PSRAM at %p (%u bytes free in PSRAM)\n", apiHandlerMem, ESP.getFreePsram());
     } else {
       Serial.println("PSRAM allocation failed for API handler");
     }
@@ -127,8 +125,7 @@ void setup() {
   server.begin();
   Serial.println("HTTP server started");
 #if ASYNCWEBSERVER_WIFI_SUPPORTED
-  Serial.printf("Connect to AP 'esp-custom-alloc' and open http://%s\n",
-                WiFi.softAPIP().toString().c_str());
+  Serial.printf("Connect to AP 'esp-custom-alloc' and open http://%s\n", WiFi.softAPIP().toString().c_str());
 #endif
   Serial.println("Try:");
   Serial.println("  http://192.168.4.1/status   (static RAM handler)");
