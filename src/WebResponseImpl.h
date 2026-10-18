@@ -82,6 +82,8 @@ private:
   std::unique_ptr<std::array<uint8_t, ASYNC_RESPONCE_BUFF_SIZE> > _send_buffer;
   // buffer data size specifiers
   size_t _send_buffer_offset{0}, _send_buffer_len{0};
+  // Source EOF does not mean that the final buffer has reached the TCP queue.
+  bool _source_ended{false};
   size_t _readDataFromCacheOrContent(uint8_t *data, const size_t len);
   size_t _fillBufferAndProcessTemplates(uint8_t *buf, size_t maxLen);
 
