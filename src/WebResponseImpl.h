@@ -95,7 +95,7 @@ protected:
    * @param request - used to access client object
    * @param len - size of acknowledged data from the remote side (TCP window update, not TCP ack!)
    * @param time - time passed between last sent and received packet
-   * @return size_t amount of response data placed to TCP send buffs for delivery (defined by sdkconfig value CONFIG_LWIP_TCP_SND_BUF_DEFAULT)
+   * @return size_t amount of data placed in the TCP send buffs for delivery (defined by sdkconfig value CONFIG_LWIP_TCP_SND_BUF_DEFAULT)
    */
   size_t write_send_buffs(AsyncWebServerRequest *request, size_t len, uint32_t time);
 
