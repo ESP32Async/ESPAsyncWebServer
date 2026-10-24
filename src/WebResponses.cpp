@@ -315,11 +315,6 @@ size_t AsyncBasicResponse::write_send_buffs(AsyncWebServerRequest *request, size
     }
   }
 
-  // implicit complete
-  if (_state == RESPONSE_WAIT_ACK) {
-    _state = RESPONSE_END;
-  }
-
   return payloadlen;
 }
 
@@ -515,12 +510,6 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
     return payloadlen;
   }  // (_state == RESPONSE_CONTENT)
 
-  // implicit check
-  if (_state == RESPONSE_WAIT_ACK) {
-    // we do not need to wait for any acks actually if we won't send any more data,
-    // connection would be closed gracefully with last piece of data (in AsyncWebServerRequest::_onAck)
-    _state = RESPONSE_END;
-  }
   return 0;
 }
 
