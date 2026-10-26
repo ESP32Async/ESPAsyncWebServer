@@ -40,29 +40,35 @@ const char *fs::FileOpenMode::write = "w";
 const char *fs::FileOpenMode::append = "a";
 #endif
 
-AsyncWebServer::AsyncWebServer(uint16_t port) : _server(port) {
-  _catchAllHandler = new AsyncCallbackWebHandler();
-  _server.onClient(
-    [](void *s, AsyncClient *c) {
-      if (c == NULL) {
-        return;
-      }
-      c->setRxTimeout(3);
-      std::shared_ptr<AsyncWebServerRequest> r = AsyncWebServerRequest::create(static_cast<AsyncWebServer *>(s), c);
-      if (!r) {
-        c->abort();
-        delete c;
-      }
-    },
-    this
-  );
+static void _onClientConnect(void *s, AsyncClient *c) {
+  if (c == NULL) {
+    return;
+  }
+  c->setRxTimeout(3);
+  std::shared_ptr<AsyncWebServerRequest> r = AsyncWebServerRequest::create(static_cast<AsyncWebServer *>(s), c);
+  if (!r) {
+    c->abort();
+    delete c;
+  }
+}
+
+AsyncWebServer::AsyncWebServer(uint16_t port) : AsyncWebServer(port, new AsyncCallbackWebHandler()) {}
+
+AsyncWebServer::AsyncWebServer(uint16_t port, AsyncCallbackWebHandler *catchAllHandler) : _server(port) {
+  assert(catchAllHandler != nullptr);
+  _catchAllHandler = MaybeOwned<AsyncCallbackWebHandler>::adopt(catchAllHandler);
+  _server.onClient(_onClientConnect, this);
+}
+
+AsyncWebServer::AsyncWebServer(uint16_t port, AsyncCallbackWebHandler &catchAllHandler) : _server(port) {
+  _catchAllHandler = MaybeOwned<AsyncCallbackWebHandler>::borrow(catchAllHandler);
+  _server.onClient(_onClientConnect, this);
 }
 
 AsyncWebServer::~AsyncWebServer() {
   reset();
   end();
-  delete _catchAllHandler;
-  _catchAllHandler = nullptr;  // Prevent potential use-after-free
+  _catchAllHandler = nullptr;
 }
 
 AsyncWebRewrite &AsyncWebServer::addRewrite(std::shared_ptr<AsyncWebRewrite> rewrite) {
@@ -95,13 +101,19 @@ AsyncWebRewrite &AsyncWebServer::rewrite(const char *from, const char *to) {
 }
 
 AsyncWebHandler &AsyncWebServer::addHandler(AsyncWebHandler *handler) {
-  _handlers.emplace_back(handler);
-  return *(_handlers.back().get());
+  _handlers.push_back(MaybeOwned<AsyncWebHandler>::adopt(handler));
+  return *handler;
+}
+
+AsyncWebHandler &AsyncWebServer::addHandler(AsyncWebHandler &handler) {
+  _handlers.push_back(MaybeOwned<AsyncWebHandler>::borrow(handler));
+  return handler;
 }
 
 bool AsyncWebServer::removeHandler(AsyncWebHandler *handler) {
   for (auto i = _handlers.begin(); i != _handlers.end(); ++i) {
     if (i->get() == handler) {
+      // MaybeOwned destructor will delete if owned; non-owned entries are just removed
       _handlers.erase(i);
       return true;
     }
@@ -140,14 +152,14 @@ void AsyncWebServer::_rewriteRequest(AsyncWebServerRequest *request) {
 }
 
 void AsyncWebServer::_attachHandler(AsyncWebServerRequest *request) {
-  for (auto &h : _handlers) {
-    if (h->filter(request) && h->canHandle(request)) {
-      request->setHandler(h.get());
+  for (auto &entry : _handlers) {
+    if (entry->filter(request) && entry->canHandle(request)) {
+      request->setHandler(entry.get());
       return;
     }
   }
-  // ESP_LOGD("AsyncWebServer", "No handler found for %s, using _catchAllHandler pointer: %p", request->url().c_str(), _catchAllHandler);
-  request->setHandler(_catchAllHandler);
+  // A catch-all handler is always installed — fallback to it.
+  request->setHandler(_catchAllHandler.get());
 }
 
 AsyncCallbackWebHandler &AsyncWebServer::on(
@@ -194,9 +206,20 @@ AsyncWebHandler &AsyncWebServer::catchAllHandler() const {
   return *_catchAllHandler;
 }
 
+void AsyncWebServer::setCatchAllHandler(AsyncCallbackWebHandler *handler) {
+  assert(handler != nullptr);
+  _catchAllHandler = MaybeOwned<AsyncCallbackWebHandler>::adopt(handler);
+}
+
+void AsyncWebServer::setCatchAllHandler(AsyncCallbackWebHandler &handler) {
+  _catchAllHandler = MaybeOwned<AsyncCallbackWebHandler>::borrow(handler);
+}
+
 void AsyncWebServer::reset() {
   _rewrites.clear();
   _handlers.clear();
+  // Note: _catchAllHandler is intentionally NOT cleared here — it persists
+  // across reset() calls (only its callbacks are cleared).
 
   _catchAllHandler->onRequest(NULL);
   _catchAllHandler->onUpload(NULL);

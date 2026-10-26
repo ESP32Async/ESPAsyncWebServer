@@ -315,11 +315,6 @@ size_t AsyncBasicResponse::write_send_buffs(AsyncWebServerRequest *request, size
     }
   }
 
-  // implicit complete
-  if (_state == RESPONSE_WAIT_ACK) {
-    _state = RESPONSE_END;
-  }
-
   return payloadlen;
 }
 
@@ -409,10 +404,15 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
   }
 
   // send content body
-  if (_state == RESPONSE_CONTENT) {
+  if ((_state == RESPONSE_CONTENT) || (_state == RESPONSE_WAIT_ACK)) {
     do {
+      auto tcp_win = request->client()->space();
+      if (tcp_win == 0) {
+        break;  // no room left in TCP window
+      }
+
       if (_send_buffer_len && _send_buffer) {
-        // data is pending in buffer from a previous call or previous iteration
+        // data is pending in buffer from a previous call or previous iteration; attempt to send it
         size_t const added_len =
           request->client()->add(reinterpret_cast<char *>(_send_buffer->data() + _send_buffer_offset), _send_buffer_len - _send_buffer_offset);
         if (added_len != _send_buffer_len - _send_buffer_offset) {
@@ -424,18 +424,19 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
           _send_buffer_len = _send_buffer_offset = 0;  // consider buffer empty
         }
         payloadlen += added_len;
+        tcp_win -= added_len;
       }
 
-      auto tcp_win = request->client()->space();
-      if (tcp_win == 0 || _state == RESPONSE_END) {
-        break;  // no room left or no more data
+      if (_state == RESPONSE_WAIT_ACK) {
+        break;  // all data added; exit loop
       }
 
-      if ((_chunked || !_sendContentLength) && (tcp_win < CONFIG_LWIP_TCP_MSS / 2)) {
+      if ((tcp_win == 0) || ((_chunked || !_sendContentLength) && (tcp_win < CONFIG_LWIP_TCP_MSS / 2))) {
         // available window size is not enough to send a new chunk sized half of tcp mss, let's wait for better chance and reduce pressure to AsyncTCP's event Q
         break;
       }
 
+      // Allocate send buffer if necessary
       if (!_send_buffer) {
         auto p = new (std::nothrow) std::array<uint8_t, ASYNC_RESPONCE_BUFF_SIZE>;
         if (p) {
@@ -467,7 +468,7 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
           _sentLength += readLen;           // data is not sent yet, but we won't get a chance to count this later properly for chunked data
           if (!readLen) {
             // last chunk?
-            _state = RESPONSE_END;
+            _state = RESPONSE_WAIT_ACK;
           }
         }
       } else {
@@ -483,13 +484,13 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
 
         if (readLen == 0) {
           // no more data to send
-          _state = RESPONSE_END;
+          _state = RESPONSE_WAIT_ACK;
         } else if (readLen != RESPONSE_TRY_AGAIN) {
           _send_buffer_len += readLen;  // set buffers's size to match added data
           _sentLength += readLen;       // data is not sent yet, but we need it to understand that it would be last block
           if (_sendContentLength && (_sentLength == _contentLength)) {
             // it was last piece of content
-            _state = RESPONSE_END;
+            _state = RESPONSE_WAIT_ACK;
           }
         }
       }
@@ -499,23 +500,26 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
     request->client()->send();
     _writtenLength += payloadlen;
 #if ASYNCWEBSERVER_USE_CHUNK_INFLIGHT
-    _in_flight += payloadlen;
-    --_in_flight_credit;  // take a credit
+    // Take a credit only for data actually put in flight.  When the source
+    // had nothing yet (RESPONSE_TRY_AGAIN), nothing will be acked to return
+    // the credit, and polls don't return credits, so spending one here would
+    // stall the response for good once the credits run out.
+    if (payloadlen) {
+      _in_flight += payloadlen;
+      --_in_flight_credit;  // take a credit
+    }
 #endif
     if (_send_buffer_len == 0) {
       // buffer empty, we can release mem, otherwise need to keep it till next run (should not happen under normal conditions)
       _send_buffer.reset();
     }
-    return payloadlen;
-  }  // (_state == RESPONSE_CONTENT)
+  }  // (_state == RESPONSE_CONTENT) || (_state == RESPONSE_WAIT_ACK)
 
-  // implicit check
-  if (_state == RESPONSE_WAIT_ACK) {
-    // we do not need to wait for any acks actually if we won't send any more data,
-    // connection would be closed gracefully with last piece of data (in AsyncWebServerRequest::_onAck)
-    _state = RESPONSE_END;
+  if ((_state == RESPONSE_WAIT_ACK) && (_send_buffer_len == 0)) {
+    _state = RESPONSE_END;  // All done!
   }
-  return 0;
+
+  return payloadlen;
 }
 
 size_t AsyncAbstractResponse::_readDataFromCacheOrContent(uint8_t *data, const size_t len) {
