@@ -859,9 +859,6 @@ size_t AsyncWebSocketClient::printf(const char *format, ...) {
     return 0;
   }
 
-  // malloc (not new) so an allocation failure is observable: plain new aborts
-  // the device on ESP32/ESP8266 when exceptions are disabled, leaving the
-  // NULL-check below dead code.
   char *buffer = (char *)malloc(len + 1);
 
   if (!buffer) {
@@ -1373,9 +1370,6 @@ size_t AsyncWebSocket::printfAll(const char *format, ...) {
     return 0;
   }
 
-  // malloc (not new) so an allocation failure is observable: plain new aborts
-  // the device on ESP32/ESP8266 when exceptions are disabled, leaving the
-  // NULL-check below dead code.
   char *buffer = (char *)malloc(len + 1);
 
   if (!buffer) {

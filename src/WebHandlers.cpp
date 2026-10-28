@@ -286,8 +286,6 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
 
   if (notModified) {
     request->_tempFile.close();
-    // nothrow: plain new aborts the device on ESP32/ESP8266 when out of
-    // memory, making a NULL-check dead code.
     response = new (std::nothrow) AsyncBasicResponse(304);  // Not modified
   } else {
     response = new (std::nothrow) AsyncFileResponse(request->_tempFile, filename, asyncsrv::emptyString, false, _callback);

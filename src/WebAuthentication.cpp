@@ -31,9 +31,6 @@ String generateBasicHash(const char *username, const char *password) {
 
   size_t toencodeLen = strlen(username) + strlen(password) + 1;
 
-  // malloc (not new) so an allocation failure is observable: plain new
-  // aborts the device on ESP32/ESP8266 when exceptions are disabled, leaving
-  // the NULL-check below dead code.
   char *toencode = (char *)malloc(toencodeLen + 1);
   if (toencode == NULL) {
     async_ws_log_e("Failed to allocate");
