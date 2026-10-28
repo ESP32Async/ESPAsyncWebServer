@@ -488,8 +488,33 @@ public:
     return _name.length();
   }
 
+  // Result of AsyncWebHeader::tryParse()
+  enum class ParseStatus {
+    Ok,        // header parsed, output valid
+    Invalid,   // malformed header line
+    NoMemory,  // allocation failure: request must be failed, not skipped
+  };
+
+  /**
+   * @brief Parse a header line into an existing AsyncWebHeader.
+   *
+   * Unlike parse(), the output parameter is only overwritten on success, so a
+   * NoMemory result cannot leave a half-built header behind.  A NoMemory
+   * result must abort the request (see issue #500): a String whose internal
+   * allocation failed has a null c_str() on ESP32 and an empty one on
+   * ESP8266, and downstream header consumers would either dereference it or
+   * silently misparse the request.
+   *
+   * @param data raw header line "Name: value" (no CR/LF)
+   * @param out header to fill on success; left untouched otherwise
+   * @return ParseStatus Ok, Invalid or NoMemory
+   */
+  static ParseStatus tryParse(const char *data, AsyncWebHeader &out);
+
   static const AsyncWebHeader parse(const String &data) {
-    return parse(data.c_str());
+    AsyncWebHeader header;
+    (void)tryParse(data.c_str(), header);
+    return header;
   }
   static const AsyncWebHeader parse(const char *data);
 };
@@ -595,6 +620,7 @@ private:
 
   bool _parseReqHead();
   bool _parseReqHeader();
+  void _parseHeader(AsyncWebHeader &&header);
   void _parseLine();
   void _parsePlainPostChar(uint8_t data);
   void _parseMultipartPostByte(uint8_t data, bool last);

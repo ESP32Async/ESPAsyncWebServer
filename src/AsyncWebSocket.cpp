@@ -859,9 +859,13 @@ size_t AsyncWebSocketClient::printf(const char *format, ...) {
     return 0;
   }
 
-  char *buffer = new char[len + 1];
+  // malloc (not new) so an allocation failure is observable: plain new aborts
+  // the device on ESP32/ESP8266 when exceptions are disabled, leaving the
+  // NULL-check below dead code.
+  char *buffer = (char *)malloc(len + 1);
 
   if (!buffer) {
+    async_ws_log_e("Failed to allocate");
     return 0;
   }
 
@@ -870,7 +874,7 @@ size_t AsyncWebSocketClient::printf(const char *format, ...) {
   va_end(arg);
 
   bool enqueued = text(buffer, len);
-  delete[] buffer;
+  free(buffer);
   return enqueued ? len : 0;
 }
 
@@ -885,9 +889,10 @@ size_t AsyncWebSocketClient::printf_P(PGM_P formatP, ...) {
     return 0;
   }
 
-  char *buffer = new char[len + 1];
+  char *buffer = (char *)malloc(len + 1);
 
   if (!buffer) {
+    async_ws_log_e("Failed to allocate");
     return 0;
   }
 
@@ -896,7 +901,7 @@ size_t AsyncWebSocketClient::printf_P(PGM_P formatP, ...) {
   va_end(arg);
 
   bool enqueued = text(buffer, len);
-  delete[] buffer;
+  free(buffer);
   return enqueued ? len : 0;
 }
 #endif
@@ -1368,9 +1373,13 @@ size_t AsyncWebSocket::printfAll(const char *format, ...) {
     return 0;
   }
 
-  char *buffer = new char[len + 1];
+  // malloc (not new) so an allocation failure is observable: plain new aborts
+  // the device on ESP32/ESP8266 when exceptions are disabled, leaving the
+  // NULL-check below dead code.
+  char *buffer = (char *)malloc(len + 1);
 
   if (!buffer) {
+    async_ws_log_e("Failed to allocate");
     return 0;
   }
 
@@ -1379,7 +1388,7 @@ size_t AsyncWebSocket::printfAll(const char *format, ...) {
   va_end(arg);
 
   AsyncWebSocket::SendStatus status = textAll(buffer, len);
-  delete[] buffer;
+  free(buffer);
   return status == DISCARDED ? 0 : len;
 }
 
@@ -1406,9 +1415,10 @@ size_t AsyncWebSocket::printfAll_P(PGM_P formatP, ...) {
     return 0;
   }
 
-  char *buffer = new char[len + 1];
+  char *buffer = (char *)malloc(len + 1);
 
   if (!buffer) {
+    async_ws_log_e("Failed to allocate");
     return 0;
   }
 
@@ -1417,7 +1427,7 @@ size_t AsyncWebSocket::printfAll_P(PGM_P formatP, ...) {
   va_end(arg);
 
   AsyncWebSocket::SendStatus status = textAll(buffer, len);
-  delete[] buffer;
+  free(buffer);
   return status == DISCARDED ? 0 : len;
 }
 #endif
@@ -1462,14 +1472,27 @@ void AsyncWebSocket::handleRequest(AsyncWebServerRequest *request) {
   const AsyncWebHeader *version = request->getHeader(WS_STR_VERSION);
   if (version->value().toInt() != 13) {
     AsyncWebServerResponse *response = request->beginResponse(400);
+    if (!response) {
+      async_ws_log_e("Failed to allocate");
+      request->abort();
+      return;
+    }
     response->addHeader(WS_STR_VERSION, T_13);
     request->send(response);
     return;
   }
   const AsyncWebHeader *key = request->getHeader(WS_STR_KEY);
-  AsyncWebServerResponse *response = new AsyncWebSocketResponse(key->value(), this);
+  AsyncWebServerResponse *response = new (std::nothrow) AsyncWebSocketResponse(key->value(), this);
   if (response == NULL) {
     async_ws_log_e("Failed to allocate");
+    request->abort();
+    return;
+  }
+  if (!response->_sourceValid()) {
+    // The response could not build the Sec-WebSocket-Accept header (out of
+    // memory): fail the upgrade instead of sending an invalid handshake.
+    async_ws_log_e("Failed to allocate");
+    delete response;
     request->abort();
     return;
   }
@@ -1507,6 +1530,7 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket
   String k;
   if (!k.reserve(key.length() + WS_STR_UUID_LEN)) {
     async_ws_log_e("Failed to allocate");
+    _state = RESPONSE_FAILED;
     return;
   }
   k.concat(key);
@@ -1554,6 +1578,14 @@ void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
   );
   String out;
   _assembleHead(out, request->version());
+  if (!_headLength) {
+    // Head assembly ran out of memory: fail the upgrade instead of sending a
+    // corrupted handshake.
+    async_ws_log_e("Failed to allocate");
+    _state = RESPONSE_FAILED;
+    request->client()->close();
+    return;
+  }
   request->client()->write(out.c_str(), _headLength);
   _state = RESPONSE_WAIT_ACK;
 }

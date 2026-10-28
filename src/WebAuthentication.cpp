@@ -31,24 +31,29 @@ String generateBasicHash(const char *username, const char *password) {
 
   size_t toencodeLen = strlen(username) + strlen(password) + 1;
 
-  char *toencode = new char[toencodeLen + 1];
+  // malloc (not new) so an allocation failure is observable: plain new
+  // aborts the device on ESP32/ESP8266 when exceptions are disabled, leaving
+  // the NULL-check below dead code.
+  char *toencode = (char *)malloc(toencodeLen + 1);
   if (toencode == NULL) {
+    async_ws_log_e("Failed to allocate");
     return asyncsrv::emptyString;
   }
-  char *encoded = new char[base64_encode_expected_len(toencodeLen) + 1];
+  char *encoded = (char *)malloc(base64_encode_expected_len(toencodeLen) + 1);
   if (encoded == NULL) {
-    delete[] toencode;
+    async_ws_log_e("Failed to allocate");
+    free(toencode);
     return asyncsrv::emptyString;
   }
   sprintf_P(toencode, PSTR("%s:%s"), username, password);
   if (base64_encode_chars(toencode, toencodeLen, encoded) > 0) {
     String res = String(encoded);
-    delete[] toencode;
-    delete[] encoded;
+    free(toencode);
+    free(encoded);
     return res;
   }
-  delete[] toencode;
-  delete[] encoded;
+  free(toencode);
+  free(encoded);
   return asyncsrv::emptyString;
 }
 

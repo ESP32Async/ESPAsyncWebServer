@@ -109,11 +109,26 @@ bool AsyncStaticWebHandler::canHandle(AsyncWebServerRequest *request) const {
 bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest *request) const {
   // Remove the found uri
   String path = request->url().substring(_uri.length());
+  // substring() can fail to allocate: an empty result for a longer URL means
+  // the heap buffer could not be allocated, and continuing would look up the
+  // wrong file (or the default one).  Bail out so the request falls through
+  // to another handler / 404 instead of serving wrong content.
+  if (!path.length() && request->url().length() > _uri.length()) {
+    async_ws_log_e("Failed to allocate");
+    return false;
+  }
 
   // We can skip the file check and look for default if request is to the root of a directory or that request path ends with '/'
   bool canSkipFileCheck = (_isDir && path.length() == 0) || (path.length() && path[path.length() - 1] == '/');
 
   path = _path + path;
+  // The concatenation above can fail to allocate: _path is never empty (the
+  // constructor guarantees a leading '/'), so an empty result can only mean
+  // the heap buffer could not be allocated.
+  if (!path.length()) {
+    async_ws_log_e("Failed to allocate");
+    return false;
+  }
 
   // Do we have a file or .gz file
   if (!canSkipFileCheck && const_cast<AsyncStaticWebHandler *>(this)->_searchFile(request, path)) {
@@ -200,9 +215,22 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
  */
 void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
   // Get the filename from request->_tempObject and free it
-  String filename((char *)request->_tempObject);
-  free(request->_tempObject);
-  request->_tempObject = nullptr;
+  String filename;
+  if (request->_tempObject != nullptr) {
+    const char *tempPath = (const char *)request->_tempObject;
+    const size_t tempPathLen = strlen(tempPath);
+    filename = String(tempPath);
+    free(request->_tempObject);
+    request->_tempObject = nullptr;
+    // A copy of a non-empty path can only be empty when its allocation
+    // failed (c_str() is then null on ESP32); abort rather than serve the
+    // wrong file.
+    if (tempPathLen && !filename.length()) {
+      async_ws_log_e("Failed to allocate");
+      request->abort();
+      return;
+    }
+  }
 
   if (request->_tempFile != true) {
     request->send(404);
@@ -258,9 +286,11 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
 
   if (notModified) {
     request->_tempFile.close();
-    response = new AsyncBasicResponse(304);  // Not modified
+    // nothrow: plain new aborts the device on ESP32/ESP8266 when out of
+    // memory, making a NULL-check dead code.
+    response = new (std::nothrow) AsyncBasicResponse(304);  // Not modified
   } else {
-    response = new AsyncFileResponse(request->_tempFile, filename, asyncsrv::emptyString, false, _callback);
+    response = new (std::nothrow) AsyncFileResponse(request->_tempFile, filename, asyncsrv::emptyString, false, _callback);
   }
 
   if (!response) {
