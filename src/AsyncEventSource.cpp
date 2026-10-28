@@ -386,7 +386,13 @@ bool AsyncEventSource::canHandle(AsyncWebServerRequest *request) const {
 }
 
 void AsyncEventSource::handleRequest(AsyncWebServerRequest *request) {
-  request->send(new AsyncEventSourceResponse(this));
+  AsyncWebServerResponse *response = new (std::nothrow) AsyncEventSourceResponse(this);
+  if (!response) {
+    async_ws_log_e("Failed to allocate");
+    request->abort();
+    return;
+  }
+  request->send(response);
 }
 
 // list iteration protected by caller's lock
@@ -416,6 +422,14 @@ AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server) : _
 void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
   String out;
   _assembleHead(out, request->version());
+  if (!_headLength) {
+    // Head assembly ran out of memory: fail the stream instead of sending a
+    // corrupted head.
+    async_ws_log_e("Failed to allocate");
+    _state = RESPONSE_FAILED;
+    request->client()->close();
+    return;
+  }
   uint32_t lastId = 0;
   if (request->hasHeader(T_Last_Event_ID)) {
     lastId = strtoul(request->getHeader(T_Last_Event_ID)->value().c_str(), nullptr, 10);

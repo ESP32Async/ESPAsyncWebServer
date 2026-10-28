@@ -199,15 +199,23 @@ void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
     addHeader(T_Content_Type, _contentType.c_str(), false);
   }
 
-  // precompute buffer size to avoid reallocations by String class
-  size_t len = 0;
-  len += 50;  // HTTP/1.1 200 <reason>\r\n
+  // precompute buffer size to avoid reallocations by String class:
+  // the status line is at most 50 bytes ("HTTP/1." + version digit + space +
+  // 3-digit code + space + the longest reason phrase (31) + CRLF = 46), and
+  // each header needs exactly its name + value + ": " + CRLF = 4 extra bytes.
+  // With that capacity reserved, the concat() calls below cannot allocate.
+  size_t len = 50;
   for (const auto &header : _headers) {
     len += header.name().length() + header.value().length() + 4;
   }
 
-  // prepare buffer
-  buffer.reserve(len);
+  if (!buffer.reserve(len)) {
+    // Out of memory: leave the buffer empty so callers treat this as a failed
+    // response instead of writing a truncated head.
+    async_ws_log_e("Failed to allocate");
+    _headLength = 0;
+    return;
+  }
 
   // HTTP header
 #ifdef ESP8266
@@ -273,6 +281,13 @@ AsyncBasicResponse::AsyncBasicResponse(int code, const char *contentType, const 
 void AsyncBasicResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_HEADERS;
   _assembleHead(_assembled_headers, request->version());
+  if (!_headLength) {
+    // Head assembly ran out of memory: fail the response instead of sending
+    // a corrupted (partial or missing) head.
+    _state = RESPONSE_FAILED;
+    request->client()->close();
+    return;
+  }
   write_send_buffs(request, 0, 0);
 }
 
@@ -334,6 +349,13 @@ AsyncAbstractResponse::AsyncAbstractResponse(AwsTemplateProcessor callback) : _c
 void AsyncAbstractResponse::_respond(AsyncWebServerRequest *request) {
   addHeader(T_Connection, T_close, false);
   _assembleHead(_assembled_headers, request->version());
+  if (!_headLength) {
+    // Head assembly ran out of memory: fail the response instead of sending
+    // a corrupted (partial or missing) head.
+    _state = RESPONSE_FAILED;
+    request->client()->close();
+    return;
+  }
   _state = RESPONSE_HEADERS;
   write_send_buffs(request, 0, 0);
 }
