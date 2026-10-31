@@ -163,7 +163,14 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         _temp.concat(ch);
       } else {       // Found new line - extract it and parse
         str[i] = 0;  // Terminate the string at the end of the line.
-        _temp.concat(str);
+        // concat() can fail to allocate; a failed _temp would silently
+        // truncate the header line and desync the parser, so abort instead.
+        if (!_temp.concat(str)) {
+          async_ws_log_e("Failed to allocate");
+          _parseState = PARSE_REQ_FAIL;
+          abort();
+          return;
+        }
         _temp.trim();
         _parseLine();
         if (++i < len) {
@@ -191,6 +198,11 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         if (needParse) {
           size_t idx;
           for (idx = 0; idx < len; idx++) {
+            if (_parseState != PARSE_REQ_BODY) {
+              // the parser aborted this request (e.g. out of memory): stop
+              // processing the remaining bytes
+              break;
+            }
             _parseMultipartPostByte(((uint8_t *)buf)[idx], idx == len - 1);
             _parsedLength++;
           }
@@ -221,6 +233,11 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         } else if (needParse) {
           size_t idx;
           for (idx = 0; idx < len; idx++) {
+            if (_parseState != PARSE_REQ_BODY) {
+              // the parser aborted this request (e.g. out of memory): stop
+              // processing the remaining bytes
+              break;
+            }
             _parsedLength++;
             _parsePlainPostChar(((uint8_t *)buf)[idx]);
           }
@@ -487,226 +504,19 @@ static inline const char *rtrim_ows(const char *start, const char *end) {
 }
 
 bool AsyncWebServerRequest::_parseReqHeader() {
-  AsyncWebHeader header = AsyncWebHeader::parse(_temp);
-  if (header) {
-    const String &name = header.name();
-    const String &value = header.value();
-    if (name.equalsIgnoreCase(T_Host)) {
-      _host = value;
-    } else if (name.equalsIgnoreCase(T_Content_Type)) {
-      _contentType = value.substring(0, value.indexOf(';'));
-      // Trim _contentType defensively; AsyncWebHeader::parse now strips all
-      // leading OWS per RFC 7230, but trim() guards against any future change.
-      _contentType.trim();
-      if (strncasecmp(value.c_str(), T_MULTIPART_, sizeof(T_MULTIPART_) - 1) == 0) {
-        // Delimiter-structured, quote-aware search for the boundary parameter.
-        // We scan parameter by parameter (';'-delimited) so that 'boundary='
-        // inside a quoted value (e.g. foo="x; boundary=y") is never mistaken
-        // for the real parameter.  A ';' inside a quoted-string is not a
-        // parameter separator per RFC 2045 §5.1.
-        const char *p = value.c_str();
-        const char *end = p + value.length();
-
-        // Advance past the media-type to the first ';'
-        while (p < end && *p != ';') {
-          p++;
-        }
-
-        const char *bvdata = nullptr;
-        while (p < end) {
-          p++;  // consume ';'
-          p = skip_ows(p, end);
-          if ((size_t)(end - p) > T_BOUNDARY_LEN && strncasecmp(p, T_BOUNDARY, T_BOUNDARY_LEN) == 0) {
-            bvdata = p + T_BOUNDARY_LEN;
-            break;
-          }
-          // Advance to the next ';', skipping over any quoted-string value
-          while (p < end && *p != ';') {
-            if (*p++ == '"') {
-              while (p < end && *p != '"') {
-                if (*p == '\\' && p + 1 < end) {
-                  p++;  // skip quoted-pair
-                }
-                p++;
-              }
-              if (p < end) {
-                p++;  // skip closing '"'
-              }
-            }
-          }
-        }
-
-        if (bvdata == nullptr) {
-          // No valid boundary parameter found — cannot parse multipart body.
-          async_ws_log_d("Missing multipart boundary parameter, aborting");
-          _parseState = PARSE_REQ_FAIL;
-          abort();
-          return true;
-        }
-
-        // Strip leading OWS after 'boundary=' — non-RFC but seen in the wild.
-        bvdata = skip_ows(bvdata, end);
-
-        // Clear any previous value — duplicate Content-Type headers must not
-        // concatenate into the boundary string.
-        _boundary = String();
-
-        if (bvdata < end && *bvdata == '"') {
-          // Quoted-string: unescape quoted-pairs into _boundary directly.
-          bvdata++;  // skip opening '"'
-          // Reserve at most 70 chars — the RFC 2046 §5.1 maximum — rather than
-          // the full (attacker-controlled) remaining suffix length.
-          if (!_boundary.reserve(70)) {
-            async_ws_log_e("Failed to allocate");
-            _parseState = PARSE_REQ_FAIL;
-            abort();
-            return true;
-          }
-          bool closed = false;
-          while (bvdata < end) {
-            char c = *bvdata++;
-            if (c == '\\' && bvdata < end) {
-              _boundary += *bvdata++;  // quoted-pair: keep only the escaped char
-            } else if (c == '"') {
-              closed = true;
-              break;
-            } else {
-              _boundary += c;
-            }
-            // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
-            if (_boundary.length() > 70) {
-              async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
-              _parseState = PARSE_REQ_FAIL;
-              abort();
-              return true;
-            }
-          }
-          if (!closed) {
-            // Opening quote was never closed — malformed header.
-            async_ws_log_d("Invalid multipart boundary (unterminated quote), aborting");
-            _parseState = PARSE_REQ_FAIL;
-            abort();
-            return true;
-          }
-        } else {
-          // Token form: value ends at the next ';' or end of string.
-          const char *tok_end = bvdata;
-          while (tok_end < end && *tok_end != ';') {
-            tok_end++;
-          }
-          tok_end = rtrim_ows(bvdata, tok_end);
-          size_t bvlen = (size_t)(tok_end - bvdata);
-          // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
-          if (bvlen == 0 || bvlen > 70) {
-            async_ws_log_d("Invalid multipart boundary length (%u), aborting", (unsigned)bvlen);
-            _parseState = PARSE_REQ_FAIL;
-            abort();
-            return true;
-          }
-#ifdef ESP8266
-          {
-            // ESP8266 Arduino String lacks String(const char*, size_t).
-            // bvlen <= 70 is guaranteed above, so a stack buffer is safe.
-            char buf[71];
-            memcpy(buf, bvdata, bvlen);
-            buf[bvlen] = '\0';
-            _boundary = String(buf);
-          }
-#else
-          _boundary = String(bvdata, (unsigned int)bvlen);
-#endif
-        }
-
-        // CWE-190 / DoS fix: final safety net.  The per-branch checks above
-        // cover the token path (bvlen == 0 || bvlen > 70) and the quoted-string
-        // path (> 70 inside the loop), but an empty quoted-string (boundary="")
-        // closes immediately with _boundary still empty and is not rejected
-        // by either branch.  Reject it here before _isMultipart is set, so an
-        // empty boundary never reaches the multipart body parser (where it
-        // would cause --\r\n to be accepted as a delimiter).
-        if (_boundary.length() == 0 || _boundary.length() > 70) {
-          async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
-          _parseState = PARSE_REQ_FAIL;
-          abort();
-          return true;
-        }
-
-        _isMultipart = true;
-      }
-    } else if (name.equalsIgnoreCase(T_Content_Length) || name.equalsIgnoreCase(T_X_Expected_Entity_Length)) {
-      // MacOS WebDAVFS uses X-Expected-Entity-Length to indicate the
-      // total length of a chunked request body.  It is useful to
-      // determine if a PUT can possibly fit in the available space.
-      _contentLength = atoi(value.c_str());
-    } else if (name.equalsIgnoreCase(T_EXPECT) && value.equalsIgnoreCase(T_100_CONTINUE)) {
-      _expectingContinue = true;
-    } else if (name.equalsIgnoreCase(T_AUTH)) {
-      int space = value.indexOf(' ');
-      if (space == -1) {
-        _authorization = value;
-        _authMethod = AsyncAuthType::AUTH_OTHER;
-      } else {
-        String method = value.substring(0, space);
-        if (method.equalsIgnoreCase(T_BASIC)) {
-          _authMethod = AsyncAuthType::AUTH_BASIC;
-        } else if (method.equalsIgnoreCase(T_DIGEST)) {
-          _authMethod = AsyncAuthType::AUTH_DIGEST;
-        } else if (method.equalsIgnoreCase(T_BEARER)) {
-          _authMethod = AsyncAuthType::AUTH_BEARER;
-        } else {
-          _authMethod = AsyncAuthType::AUTH_OTHER;
-        }
-        _authorization = value.substring(space + 1);
-      }
-    } else if (name.equalsIgnoreCase(T_UPGRADE) && value.equalsIgnoreCase(T_WS)) {
-      // WebSocket request can be uniquely identified by header: [Upgrade: websocket]
-      // Per RFC 6455 §4.1 the handshake is a GET.  Only classify when the
-      // connection is still a plain HTTP connection so a previously detected
-      // SSE request (or any other classified type) cannot be clobbered by
-      // header ordering.
-      if (_method == AsyncWebRequestMethod::HTTP_GET && _reqconntype == RCT_HTTP) {
-        _reqconntype = RCT_WS;
-      }
-    } else if (name.equalsIgnoreCase(T_ACCEPT)) {
-      String lowcase(value);
-      lowcase.toLowerCase();
-#ifndef ESP8266
-      const char *substr = std::strstr(lowcase.c_str(), T_text_event_stream);
-#else
-      const char *substr = std::strstr(lowcase.c_str(), String(T_text_event_stream).c_str());
-#endif
-      // Server-Sent Events (HTML §9.2) are GET-only connections negotiated via
-      // Accept: text/event-stream.  Only classify when the connection is still
-      // a plain HTTP connection so a previously detected WebSocket upgrade
-      // cannot be clobbered by header ordering.
-      if (substr != NULL && _method == AsyncWebRequestMethod::HTTP_GET && _reqconntype == RCT_HTTP) {
-        // WebEvent request can be uniquely identified by header:  [Accept: text/event-stream]
-        _reqconntype = RCT_EVENT;
-      }
-    } else if (name.equalsIgnoreCase(T_Transfer_Encoding)) {
-      String lowcase(value);
-      lowcase.toLowerCase();
-      String key;
-
-      while (lowcase.length()) {
-        auto pos = lowcase.indexOf(',');
-        if (pos >= 0) {
-          key = lowcase.substring(0, pos);
-          lowcase = lowcase.substring(pos + 1);
-        } else {
-          key = lowcase;
-          lowcase = "";
-        }
-        key.trim();
-        if (key == "chunked") {
-          _chunkSize = 0;
-          _chunkStartIndex = 0;
-          _chunkedParseState = CHUNK_LENGTH;
-          break;
-        }
-      }
-    }
-    _headers.emplace_back(std::move(header));
+  AsyncWebHeader header;
+  switch (AsyncWebHeader::tryParse(_temp.c_str(), header)) {
+    case AsyncWebHeader::ParseStatus::NoMemory:
+      // Allocation failure while parsing a header must abort the request:
+      // a failed String copy has a null c_str() on ESP32, and a silent skip
+      // would misparse the request (e.g. a lost Content-Length or an
+      // undetected chunked framing).  See issue #500.
+      async_ws_log_e("Failed to allocate while parsing header");
+      _parseState = PARSE_REQ_FAIL;
+      abort();
+      return true;
+    case AsyncWebHeader::ParseStatus::Invalid: break;  // ignore malformed header line
+    case AsyncWebHeader::ParseStatus::Ok:      _parseHeader(std::move(header)); break;
   }
 #if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY) || defined(HOST)
   // ArduinoCore-API does not have String::clear() method 8-()
@@ -716,17 +526,313 @@ bool AsyncWebServerRequest::_parseReqHeader() {
 #endif
   return true;
 }
+// Process one successfully parsed header line.  Any allocation failure
+// detected here aborts the request (see _parseReqHeader() and issue #500):
+// a String whose allocation failed is empty with a null c_str() on ESP32,
+// and continuing would misparse or crash.
+void AsyncWebServerRequest::_parseHeader(AsyncWebHeader &&header) {
+  const String &name = header.name();
+  const String &value = header.value();
+  // The copies below can fail to allocate; a member field left empty (its
+  // c_str() is then null on ESP32) would mislead handlers, so abort instead.
+  if (name.equalsIgnoreCase(T_Host)) {
+    _host = value;
+    if (value.length() && !_host.length()) {
+      async_ws_log_e("Failed to allocate");
+      _parseState = PARSE_REQ_FAIL;
+      abort();
+      return;
+    }
+  } else if (name.equalsIgnoreCase(T_Content_Type)) {
+    _contentType = value.substring(0, value.indexOf(';'));
+    // The media type slice is non-empty when the value does not start with
+    // ';': an empty result then means the allocation failed.
+    if (value.length() && value[0] != ';' && !_contentType.length()) {
+      async_ws_log_e("Failed to allocate");
+      _parseState = PARSE_REQ_FAIL;
+      abort();
+      return;
+    }
+    // Trim _contentType defensively; AsyncWebHeader::tryParse now strips all
+    // leading OWS per RFC 7230, but trim() guards against any future change.
+    _contentType.trim();
+    if (strncasecmp(value.c_str(), T_MULTIPART_, sizeof(T_MULTIPART_) - 1) == 0) {
+      // Delimiter-structured, quote-aware search for the boundary parameter.
+      // We scan parameter by parameter (';'-delimited) so that 'boundary='
+      // inside a quoted value (e.g. foo="x; boundary=y") is never mistaken
+      // for the real parameter.  A ';' inside a quoted-string is not a
+      // parameter separator per RFC 2045 §5.1.
+      const char *p = value.c_str();
+      const char *end = p + value.length();
+
+      // Advance past the media-type to the first ';'
+      while (p < end && *p != ';') {
+        p++;
+      }
+
+      const char *bvdata = nullptr;
+      while (p < end) {
+        p++;  // consume ';'
+        p = skip_ows(p, end);
+        if ((size_t)(end - p) > T_BOUNDARY_LEN && strncasecmp(p, T_BOUNDARY, T_BOUNDARY_LEN) == 0) {
+          bvdata = p + T_BOUNDARY_LEN;
+          break;
+        }
+        // Advance to the next ';', skipping over any quoted-string value
+        while (p < end && *p != ';') {
+          if (*p++ == '"') {
+            while (p < end && *p != '"') {
+              if (*p == '\\' && p + 1 < end) {
+                p++;  // skip quoted-pair
+              }
+              p++;
+            }
+            if (p < end) {
+              p++;  // skip closing '"'
+            }
+          }
+        }
+      }
+
+      if (bvdata == nullptr) {
+        // No valid boundary parameter found — cannot parse multipart body.
+        async_ws_log_d("Missing multipart boundary parameter, aborting");
+        _parseState = PARSE_REQ_FAIL;
+        abort();
+        return;
+      }
+
+      // Strip leading OWS after 'boundary=' — non-RFC but seen in the wild.
+      bvdata = skip_ows(bvdata, end);
+
+      // Clear any previous value — duplicate Content-Type headers must not
+      // concatenate into the boundary string.
+      _boundary = String();
+
+      if (bvdata < end && *bvdata == '"') {
+        // Quoted-string: unescape quoted-pairs into _boundary directly.
+        bvdata++;  // skip opening '"'
+        // Reserve at most 70 chars — the RFC 2046 §5.1 maximum — rather than
+        // the full (attacker-controlled) remaining suffix length.
+        if (!_boundary.reserve(70)) {
+          async_ws_log_e("Failed to allocate");
+          _parseState = PARSE_REQ_FAIL;
+          abort();
+          return;
+        }
+        bool closed = false;
+        while (bvdata < end) {
+          char c = *bvdata++;
+          if (c == '\\' && bvdata < end) {
+            _boundary += *bvdata++;  // quoted-pair: keep only the escaped char
+          } else if (c == '"') {
+            closed = true;
+            break;
+          } else {
+            _boundary += c;
+          }
+          // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
+          if (_boundary.length() > 70) {
+            async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
+            _parseState = PARSE_REQ_FAIL;
+            abort();
+            return;
+          }
+        }
+        if (!closed) {
+          // Opening quote was never closed — malformed header.
+          async_ws_log_d("Invalid multipart boundary (unterminated quote), aborting");
+          _parseState = PARSE_REQ_FAIL;
+          abort();
+          return;
+        }
+      } else {
+        // Token form: value ends at the next ';' or end of string.
+        const char *tok_end = bvdata;
+        while (tok_end < end && *tok_end != ';') {
+          tok_end++;
+        }
+        tok_end = rtrim_ows(bvdata, tok_end);
+        size_t bvlen = (size_t)(tok_end - bvdata);
+        // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
+        if (bvlen == 0 || bvlen > 70) {
+          async_ws_log_d("Invalid multipart boundary length (%u), aborting", (unsigned)bvlen);
+          _parseState = PARSE_REQ_FAIL;
+          abort();
+          return;
+        }
+#ifdef ESP8266
+        {
+          // ESP8266 Arduino String lacks String(const char*, size_t).
+          // bvlen <= 70 is guaranteed above, so a stack buffer is safe.
+          char buf[71];
+          memcpy(buf, bvdata, bvlen);
+          buf[bvlen] = '\0';
+          _boundary = String(buf);
+        }
+#else
+        _boundary = String(bvdata, (unsigned int)bvlen);
+#endif
+      }
+
+      // CWE-190 / DoS fix: final safety net.  The per-branch checks above
+      // cover the token path (bvlen == 0 || bvlen > 70) and the quoted-string
+      // path (> 70 inside the loop), but an empty quoted-string (boundary="")
+      // closes immediately with _boundary still empty and is not rejected
+      // by either branch.  Reject it here before _isMultipart is set, so an
+      // empty boundary never reaches the multipart body parser (where it
+      // would cause --\r\n to be accepted as a delimiter).
+      if (_boundary.length() == 0 || _boundary.length() > 70) {
+        async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
+        _parseState = PARSE_REQ_FAIL;
+        abort();
+        return;
+      }
+
+      _isMultipart = true;
+    }
+  } else if (name.equalsIgnoreCase(T_Content_Length) || name.equalsIgnoreCase(T_X_Expected_Entity_Length)) {
+    // MacOS WebDAVFS uses X-Expected-Entity-Length to indicate the
+    // total length of a chunked request body.  It is useful to
+    // determine if a PUT can possibly fit in the available space.
+    _contentLength = atoi(value.c_str());
+  } else if (name.equalsIgnoreCase(T_EXPECT) && value.equalsIgnoreCase(T_100_CONTINUE)) {
+    _expectingContinue = true;
+  } else if (name.equalsIgnoreCase(T_AUTH)) {
+    int space = value.indexOf(' ');
+    if (space == -1) {
+      _authorization = value;
+      // A copy of a non-empty value can only be empty when its allocation
+      // failed; abort rather than authenticate against a corrupt token.
+      if (value.length() && !_authorization.length()) {
+        async_ws_log_e("Failed to allocate");
+        _parseState = PARSE_REQ_FAIL;
+        abort();
+        return;
+      }
+      _authMethod = AsyncAuthType::AUTH_OTHER;
+    } else {
+      String method = value.substring(0, space);
+      if (space && !method.length()) {
+        async_ws_log_e("Failed to allocate");
+        _parseState = PARSE_REQ_FAIL;
+        abort();
+        return;
+      }
+      if (method.equalsIgnoreCase(T_BASIC)) {
+        _authMethod = AsyncAuthType::AUTH_BASIC;
+      } else if (method.equalsIgnoreCase(T_DIGEST)) {
+        _authMethod = AsyncAuthType::AUTH_DIGEST;
+      } else if (method.equalsIgnoreCase(T_BEARER)) {
+        _authMethod = AsyncAuthType::AUTH_BEARER;
+      } else {
+        _authMethod = AsyncAuthType::AUTH_OTHER;
+      }
+      _authorization = value.substring(space + 1);
+      // The credentials slice is non-empty when the value has characters
+      // after the space: an empty result then means the allocation failed.
+      if (value.length() > (size_t)(space + 1) && !_authorization.length()) {
+        async_ws_log_e("Failed to allocate");
+        _parseState = PARSE_REQ_FAIL;
+        abort();
+        return;
+      }
+    }
+  } else if (name.equalsIgnoreCase(T_UPGRADE) && value.equalsIgnoreCase(T_WS)) {
+    // WebSocket request can be uniquely identified by header: [Upgrade: websocket]
+    // Per RFC 6455 §4.1 the handshake is a GET.  Only classify when the
+    // connection is still a plain HTTP connection so a previously detected
+    // SSE request (or any other classified type) cannot be clobbered by
+    // header ordering.
+    if (_method == AsyncWebRequestMethod::HTTP_GET && _reqconntype == RCT_HTTP) {
+      _reqconntype = RCT_WS;
+    }
+  } else if (name.equalsIgnoreCase(T_ACCEPT)) {
+    // Scan the value in place instead of allocating a lowercased copy: a copy
+    // that fails to allocate is empty with a null c_str() on ESP32, and
+    // strstr() on it crashed the device (issue #500).  value.c_str() is valid
+    // here because tryParse() rejects OOM copies before we get here.
+    const char *v = value.c_str();
+    const size_t vlen = value.length();
+    const size_t nlen = sizeof(T_text_event_stream) - 1;
+    bool isSSE = false;
+    if (vlen >= nlen) {
+      for (size_t i = 0; i <= vlen - nlen && !isSSE; i++) {
+        isSSE = strncasecmp(v + i, T_text_event_stream, nlen) == 0;
+      }
+    }
+    // Server-Sent Events (HTML §9.2) are GET-only connections negotiated via
+    // Accept: text/event-stream.  Only classify when the connection is still
+    // a plain HTTP connection so a previously detected WebSocket upgrade
+    // cannot be clobbered by header ordering.
+    if (isSSE && _method == AsyncWebRequestMethod::HTTP_GET && _reqconntype == RCT_HTTP) {
+      // WebEvent request can be uniquely identified by header:  [Accept: text/event-stream]
+      _reqconntype = RCT_EVENT;
+    }
+  } else if (name.equalsIgnoreCase(T_Transfer_Encoding)) {
+    // Scan the value in place, token by token, instead of substring copies:
+    // a copy that fails to allocate is empty (null c_str() on ESP32), which
+    // silently dropped the "chunked" token and desynchronized the body parser
+    // (issue #500).  value.c_str() is valid here because tryParse() rejects
+    // OOM copies before we get here.
+    const char *v = value.c_str();
+    const size_t vlen = value.length();
+    const size_t tlen = sizeof(T_chunked) - 1;
+    size_t i = 0;
+    while (i < vlen) {
+      // skip OWS and list separators
+      while (i < vlen && (v[i] == ' ' || v[i] == '\t' || v[i] == ',')) {
+        i++;
+      }
+      size_t start = i;
+      while (i < vlen && v[i] != ',' && v[i] != ' ' && v[i] != '\t') {
+        i++;
+      }
+      if (i - start == tlen && strncasecmp(v + start, T_chunked, tlen) == 0) {
+        _chunkSize = 0;
+        _chunkStartIndex = 0;
+        _chunkedParseState = CHUNK_LENGTH;
+        break;
+      }
+    }
+  }
+  _headers.emplace_back(std::move(header));
+}
 
 void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
   if (data && (char)data != '&') {
-    _temp += (char)data;
+    // concat() can fail to allocate; a truncated value would silently corrupt
+    // the parameter being parsed, so abort the request instead.
+    if (!_temp.concat((char)data)) {
+      async_ws_log_e("Failed to allocate");
+      _parseState = PARSE_REQ_FAIL;
+      abort();
+      return;
+    }
   }
   if (!data || (char)data == '&' || _parsedLength == _contentLength) {
     String name(T_BODY);
     String value(_temp);
+    // A copy of a non-empty _temp can only be empty when its allocation
+    // failed (c_str() is then null on ESP32); abort instead of storing a
+    // corrupt parameter (see issue #500).
+    if (_temp.length() && !value.length()) {
+      async_ws_log_e("Failed to allocate");
+      _parseState = PARSE_REQ_FAIL;
+      abort();
+      return;
+    }
     if (!(_temp.charAt(0) == '{') && !(_temp.charAt(0) == '[') && _temp.indexOf('=') > 0) {
       name = _temp.substring(0, _temp.indexOf('='));
       value = _temp.substring(_temp.indexOf('=') + 1);
+      // substring() can fail to allocate: a non-empty slice can never come
+      // back empty.  Abort the request instead of storing a corrupt pair.
+      if ((_temp.indexOf('=') && !name.length()) || (_temp.length() > (size_t)(_temp.indexOf('=') + 1) && !value.length())) {
+        async_ws_log_e("Failed to allocate");
+        _parseState = PARSE_REQ_FAIL;
+        abort();
+        return;
+      }
     }
     name = urlDecode(name);
     if (name.length()) {
@@ -776,13 +882,18 @@ enum {
 };
 
 void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
-#define itemWriteByte(b)          \
-  do {                            \
-    _itemSize++;                  \
-    if (_itemIsFile)              \
-      _handleUploadByte(b, last); \
-    else                          \
-      _itemValue += (char)(b);    \
+#define itemWriteByte(b)                      \
+  do {                                        \
+    _itemSize++;                              \
+    if (_itemIsFile)                          \
+      _handleUploadByte(b, last);             \
+    else if (!_itemValue.concat((char)(b))) { \
+      /* truncated item value: abort */       \
+      async_ws_log_e("Failed to allocate");   \
+      _multiParseState = PARSE_ERROR;         \
+      abort();                                \
+      return;                                 \
+    }                                         \
   } while (0)
 
   if (!_parsedLength) {
@@ -824,7 +935,14 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
     }
   } else if (_multiParseState == PARSE_HEADERS) {
     if ((char)data != '\r' && (char)data != '\n') {
-      _temp += (char)data;
+      // A truncated item header line would misidentify the part; abort on
+      // allocation failure rather than continue with a corrupt line.
+      if (!_temp.concat((char)data)) {
+        async_ws_log_e("Failed to allocate");
+        _multiParseState = PARSE_ERROR;
+        abort();
+        return;
+      }
     }
     if ((char)data == '\n') {
       if (_temp.length()) {
@@ -1014,8 +1132,13 @@ void AsyncWebServerRequest::_parseLine() {
       _server->_rewriteRequest(this);
       _server->_attachHandler(this);
       if (_expectingContinue) {
-        String response(T_HTTP_100_CONT);
-        _client->write(response.c_str(), response.length());
+        // Write the literal directly: wrapping it in a String allocates (it
+        // exceeds String's small-buffer optimization), and an OOM'd String
+        // would be empty and silently swallow the 100 Continue (the client
+        // would then stall until its own continue timeout).  A failed write
+        // here is harmless for the same reason: the client recovers on its
+        // own, and the request can still be processed normally.
+        _client->write(T_HTTP_100_CONT, sizeof(T_HTTP_100_CONT) - 1);
       }
       if (_contentLength || _chunkedParseState != CHUNK_NONE) {
         _parseState = PARSE_REQ_BODY;
@@ -1056,8 +1179,16 @@ void AsyncWebServerRequest::_send() {
     }
 
     // response is not valid ?
-    if (!_response->_sourceValid()) {
+    if (_response && !_response->_sourceValid()) {
       send(500, T_text_plain, "Invalid data in handler");
+    }
+
+    // no response could be built at all (out of memory): give up on this
+    // connection instead of dereferencing a null response
+    if (!_response) {
+      async_ws_log_e("Failed to allocate");
+      abort();
+      return;
     }
 
     // here, we either have a response given from user or one of the two above
@@ -1208,20 +1339,20 @@ double AsyncWebServerRequest::getAttribute(const char *name, double defaultValue
 
 AsyncWebServerResponse *AsyncWebServerRequest::beginResponse(int code, const char *contentType, const char *content, AwsTemplateProcessor callback) {
   if (callback) {
-    return new AsyncProgmemResponse(code, contentType, (const uint8_t *)content, strlen(content), callback);
+    return new (std::nothrow) AsyncProgmemResponse(code, contentType, (const uint8_t *)content, strlen(content), callback);
   }
-  return new AsyncBasicResponse(code, contentType, content);
+  return new (std::nothrow) AsyncBasicResponse(code, contentType, content);
 }
 
 AsyncWebServerResponse *
   AsyncWebServerRequest::beginResponse(int code, const char *contentType, const uint8_t *content, size_t len, AwsTemplateProcessor callback) {
-  return new AsyncProgmemResponse(code, contentType, content, len, callback);
+  return new (std::nothrow) AsyncProgmemResponse(code, contentType, content, len, callback);
 }
 
 AsyncWebServerResponse *
   AsyncWebServerRequest::beginResponse(FS &fs, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback) {
   if (fs.exists(path) || (!download && fs.exists(path + T__gz))) {
-    return new AsyncFileResponse(fs, path, contentType, download, callback);
+    return new (std::nothrow) AsyncFileResponse(fs, path, contentType, download, callback);
   }
   return NULL;
 }
@@ -1229,34 +1360,34 @@ AsyncWebServerResponse *
 AsyncWebServerResponse *
   AsyncWebServerRequest::beginResponse(File content, const String &path, const char *contentType, bool download, AwsTemplateProcessor callback) {
   if (content == true) {
-    return new AsyncFileResponse(content, path, contentType, download, callback);
+    return new (std::nothrow) AsyncFileResponse(content, path, contentType, download, callback);
   }
   return NULL;
 }
 
 AsyncWebServerResponse *AsyncWebServerRequest::beginResponse(Stream &stream, const char *contentType, size_t len, AwsTemplateProcessor callback) {
-  return new AsyncStreamResponse(stream, contentType, len, callback);
+  return new (std::nothrow) AsyncStreamResponse(stream, contentType, len, callback);
 }
 
 AsyncWebServerResponse *
   AsyncWebServerRequest::beginResponse(const char *contentType, size_t len, AwsResponseFiller callback, AwsTemplateProcessor templateCallback) {
-  return new AsyncCallbackResponse(contentType, len, callback, templateCallback);
+  return new (std::nothrow) AsyncCallbackResponse(contentType, len, callback, templateCallback);
 }
 
 AsyncWebServerResponse *
   AsyncWebServerRequest::beginChunkedResponse(const char *contentType, AwsResponseFiller callback, AwsTemplateProcessor templateCallback) {
   if (_version) {
-    return new AsyncChunkedResponse(contentType, callback, templateCallback);
+    return new (std::nothrow) AsyncChunkedResponse(contentType, callback, templateCallback);
   }
-  return new AsyncCallbackResponse(contentType, 0, callback, templateCallback);
+  return new (std::nothrow) AsyncCallbackResponse(contentType, 0, callback, templateCallback);
 }
 
 AsyncResponseStream *AsyncWebServerRequest::beginResponseStream(const char *contentType, size_t bufferSize) {
-  return new AsyncResponseStream(contentType, bufferSize);
+  return new (std::nothrow) AsyncResponseStream(contentType, bufferSize);
 }
 
 AsyncWebServerResponse *AsyncWebServerRequest::beginResponse_P(int code, const String &contentType, PGM_P content, AwsTemplateProcessor callback) {
-  return new AsyncProgmemResponse(code, contentType, (const uint8_t *)content, strlen_P(content), callback);
+  return new (std::nothrow) AsyncProgmemResponse(code, contentType, (const uint8_t *)content, strlen_P(content), callback);
 }
 
 void AsyncWebServerRequest::send(AsyncWebServerResponse *response) {
@@ -1271,6 +1402,18 @@ void AsyncWebServerRequest::send(AsyncWebServerResponse *response) {
   }
   _response = response;
 
+  // a null response means the caller could not allocate it: fall back to a
+  // plain 500 so _send() never dereferences a null _response
+  if (_response == NULL && !_paused) {
+    _response = new (std::nothrow) AsyncBasicResponse(500, T_text_plain, "Insufficient memory");
+    if (_response == NULL) {
+      // not even the fallback could be allocated: give up on this connection
+      async_ws_log_e("Failed to allocate");
+      abort();
+      return;
+    }
+  }
+
   // if request was paused, we need to send the response now
   if (_paused) {
     _paused = false;
@@ -1280,6 +1423,13 @@ void AsyncWebServerRequest::send(AsyncWebServerResponse *response) {
 
 void AsyncWebServerRequest::redirect(const char *url, int code) {
   AsyncWebServerResponse *response = beginResponse(code);
+  if (!response) {
+    // beginResponse could not allocate: send() would dereference a null
+    // response, so abort the request instead.
+    async_ws_log_e("Failed to allocate");
+    abort();
+    return;
+  }
   response->addHeader(T_LOCATION, url);
   send(response);
 }
@@ -1329,6 +1479,13 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
   }
 
   AsyncWebServerResponse *r = _authFailMsg ? beginResponse(401, T_text_html, _authFailMsg) : beginResponse(401);
+  if (!r) {
+    // beginResponse could not allocate: the switch below would dereference
+    // a null response, so abort the request instead.
+    async_ws_log_e("Failed to allocate");
+    abort();
+    return;
+  }
 
   switch (method) {
     case AsyncAuthType::AUTH_BASIC:

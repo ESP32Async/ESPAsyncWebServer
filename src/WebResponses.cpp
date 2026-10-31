@@ -206,35 +206,72 @@ void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
     len += header.name().length() + header.value().length() + 4;
   }
 
-  // prepare buffer
-  buffer.reserve(len);
+  // prepare buffer.  Every concat() below is fallible: if one fails, the head
+  // would be truncated and the wire format corrupted, so stop appending at
+  // the first failure and let the caller observe buffer.length() == 0.
+  bool oom = !buffer.reserve(len);
 
   // HTTP header
+  if (!oom) {
 #ifdef ESP8266
-  buffer.concat(PSTR("HTTP/1."));
+    oom = !buffer.concat(PSTR("HTTP/1."));
 #else
-  buffer.concat("HTTP/1.");
+    oom = !buffer.concat("HTTP/1.");
 #endif
-  buffer.concat(version);
-  buffer.concat(' ');
-  buffer.concat(_code);
-  buffer.concat(' ');
-  buffer.concat(responseCodeToString(_code));
-  buffer.concat(T_rn);
+  }
+  if (!oom) {
+    oom = !buffer.concat(version);
+  }
+  if (!oom) {
+    oom = !buffer.concat(' ');
+  }
+  if (!oom) {
+    oom = !buffer.concat(_code);
+  }
+  if (!oom) {
+    oom = !buffer.concat(' ');
+  }
+  if (!oom) {
+    oom = !buffer.concat(responseCodeToString(_code));
+  }
+  if (!oom) {
+    oom = !buffer.concat(T_rn);
+  }
 
   // Add headers
   for (const auto &header : _headers) {
-    buffer.concat(header.name());
+    if (!oom) {
+      oom = !buffer.concat(header.name());
+    }
+    if (!oom) {
 #ifdef ESP8266
-    buffer.concat(PSTR(": "));
+      oom = !buffer.concat(PSTR(": "));
 #else
-    buffer.concat(": ");
+      oom = !buffer.concat(": ");
 #endif
-    buffer.concat(header.value());
-    buffer.concat(T_rn);
+    }
+    if (!oom) {
+      oom = !buffer.concat(header.value());
+    }
+    if (!oom) {
+      oom = !buffer.concat(T_rn);
+    }
+    if (oom) {
+      break;
+    }
   }
 
-  buffer.concat(T_rn);
+  if (!oom) {
+    oom = !buffer.concat(T_rn);
+  }
+
+  if (oom) {
+    // Out of memory while assembling the head: truncate to an empty buffer so
+    // callers treat it as a failure (writing a partial head would corrupt the
+    // wire format or dereference a null c_str()).
+    async_ws_log_e("Failed to allocate");
+    buffer = String();
+  }
   _headLength = buffer.length();
 }
 
@@ -273,6 +310,13 @@ AsyncBasicResponse::AsyncBasicResponse(int code, const char *contentType, const 
 void AsyncBasicResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_HEADERS;
   _assembleHead(_assembled_headers, request->version());
+  if (!_headLength) {
+    // Head assembly ran out of memory: fail the response instead of sending
+    // a corrupted (partial or missing) head.
+    _state = RESPONSE_FAILED;
+    request->client()->close();
+    return;
+  }
   write_send_buffs(request, 0, 0);
 }
 
@@ -334,6 +378,13 @@ AsyncAbstractResponse::AsyncAbstractResponse(AwsTemplateProcessor callback) : _c
 void AsyncAbstractResponse::_respond(AsyncWebServerRequest *request) {
   addHeader(T_Connection, T_close, false);
   _assembleHead(_assembled_headers, request->version());
+  if (!_headLength) {
+    // Head assembly ran out of memory: fail the response instead of sending
+    // a corrupted (partial or missing) head.
+    _state = RESPONSE_FAILED;
+    request->client()->close();
+    return;
+  }
   _state = RESPONSE_HEADERS;
   write_send_buffs(request, 0, 0);
 }
