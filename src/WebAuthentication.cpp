@@ -5,6 +5,9 @@
 #include "AsyncWebServerLogging.h"
 #include <libb64/cencode.h>
 
+#include <memory>
+#include <new>
+
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
 #include <MD5Builder.h>
 #else
@@ -31,26 +34,20 @@ String generateBasicHash(const char *username, const char *password) {
 
   size_t toencodeLen = strlen(username) + strlen(password) + 1;
 
-  char *toencode = (char *)malloc(toencodeLen + 1);
-  if (toencode == NULL) {
+  std::unique_ptr<char[]> toencode(new (std::nothrow) char[toencodeLen + 1]);
+  if (!toencode) {
     async_ws_log_e("Failed to allocate");
     return asyncsrv::emptyString;
   }
-  char *encoded = (char *)malloc(base64_encode_expected_len(toencodeLen) + 1);
-  if (encoded == NULL) {
+  std::unique_ptr<char[]> encoded(new (std::nothrow) char[base64_encode_expected_len(toencodeLen) + 1]);
+  if (!encoded) {
     async_ws_log_e("Failed to allocate");
-    free(toencode);
     return asyncsrv::emptyString;
   }
-  sprintf_P(toencode, PSTR("%s:%s"), username, password);
-  if (base64_encode_chars(toencode, toencodeLen, encoded) > 0) {
-    String res = String(encoded);
-    free(toencode);
-    free(encoded);
-    return res;
+  sprintf_P(toencode.get(), PSTR("%s:%s"), username, password);
+  if (base64_encode_chars(toencode.get(), toencodeLen, encoded.get()) > 0) {
+    return String(encoded.get());
   }
-  free(toencode);
-  free(encoded);
   return asyncsrv::emptyString;
 }
 

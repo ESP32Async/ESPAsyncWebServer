@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <new>
 #include <utility>
 #include <cstdarg>
 
@@ -859,7 +860,7 @@ size_t AsyncWebSocketClient::printf(const char *format, ...) {
     return 0;
   }
 
-  char *buffer = (char *)malloc(len + 1);
+  std::unique_ptr<char[]> buffer(new (std::nothrow) char[len + 1]);
 
   if (!buffer) {
     async_ws_log_e("Failed to allocate");
@@ -867,11 +868,10 @@ size_t AsyncWebSocketClient::printf(const char *format, ...) {
   }
 
   va_start(arg, format);
-  len = vsnprintf(buffer, len + 1, format, arg);
+  len = vsnprintf(buffer.get(), len + 1, format, arg);
   va_end(arg);
 
-  bool enqueued = text(buffer, len);
-  free(buffer);
+  bool enqueued = text(buffer.get(), len);
   return enqueued ? len : 0;
 }
 
@@ -886,7 +886,7 @@ size_t AsyncWebSocketClient::printf_P(PGM_P formatP, ...) {
     return 0;
   }
 
-  char *buffer = (char *)malloc(len + 1);
+  std::unique_ptr<char[]> buffer(new (std::nothrow) char[len + 1]);
 
   if (!buffer) {
     async_ws_log_e("Failed to allocate");
@@ -894,11 +894,10 @@ size_t AsyncWebSocketClient::printf_P(PGM_P formatP, ...) {
   }
 
   va_start(arg, formatP);
-  len = vsnprintf_P(buffer, len + 1, formatP, arg);
+  len = vsnprintf_P(buffer.get(), len + 1, formatP, arg);
   va_end(arg);
 
-  bool enqueued = text(buffer, len);
-  free(buffer);
+  bool enqueued = text(buffer.get(), len);
   return enqueued ? len : 0;
 }
 #endif
@@ -1370,7 +1369,7 @@ size_t AsyncWebSocket::printfAll(const char *format, ...) {
     return 0;
   }
 
-  char *buffer = (char *)malloc(len + 1);
+  std::unique_ptr<char[]> buffer(new (std::nothrow) char[len + 1]);
 
   if (!buffer) {
     async_ws_log_e("Failed to allocate");
@@ -1378,11 +1377,10 @@ size_t AsyncWebSocket::printfAll(const char *format, ...) {
   }
 
   va_start(arg, format);
-  len = vsnprintf(buffer, len + 1, format, arg);
+  len = vsnprintf(buffer.get(), len + 1, format, arg);
   va_end(arg);
 
-  AsyncWebSocket::SendStatus status = textAll(buffer, len);
-  free(buffer);
+  AsyncWebSocket::SendStatus status = textAll(buffer.get(), len);
   return status == DISCARDED ? 0 : len;
 }
 
@@ -1409,7 +1407,7 @@ size_t AsyncWebSocket::printfAll_P(PGM_P formatP, ...) {
     return 0;
   }
 
-  char *buffer = (char *)malloc(len + 1);
+  std::unique_ptr<char[]> buffer(new (std::nothrow) char[len + 1]);
 
   if (!buffer) {
     async_ws_log_e("Failed to allocate");
@@ -1417,11 +1415,10 @@ size_t AsyncWebSocket::printfAll_P(PGM_P formatP, ...) {
   }
 
   va_start(arg, formatP);
-  len = vsnprintf_P(buffer, len + 1, formatP, arg);
+  len = vsnprintf_P(buffer.get(), len + 1, formatP, arg);
   va_end(arg);
 
-  AsyncWebSocket::SendStatus status = textAll(buffer, len);
-  free(buffer);
+  AsyncWebSocket::SendStatus status = textAll(buffer.get(), len);
   return status == DISCARDED ? 0 : len;
 }
 #endif
