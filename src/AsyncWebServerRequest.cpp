@@ -71,8 +71,6 @@ void AsyncWebServerRequest::send(FS &fs, const String &path, const char *content
  * @return true if the ETag was successfully generated, false otherwise (e.g., file too short or seek failed).
  */
 bool AsyncWebServerRequest::_getEtag(File gzFile, char *etag) {
-  static constexpr char hexChars[] = "0123456789ABCDEF";
-
   if (!gzFile.seek(gzFile.size() - 8)) {
     return false;
   }
@@ -81,14 +79,14 @@ bool AsyncWebServerRequest::_getEtag(File gzFile, char *etag) {
   gzFile.read(reinterpret_cast<uint8_t *>(&crc), sizeof(crc));
 
   etag[0] = '"';
-  etag[1] = hexChars[(crc >> 4) & 0x0F];
-  etag[2] = hexChars[crc & 0x0F];
-  etag[3] = hexChars[(crc >> 12) & 0x0F];
-  etag[4] = hexChars[(crc >> 8) & 0x0F];
-  etag[5] = hexChars[(crc >> 20) & 0x0F];
-  etag[6] = hexChars[(crc >> 16) & 0x0F];
-  etag[7] = hexChars[(crc >> 28)];
-  etag[8] = hexChars[(crc >> 24) & 0x0F];
+  etag[1] = asyncsrv::T_hex_chars[(crc >> 4) & 0x0F];
+  etag[2] = asyncsrv::T_hex_chars[crc & 0x0F];
+  etag[3] = asyncsrv::T_hex_chars[(crc >> 12) & 0x0F];
+  etag[4] = asyncsrv::T_hex_chars[(crc >> 8) & 0x0F];
+  etag[5] = asyncsrv::T_hex_chars[(crc >> 20) & 0x0F];
+  etag[6] = asyncsrv::T_hex_chars[(crc >> 16) & 0x0F];
+  etag[7] = asyncsrv::T_hex_chars[(crc >> 28)];
+  etag[8] = asyncsrv::T_hex_chars[(crc >> 24) & 0x0F];
   etag[9] = '"';
   etag[10] = '\0';
 

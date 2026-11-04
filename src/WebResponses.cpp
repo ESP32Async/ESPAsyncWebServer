@@ -454,11 +454,10 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
           _fillBufferAndProcessTemplates(_send_buffer->data() + 6, std::min(_send_buffer->size(), tcp_win) - 8);  // reserve 8 bytes for chunk size data
         if (readLen != RESPONSE_TRY_AGAIN) {
           // Write 4 hex digits directly without null terminator
-          static constexpr char hexChars[] = "0123456789abcdef";
-          _send_buffer->data()[0] = hexChars[(readLen >> 12) & 0xF];
-          _send_buffer->data()[1] = hexChars[(readLen >> 8) & 0xF];
-          _send_buffer->data()[2] = hexChars[(readLen >> 4) & 0xF];
-          _send_buffer->data()[3] = hexChars[readLen & 0xF];
+          _send_buffer->data()[0] = asyncsrv::T_hex_chars[(readLen >> 12) & 0xF];
+          _send_buffer->data()[1] = asyncsrv::T_hex_chars[(readLen >> 8) & 0xF];
+          _send_buffer->data()[2] = asyncsrv::T_hex_chars[(readLen >> 4) & 0xF];
+          _send_buffer->data()[3] = asyncsrv::T_hex_chars[readLen & 0xF];
           _send_buffer->data()[4] = '\r';
           _send_buffer->data()[5] = '\n';
           // data (readLen bytes) is already there
