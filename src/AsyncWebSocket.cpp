@@ -1347,6 +1347,7 @@ AsyncWebSocket::SendStatus AsyncWebSocket::binaryAll(AsyncWebSocketSharedBuffer 
 }
 
 size_t AsyncWebSocket::printf(uint32_t id, const char *format, ...) {
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   AsyncWebSocketClient *c = client(id);
   if (c) {
     va_list arg;
@@ -1385,6 +1386,7 @@ size_t AsyncWebSocket::printfAll(const char *format, ...) {
 
 #ifdef ESP8266
 size_t AsyncWebSocket::printf_P(uint32_t id, PGM_P formatP, ...) {
+  asyncsrv::lock_guard_type lock(_ws_clients_lock);
   AsyncWebSocketClient *c = client(id);
   if (c != NULL) {
     va_list arg;
