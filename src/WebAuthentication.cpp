@@ -5,6 +5,7 @@
 #include "AsyncWebServerLogging.h"
 #include <libb64/cencode.h>
 
+#include <cinttypes>
 #include <cstdio>
 
 #if defined(ESP32)
@@ -13,13 +14,22 @@
 #include <esp8266_peri.h>
 #endif
 
+#include "./literals.h"
+
+// platform classification for the MD5 backend used in this file:
+//  - HAS_MD5_BUILDER: the MD5Builder wrapper class exists (ESP32 arduino, RP2040, HOST)
+//  - everything else (ESP8266, LibreTiny): low-level md5_context_t C API from <md5.h>
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+#define HAS_MD5_BUILDER 1
+#else
+#define HAS_MD5_BUILDER 0
+#endif
+
+#if HAS_MD5_BUILDER
 #include <MD5Builder.h>
 #else
 #include <md5.h>
 #endif
-
-#include "./literals.h"
 
 using namespace asyncsrv;
 
@@ -61,7 +71,7 @@ String generateBasicHash(const char *username, const char *password) {
 }
 
 static bool getMD5(uint8_t *data, uint16_t len, char *output) {  // 33 bytes or more
-#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+#if HAS_MD5_BUILDER
   MD5Builder md5;
   md5.begin();
   md5.add(data, len);
@@ -113,6 +123,8 @@ void generateSecret(uint8_t secret[16]) {
 #elif defined(ESP8266)
   uint32_t r[4] = {RANDOM_REG32, RANDOM_REG32, RANDOM_REG32, RANDOM_REG32};
   memcpy(secret, r, 16);
+#elif defined(LIBRETINY)
+  ESP.random(secret, 16);
 #else
   // HOST is POSIX: read from /dev/urandom, falling back to rand()
   FILE *f = fopen("/dev/urandom", "rb");
@@ -129,6 +141,7 @@ void generateSecret(uint8_t secret[16]) {
 #endif
 }
 
+#if HAS_MD5_BUILDER
 // Adds a buffer to a MD5Builder, working around the pre-3.x core where add()
 // takes a non-const uint8_t* although it never modifies the data.
 static inline void md5Add(MD5Builder &md5, const uint8_t *data, size_t len) {
@@ -138,6 +151,7 @@ static inline void md5Add(MD5Builder &md5, const uint8_t *data, size_t len) {
   md5.add(data, len);
 #endif
 }
+#endif
 
 // HMAC-MD5, RFC 2104
 void hmacMD5(const uint8_t *key, size_t keyLen, const uint8_t *data, size_t dataLen, uint8_t out[16]) {
@@ -145,7 +159,7 @@ void hmacMD5(const uint8_t *key, size_t keyLen, const uint8_t *data, size_t data
   memset(k0, 0, sizeof(k0));
   if (keyLen > 64) {
     // keys longer than block size are hashed first
-#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+#if HAS_MD5_BUILDER
     MD5Builder md5;
     md5.begin();
     md5Add(md5, key, keyLen);
@@ -168,7 +182,7 @@ void hmacMD5(const uint8_t *key, size_t keyLen, const uint8_t *data, size_t data
   }
 
   uint8_t digest[16];
-#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+#if HAS_MD5_BUILDER
   MD5Builder md5;
   md5.begin();
   md5Add(md5, inner, 64);
@@ -210,7 +224,7 @@ static String toHexDigest(const uint8_t *buf, size_t len) {
 // nonce = hex(millis) + hex(HMAC-MD5(secret, hex(millis))) : 8 + 32 = 40 chars
 String generateDigestNonce(const uint8_t secret[16], uint32_t now) {
   char ts[9];
-  snprintf(ts, sizeof(ts), "%08x", now);
+  snprintf(ts, sizeof(ts), "%08" PRIx32, now);
   uint8_t mac[16];
   hmacMD5(secret, 16, (const uint8_t *)ts, 8, mac);
   String macHex = toHexDigest(mac, 16);
@@ -247,7 +261,7 @@ bool validateDigestNonce(const char *nonce, const uint8_t secret[16], uint32_t n
   memcpy(ts, nonce, 8);
   ts[8] = '\0';
   uint32_t issued;
-  if (sscanf(ts, "%08x", &issued) != 1) {
+  if (sscanf(ts, "%08" SCNx32, &issued) != 1) {
     return false;
   }
   // recompute the MAC part and compare in constant time, without any allocation
