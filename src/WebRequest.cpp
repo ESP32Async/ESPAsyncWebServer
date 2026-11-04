@@ -1287,7 +1287,7 @@ void AsyncWebServerRequest::redirect(const char *url, int code) {
 bool AsyncWebServerRequest::authenticate(const char *username, const char *password, const char *realm, bool passwordIsHash) const {
   if (_authorization.length()) {
     if (_authMethod == AsyncAuthType::AUTH_DIGEST) {
-      return checkDigestAuthentication(_authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, NULL, NULL, NULL);
+      return authenticateDigest(username, password, realm, passwordIsHash, NULL, NULL, NULL);
     } else if (!passwordIsHash) {
       return checkBasicAuthentication(_authorization.c_str(), username, password);
     } else {
@@ -1297,30 +1297,41 @@ bool AsyncWebServerRequest::authenticate(const char *username, const char *passw
   return false;
 }
 
+bool AsyncWebServerRequest::authenticateDigest(const char *username, const char *password, const char *realm, bool passwordIsHash, const char *nonce, const char *opaque, const char *uri) const {
+  return checkDigestAuthentication(_authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, nonce, opaque, uri);
+}
+
 bool AsyncWebServerRequest::authenticate(const char *hash) const {
+  if (_authMethod == AsyncAuthType::AUTH_DIGEST) {
+    return authenticateDigest(hash);
+  }
+
   if (!_authorization.length() || hash == NULL) {
     return false;
   }
 
-  if (_authMethod == AsyncAuthType::AUTH_DIGEST) {
-    String hStr = String(hash);
-    int separator = hStr.indexOf(':');
-    if (separator <= 0) {
-      return false;
-    }
-    String username = hStr.substring(0, separator);
-    hStr = hStr.substring(separator + 1);
-    separator = hStr.indexOf(':');
-    if (separator <= 0) {
-      return false;
-    }
-    String realm = hStr.substring(0, separator);
-    hStr = hStr.substring(separator + 1);
-    return checkDigestAuthentication(_authorization.c_str(), methodToString(), username.c_str(), hStr.c_str(), realm.c_str(), true, NULL, NULL, NULL);
-  }
-
   // Basic Auth, Bearer Auth, or other
   return (_authorization.equals(hash));
+}
+
+bool AsyncWebServerRequest::authenticateDigest(const char *hash) const {
+  if (!_authorization.length() || hash == NULL) {
+    return false;
+  }
+  String hStr = String(hash);
+  int separator = hStr.indexOf(':');
+  if (separator <= 0) {
+    return false;
+  }
+  String username = hStr.substring(0, separator);
+  hStr = hStr.substring(separator + 1);
+  separator = hStr.indexOf(':');
+  if (separator <= 0) {
+    return false;
+  }
+  String realm = hStr.substring(0, separator);
+  hStr = hStr.substring(separator + 1);
+  return checkDigestAuthentication(_authorization.c_str(), methodToString(), username.c_str(), hStr.c_str(), realm.c_str(), true, NULL, NULL, NULL);
 }
 
 void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const char *realm, const char *_authFailMsg) {

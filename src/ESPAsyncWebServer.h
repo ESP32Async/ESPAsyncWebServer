@@ -707,7 +707,9 @@ public:
   //  base64(user:pass) for basic or
   //  user:realm:md5(user:realm:pass) for digest
   bool authenticate(const char *hash) const;
+  bool authenticateDigest(const char *hash) const;
   bool authenticate(const char *username, const char *credentials, const char *realm = NULL, bool isHash = false) const;
+  bool authenticateDigest(const char *username, const char *credentials, const char *realm = NULL, bool isHash = false, const char *nonce = NULL, const char *opaque = NULL, const char *uri = NULL) const;
   void requestAuthentication(const char *realm = nullptr, bool isDigest = true) {
     requestAuthentication(isDigest ? AsyncAuthType::AUTH_DIGEST : AsyncAuthType::AUTH_BASIC, realm);
   }
