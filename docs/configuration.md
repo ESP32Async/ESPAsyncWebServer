@@ -19,6 +19,11 @@ Here are some recommendations to avoid them and build-time flags you can change.
 - `ASYNCWEBSERVER_USE_CHUNK_INFLIGHT`: inflight control for chunked responses.
   If you need to serve chunk requests with a really low buffer (which should be avoided), you can set `-D ASYNCWEBSERVER_USE_CHUNK_INFLIGHT=0` to disable the in-flight control.
 
+- `ASYNCWEBSERVER_DIGEST_NONCE_TTL`: validity window, in seconds, of a Digest authentication nonce (default: 60).
+  Digest replay protection uses stateless signed nonces: beyond this window a nonce is stale
+  and clients silently re-authenticate via the `stale=true` challenge directive. Set to 0 to disable expiry
+  (not recommended: widens the replay window). Can also be tuned at runtime with `server.setDigestNonceTimeout()`.
+
 > [!NOTE]
 > This relates to ESP32 only, ESP8266 uses different ESPAsyncTCP lib that does not has this build options
 

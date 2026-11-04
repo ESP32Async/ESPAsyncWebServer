@@ -5,6 +5,14 @@
 #include "AsyncWebServerLogging.h"
 #include <libb64/cencode.h>
 
+#include <cstdio>
+
+#if defined(ESP32)
+#include <esp_system.h>
+#elif defined(ESP8266)
+#include <esp8266_peri.h>
+#endif
+
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
 #include <MD5Builder.h>
 #else
@@ -95,6 +103,215 @@ String genRandomMD5() {
   String res = String(out);
   free(out);
   return res;
+}
+
+void generateSecret(uint8_t secret[16]) {
+#if defined(ESP32)
+  for (uint8_t i = 0; i < 16; i++) {
+    secret[i] = (uint8_t)esp_random();
+  }
+#elif defined(ESP8266)
+  uint32_t r[4] = {RANDOM_REG32, RANDOM_REG32, RANDOM_REG32, RANDOM_REG32};
+  memcpy(secret, r, 16);
+#else
+  // HOST is POSIX: read from /dev/urandom, falling back to rand()
+  FILE *f = fopen("/dev/urandom", "rb");
+  if (f) {
+    size_t read = fread(secret, 1, 16, f);
+    fclose(f);
+    if (read == 16) {
+      return;
+    }
+  }
+  for (uint8_t i = 0; i < 16; i++) {
+    secret[i] = (uint8_t)rand();
+  }
+#endif
+}
+
+// Adds a buffer to a MD5Builder, working around the pre-3.x core where add()
+// takes a non-const uint8_t* although it never modifies the data.
+static inline void md5Add(MD5Builder &md5, const uint8_t *data, size_t len) {
+#if defined(ESP32) && ESP_ARDUINO_VERSION_MAJOR < 3
+  md5.add(const_cast<uint8_t *>(data), len);
+#else
+  md5.add(data, len);
+#endif
+}
+
+// HMAC-MD5, RFC 2104
+void hmacMD5(const uint8_t *key, size_t keyLen, const uint8_t *data, size_t dataLen, uint8_t out[16]) {
+  uint8_t k0[64];
+  memset(k0, 0, sizeof(k0));
+  if (keyLen > 64) {
+    // keys longer than block size are hashed first
+#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+    MD5Builder md5;
+    md5.begin();
+    md5Add(md5, key, keyLen);
+    md5.calculate();
+    md5.getBytes(k0);  // writes exactly 16 bytes
+#else
+    md5_context_t ctx;
+    MD5Init(&ctx);
+    MD5Update(&ctx, key, keyLen);
+    MD5Final(k0, &ctx);
+#endif
+  } else {
+    memcpy(k0, key, keyLen);
+  }
+
+  uint8_t inner[64], outer[64];
+  for (uint8_t i = 0; i < 64; i++) {
+    inner[i] = k0[i] ^ 0x36;
+    outer[i] = k0[i] ^ 0x5c;
+  }
+
+  uint8_t digest[16];
+#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+  MD5Builder md5;
+  md5.begin();
+  md5Add(md5, inner, 64);
+  md5Add(md5, data, dataLen);
+  md5.calculate();
+  md5.getBytes(digest);  // writes exactly 16 bytes
+  md5 = MD5Builder();
+  md5.begin();
+  md5Add(md5, outer, 64);
+  md5Add(md5, digest, 16);
+  md5.calculate();
+  md5.getBytes(out);  // writes exactly 16 bytes
+#else
+  md5_context_t ctx;
+  MD5Init(&ctx);
+  MD5Update(&ctx, inner, 64);
+  MD5Update(&ctx, data, dataLen);
+  MD5Final(digest, &ctx);
+  MD5Init(&ctx);
+  MD5Update(&ctx, outer, 64);
+  MD5Update(&ctx, digest, 16);
+  MD5Final(out, &ctx);
+#endif
+}
+
+// Lowercase hex encoding of a buffer (output length is 2 * len + 1).
+static String toHexDigest(const uint8_t *buf, size_t len) {
+  String out;
+  if (!out.reserve(len * 2)) {
+    return asyncsrv::emptyString;
+  }
+  for (size_t i = 0; i < len; i++) {
+    out += T_hex_chars[buf[i] >> 4];
+    out += T_hex_chars[buf[i] & 0x0f];
+  }
+  return out;
+}
+
+// nonce = hex(millis) + hex(HMAC-MD5(secret, hex(millis))) : 8 + 32 = 40 chars
+String generateDigestNonce(const uint8_t secret[16], uint32_t now) {
+  char ts[9];
+  snprintf(ts, sizeof(ts), "%08x", now);
+  uint8_t mac[16];
+  hmacMD5(secret, 16, (const uint8_t *)ts, 8, mac);
+  String macHex = toHexDigest(mac, 16);
+  if (!macHex.length()) {
+    async_ws_log_e("Failed to allocate");
+    return asyncsrv::emptyString;
+  }
+  String nonce;
+  if (!nonce.reserve(40)) {
+    async_ws_log_e("Failed to allocate");
+    return asyncsrv::emptyString;
+  }
+  nonce.concat(ts, 8);
+  nonce.concat(macHex);
+  return nonce;
+}
+
+String generateDigestOpaque(const uint8_t secret[16]) {
+  uint8_t opaqueMac[16];
+  hmacMD5(secret, 16, (const uint8_t *)T_opaque, strlen(T_opaque), opaqueMac);
+  String opaque = toHexDigest(opaqueMac, 16);
+  if (!opaque.length()) {
+    async_ws_log_e("Failed to allocate");
+  }
+  return opaque;
+}
+
+bool validateDigestNonce(const char *nonce, const uint8_t secret[16], uint32_t now, uint32_t ttl, bool &stale) {
+  stale = false;
+  if (nonce == NULL || strlen(nonce) != 40) {
+    return false;
+  }
+  char ts[9];
+  memcpy(ts, nonce, 8);
+  ts[8] = '\0';
+  uint32_t issued;
+  if (sscanf(ts, "%08x", &issued) != 1) {
+    return false;
+  }
+  // recompute the MAC part and compare in constant time, without any allocation
+  uint8_t mac[16];
+  hmacMD5(secret, 16, (const uint8_t *)ts, 8, mac);
+  const char *got = nonce + 8;
+  uint8_t diff = 0;
+  for (uint8_t i = 0; i < 16; i++) {
+    diff |= (uint8_t)T_hex_chars[mac[i] >> 4] ^ (uint8_t)got[i * 2];
+    diff |= (uint8_t)T_hex_chars[mac[i] & 0x0f] ^ (uint8_t)got[i * 2 + 1];
+  }
+  if (diff) {
+    return false;
+  }
+  // modular arithmetic on the monotonic counters: safe across millis() wrap-around
+  if (ttl && (uint32_t)(now - issued) > ttl) {
+    stale = true;  // issued by this server (MAC valid) but expired
+  }
+  return true;
+}
+
+// Extracts one parameter value from a Digest header (e.g. getDigestParam(header, "nonce", out)).
+// Quote-aware: values in quoted form are returned without their quotes.
+// Returns false when the parameter is absent; an empty value yields an empty out string.
+bool getDigestParam(const char *header, const char *name, String &out) {
+  out = asyncsrv::emptyString;
+  if (header == NULL || name == NULL) {
+    return false;
+  }
+  const size_t nameLen = strlen(name);
+  const char *p = header;
+  const char *end = header + strlen(header);
+  while (p < end) {
+    // skip leading separators
+    while (p < end && (*p == ',' || *p == ' ')) {
+      p++;
+    }
+    if (p >= end) {
+      return false;
+    }
+    // match the parameter name at this boundary, followed by '='
+    if ((size_t)(end - p) > nameLen && memcmp(p, name, nameLen) == 0 && p[nameLen] == '=') {
+      const char *val = p + nameLen + 1;
+      if (*val == '"') {
+        val++;
+        const char *quote = strchr(val, '"');
+        if (!quote) {
+          return false;  // unterminated quoted value
+        }
+        return out.concat(val, quote - val);
+      }
+      const char *valEnd = val;
+      while (valEnd < end && *valEnd != ',') {
+        valEnd++;
+      }
+      return out.concat(val, valEnd - val);
+    }
+    // not this parameter: skip to the next separator
+    p = strchr(p, ',');
+    if (!p) {
+      return false;
+    }
+  }
+  return false;
 }
 
 static String stringMD5(const String &in) {
@@ -237,4 +454,58 @@ bool checkDigestAuthentication(
 
   // os_printf("AUTH FAIL: password\n");
   return false;
+}
+
+// Full digest verification with stateless server-side checks.
+// The nonce embeds its issuing time and is signed with the per-server secret, so no
+// per-nonce storage is required: any nonce not signed by this server, or expired, is rejected.
+// The uri field is validated against the effective request URI (raw request-target, path + query).
+// Fails closed: on allocation failure the request is rejected.
+DigestAuthStatus checkDigestAuthentication(
+  const char *header, const char *method, const char *username, const char *password, const char *realm, bool passwordIsHash, const char *rawUri,
+  const uint8_t digestSecret[16], uint32_t digestNonceTtl
+) {
+  if (header == NULL || method == NULL || username == NULL || password == NULL || digestSecret == NULL) {
+    return DigestAuthStatus::FAILED;
+  }
+
+  String myNonce;
+  String myOpaque;
+  if (!getDigestParam(header, T_nonce, myNonce) || !getDigestParam(header, T_opaque, myOpaque)) {
+    return DigestAuthStatus::FAILED;  // malformed header: missing mandatory fields
+  }
+
+  // opaque must be the one bound to this server instance (compare on the stack, no allocation)
+  uint8_t opaqueMac[16];
+  hmacMD5(digestSecret, 16, (const uint8_t *)T_opaque, strlen(T_opaque), opaqueMac);
+  if (myOpaque.length() != 32) {
+    return DigestAuthStatus::FAILED;
+  }
+  uint8_t diff = 0;
+  const char *got = myOpaque.c_str();
+  for (uint8_t i = 0; i < 16; i++) {
+    diff |= (uint8_t)T_hex_chars[opaqueMac[i] >> 4] ^ (uint8_t)got[i * 2];
+    diff |= (uint8_t)T_hex_chars[opaqueMac[i] & 0x0f] ^ (uint8_t)got[i * 2 + 1];
+  }
+  if (diff) {
+    async_ws_log_e("Digest auth: invalid opaque");
+    return DigestAuthStatus::FAILED;
+  }
+
+  // nonce must have been issued by this server, and must not be expired
+  bool stale = false;
+  if (!validateDigestNonce(myNonce.c_str(), digestSecret, millis(), digestNonceTtl, stale)) {
+    async_ws_log_e("Digest auth: invalid nonce");
+    return DigestAuthStatus::FAILED;
+  }
+  if (stale) {
+    return DigestAuthStatus::STALE_NONCE;
+  }
+
+  // credentials + response hash, with the uri bound to the actual request-target
+  if (!checkDigestAuthentication(header, method, username, password, realm, passwordIsHash, NULL, NULL, rawUri)) {
+    return DigestAuthStatus::FAILED;
+  }
+
+  return DigestAuthStatus::SUCCESS;
 }

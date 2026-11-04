@@ -116,6 +116,52 @@ myHandler.addMiddleware(&authMiddleware); // add authentication to a specific ha
 
 See the [Auth example here](https://github.com/ESP32Async/ESPAsyncWebServer/blob/master/examples/arduino/Auth/Auth.ino).
 
+### Digest authentication: replay protection
+
+Digest authentication includes server-side protections against replay attacks, using a **stateless** scheme
+(no per-nonce storage, keeping the server's memory footprint constant):
+
+- **Signed nonce**: each challenge nonce embeds its issuing time and is signed with a per-server-instance
+  secret (`HMAC-MD5`). A nonce not issued by this server is rejected, and an expired nonce triggers a
+  new challenge with `stale=true` (RFC 7616 §3.3), so compliant clients (browsers, curl) re-authenticate
+  silently without prompting the user again.
+- **URI binding**: the `uri` field of the `Authorization: Digest ...` header must match the effective
+  request URI (raw request-target: path **and** query string). A header captured on one endpoint cannot
+  be replayed against another endpoint, nor against the same endpoint with a different query string.
+- **Opaque**: each challenge carries an opaque derived from the instance secret, identifying the server
+  instance that issued the nonce.
+
+The nonce validity window defaults to 60 seconds (`ASYNCWEBSERVER_DIGEST_NONCE_TTL` build flag) and can be
+tuned at runtime:
+
+```c++
+server.setDigestNonceTimeout(300); // extend nonce lifetime to 5 minutes
+```
+
+Changing the instance secret instantly revokes every nonce in circulation (all clients get re-challenged):
+
+```c++
+uint8_t secret[16] = {/* 16 random bytes */};
+server.setDigestSecret(secret); // kill-switch: invalidates all outstanding nonces
+```
+
+> [!NOTE]
+> As with any stateless scheme, a captured `Authorization: Digest ...` header remains valid for the
+> remainder of the nonce TTL **on the exact same request URI only**. For one-shot semantics, keep the
+> TTL short and serve Digest-protected endpoints over HTTPS.
+
+For custom validation of every digest parameter, `AsyncWebServerRequest::authenticateDigest()` accepts
+optional `nonce`, `opaque` and `uri` arguments — a NULL argument lets the library validate it
+automatically, while a non-NULL value is compared verbatim against the caller-supplied value:
+
+```c++
+// the library validates nonce, opaque and the effective request URI
+request->authenticateDigest("admin", "admin", "MyApp");
+
+// the caller takes over the uri check (nonce/opaque still validated by the library)
+request->authenticateDigest("admin", "admin", "MyApp", false, NULL, NULL, "/my/custom/uri");
+```
+
 ### Migration to Middleware to improve performance and memory usage
 
 - `AsyncEventSource.authorizeConnect(...)` => do not use this method anymore: add a common `AsyncAuthorizationMiddleware` to the handler or server, and make sure to add it AFTER the `AsyncAuthenticationMiddleware` if you use authentication.
