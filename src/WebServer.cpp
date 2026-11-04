@@ -2,11 +2,14 @@
 // Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 #include "ESPAsyncWebServer.h"
+#include "WebAuthentication.h"
 #include "WebHandlerImpl.h"
 
 #include <memory>
 #include <string>
 #include <utility>
+
+#include "./literals.h"
 
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY) || defined(HOST)
 #include <WiFi.h>
@@ -58,11 +61,19 @@ AsyncWebServer::AsyncWebServer(uint16_t port, AsyncCallbackWebHandler *catchAllH
   assert(catchAllHandler != nullptr);
   _catchAllHandler = MaybeOwned<AsyncCallbackWebHandler>::adopt(catchAllHandler);
   _server.onClient(_onClientConnect, this);
+  // Stateless Digest auth anti-replay material:
+  // a per-instance random secret signs nonces and derives the opaque value
+  generateSecret(_digestSecret);
+  _digestOpaque = generateDigestOpaque(_digestSecret);
 }
 
 AsyncWebServer::AsyncWebServer(uint16_t port, AsyncCallbackWebHandler &catchAllHandler) : _server(port) {
   _catchAllHandler = MaybeOwned<AsyncCallbackWebHandler>::borrow(catchAllHandler);
   _server.onClient(_onClientConnect, this);
+  // Stateless Digest auth anti-replay material:
+  // a per-instance random secret signs nonces and derives the opaque value
+  generateSecret(_digestSecret);
+  _digestOpaque = generateDigestOpaque(_digestSecret);
 }
 
 AsyncWebServer::~AsyncWebServer() {

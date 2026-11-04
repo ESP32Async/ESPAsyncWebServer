@@ -157,12 +157,15 @@ void setup() {
     .addMiddleware(&digestAuth);
 
   // digest authentication with hash
+  // protected with a hash: MD5(user:realm:pass) so no plain password is stored in RAM
+  // this is the privileged endpoint used by test_digest.sh to prove that a header
+  // captured on /auth-digest cannot be replayed on another digest-protected URI
   // curl -v -u admin:admin --digest  http://192.168.4.1/auth-digest-hash
   server
     .on(
       "/auth-digest-hash", HTTP_GET,
       [](AsyncWebServerRequest *request) {
-        request->send(200, "text/plain", "Hello, world!");
+        request->send(200, "text/plain", "DIGEST-HASH-ONLY: sensitive action");
       }
     )
     .addMiddleware(&digestAuthHash);

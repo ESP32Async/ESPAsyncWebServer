@@ -38,7 +38,7 @@ enum {
 
 AsyncWebServerRequest::AsyncWebServerRequest(AsyncWebServer *s, AsyncClient *c)
   : _client(c), _server(s), _handler(NULL), _response(NULL), _onDisconnectfn(NULL), _temp(), _parseState(PARSE_REQ_START), _version(0),
-    _method(AsyncWebRequestMethod::HTTP_UNKNOWN), _url(), _host(), _contentType(), _boundary(), _authorization(), _reqconntype(RCT_HTTP),
+    _method(AsyncWebRequestMethod::HTTP_UNKNOWN), _url(), _host(), _contentType(), _boundary(), _authorization(), _rawUri(), _reqconntype(RCT_HTTP),
     _authMethod(AsyncAuthType::AUTH_NONE), _isMultipart(false), _isPlainPost(false), _expectingContinue(false), _contentLength(0), _parsedLength(0),
     _multiParseState(0), _boundaryPosition(0), _itemStartIndex(0), _itemSize(0), _itemName(), _itemFilename(), _itemType(), _itemValue(), _itemBuffer(0),
     _itemBufferIndex(0), _itemIsFile(false), _chunkStartIndex(0), _chunkOffset(0), _chunkSize(0), _chunkedParseState(CHUNK_NONE), _chunkedLastChar(0),
@@ -326,6 +326,9 @@ bool AsyncWebServerRequest::_parseReqHead() {
   if (_method == AsyncWebRequestMethod::HTTP_INVALID) {
     return false;
   }
+
+  // keep the effective request URI (RFC 7230 §5.5): raw request-target, path + query string
+  _rawUri = u;
 
   String g;
   index = u.indexOf('?');
@@ -1287,7 +1290,7 @@ void AsyncWebServerRequest::redirect(const char *url, int code) {
 bool AsyncWebServerRequest::authenticate(const char *username, const char *password, const char *realm, bool passwordIsHash) const {
   if (_authorization.length()) {
     if (_authMethod == AsyncAuthType::AUTH_DIGEST) {
-      return checkDigestAuthentication(_authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, NULL, NULL, NULL);
+      return authenticateDigest(username, password, realm, passwordIsHash, NULL, NULL, NULL);
     } else if (!passwordIsHash) {
       return checkBasicAuthentication(_authorization.c_str(), username, password);
     } else {
@@ -1297,30 +1300,72 @@ bool AsyncWebServerRequest::authenticate(const char *username, const char *passw
   return false;
 }
 
+bool AsyncWebServerRequest::authenticateDigest(
+  const char *username, const char *password, const char *realm, bool passwordIsHash, const char *nonce, const char *opaque, const char *uri
+) const {
+  _authStale = false;
+  if (!_authorization.length()) {
+    return false;
+  }
+
+  // caller-provided values take precedence; NULL means the library validates it
+  if (nonce != NULL || opaque != NULL || uri != NULL) {
+    return checkDigestAuthentication(_authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, nonce, opaque, uri);
+  }
+
+  // stateless anti-replay validation
+  DigestAuthStatus status = checkDigestAuthentication(
+    _authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, _rawUri.c_str(), _server->_digestSecret, _server->_digestNonceTtl
+  );
+  if (status == DigestAuthStatus::DIGEST_AUTH_STALE_NONCE) {
+    _authStale = true;
+    return false;
+  }
+  return status == DigestAuthStatus::DIGEST_AUTH_SUCCESS;
+}
+
 bool AsyncWebServerRequest::authenticate(const char *hash) const {
+  if (_authMethod == AsyncAuthType::AUTH_DIGEST) {
+    return authenticateDigest(hash);
+  }
+
   if (!_authorization.length() || hash == NULL) {
     return false;
   }
 
-  if (_authMethod == AsyncAuthType::AUTH_DIGEST) {
-    String hStr = String(hash);
-    int separator = hStr.indexOf(':');
-    if (separator <= 0) {
-      return false;
-    }
-    String username = hStr.substring(0, separator);
-    hStr = hStr.substring(separator + 1);
-    separator = hStr.indexOf(':');
-    if (separator <= 0) {
-      return false;
-    }
-    String realm = hStr.substring(0, separator);
-    hStr = hStr.substring(separator + 1);
-    return checkDigestAuthentication(_authorization.c_str(), methodToString(), username.c_str(), hStr.c_str(), realm.c_str(), true, NULL, NULL, NULL);
-  }
-
   // Basic Auth, Bearer Auth, or other
   return (_authorization.equals(hash));
+}
+
+bool AsyncWebServerRequest::authenticateDigest(const char *hash) const {
+  _authStale = false;
+  if (!_authorization.length() || hash == NULL) {
+    return false;
+  }
+  String hStr = String(hash);
+  int separator = hStr.indexOf(':');
+  if (separator <= 0) {
+    return false;
+  }
+  String username = hStr.substring(0, separator);
+  hStr = hStr.substring(separator + 1);
+  separator = hStr.indexOf(':');
+  if (separator <= 0) {
+    return false;
+  }
+  String realm = hStr.substring(0, separator);
+  hStr = hStr.substring(separator + 1);
+
+  // stateless anti-replay validation
+  DigestAuthStatus status = checkDigestAuthentication(
+    _authorization.c_str(), methodToString(), username.c_str(), hStr.c_str(), realm.c_str(), true, _rawUri.c_str(), _server->_digestSecret,
+    _server->_digestNonceTtl
+  );
+  if (status == DigestAuthStatus::DIGEST_AUTH_STALE_NONCE) {
+    _authStale = true;
+    return false;
+  }
+  return status == DigestAuthStatus::DIGEST_AUTH_SUCCESS;
 }
 
 void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const char *realm, const char *_authFailMsg) {
@@ -1350,27 +1395,43 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
     }
     case AsyncAuthType::AUTH_DIGEST:
     {
-      size_t len = sizeof(T_DIGEST_) - 1 + sizeof(T_realm__) - 1 + sizeof(T_auth_nonce) - 1 + 32 + sizeof(T__opaque) - 1 + 32 + 1;
-      String header;
-      if (header.reserve(len + strlen(realm))) {
-        const String nonce = genRandomMD5();
-        const String opaque = genRandomMD5();
-        if (nonce.length() && opaque.length()) {
-          header.concat(T_DIGEST_);
-          header.concat(T_realm__);
-          header.concat(realm);
-          header.concat(T_auth_nonce);
-          header.concat(nonce);
-          header.concat(T__opaque);
-          header.concat(opaque);
-          header.concat((char)0x22);  // '"'
-          r->addHeader(T_WWW_AUTH, header.c_str());
-        } else {
+      // stateless anti-replay scheme: the nonce embeds its
+      // issuing time, signed with the per-instance secret, so it can be validated
+      // later without any server-side storage. The opaque is derived from the
+      // same secret and identifies this server instance.
+      const String nonce = generateDigestNonce(_server->_digestSecret, millis());
+      const String &opaque = _server->digestOpaque();
+      if (nonce.length() && opaque.length()) {
+        // Digest realm="<realm>", qop="auth", nonce="<nonce>", opaque="<opaque>"[, stale=true]
+        size_t len = sizeof(T_DIGEST_) - 1 + sizeof(T_realm__) - 1 + strlen(realm) + sizeof(T_auth_nonce) - 1 + nonce.length() + sizeof(T__opaque) - 1
+                     + opaque.length() + 1;
+        if (_authStale) {
+          len += sizeof(T_stale_true) - 1;
+        }
+        String header;
+        if (!header.reserve(len)) {
           async_ws_log_e("Failed to allocate");
           delete r;
           abort();
           return;
         }
+        header.concat(T_DIGEST_);
+        header.concat(T_realm__);
+        header.concat(realm);
+        header.concat(T_auth_nonce);  // ends with an opening quote for the nonce
+        header.concat(nonce);
+        header.concat(T__opaque);  // starts with a closing quote for the nonce
+        header.concat(opaque);
+        header.concat((char)0x22);  // '"'
+        if (_authStale) {
+          header.concat(T_stale_true);
+        }
+        r->addHeader(T_WWW_AUTH, header.c_str());
+      } else {
+        async_ws_log_e("Failed to allocate");
+        delete r;
+        abort();
+        return;
       }
       break;
     }
