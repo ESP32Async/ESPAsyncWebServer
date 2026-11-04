@@ -1029,7 +1029,7 @@ const char *AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool la
           return p.isPost() && p.isFile() && (p.name() == T_name || p.name() == T_filename);
         });
         free(_itemBuffer);
-        _itemBuffer = NULL;
+        _itemBuffer = nullptr;
         // CWE-476 fix: _itemIsFile must be cleared when the buffer is freed.
         // Otherwise, if the next byte does not confirm a clean boundary close
         // (e.g. '--<boundary>' appeared in the file data by coincidence), the
@@ -1413,10 +1413,12 @@ void AsyncWebServerRequest::redirect(const char *url, int code) {
   send(response);
 }
 
-bool AsyncWebServerRequest::authenticate(const char *username, const char *password, const char *realm, bool passwordIsHash) const {
+bool AsyncWebServerRequest::authenticate(
+  const char *username, const char *password, const char *realm, bool passwordIsHash, const char *nonce, const char *opaque, const char *uri
+) const {
   if (_authorization.length()) {
     if (_authMethod == AsyncAuthType::AUTH_DIGEST) {
-      return checkDigestAuthentication(_authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, NULL, NULL, NULL);
+      return _authenticateDigest(username, password, realm, passwordIsHash, nonce, opaque, uri);
     } else if (!passwordIsHash) {
       return checkBasicAuthentication(_authorization.c_str(), username, password);
     } else {
@@ -1424,6 +1426,30 @@ bool AsyncWebServerRequest::authenticate(const char *username, const char *passw
     }
   }
   return false;
+}
+
+bool AsyncWebServerRequest::_authenticateDigest(
+  const char *username, const char *password, const char *realm, bool passwordIsHash, const char *nonce, const char *opaque, const char *uri
+) const {
+  _reAuthRequired = false;
+  if (!_authorization.length()) {
+    return false;
+  }
+
+  // stateless anti-replay validation; nonce/opaque/uri are caller overrides,
+  // so when any of them is set the caller takes that specific check over
+  const AsyncWebServer::DigestAuthContext *digest = _server->_digestAuthContext();
+  if (digest == nullptr) {
+    return false;
+  }
+  DigestAuthStatus status = checkDigestAuthentication(
+    _authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, digest->secret, digest->nonceTtl, nonce, opaque, uri
+  );
+  // stale ?
+  if (status == DigestAuthStatus::DIGEST_AUTH_STALE_NONCE) {
+    _reAuthRequired = true;
+  }
+  return status == DigestAuthStatus::DIGEST_AUTH_SUCCESS;
 }
 
 bool AsyncWebServerRequest::authenticate(const char *hash) const {
@@ -1445,7 +1471,7 @@ bool AsyncWebServerRequest::authenticate(const char *hash) const {
     }
     String realm = hStr.substring(0, separator);
     hStr = hStr.substring(separator + 1);
-    return checkDigestAuthentication(_authorization.c_str(), methodToString(), username.c_str(), hStr.c_str(), realm.c_str(), true, NULL, NULL, NULL);
+    return _authenticateDigest(username.c_str(), hStr.c_str(), realm.c_str(), true, NULL, NULL, NULL);
   }
 
   // Basic Auth, Bearer Auth, or other
@@ -1486,27 +1512,49 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
     }
     case AsyncAuthType::AUTH_DIGEST:
     {
-      size_t len = sizeof(T_DIGEST_) - 1 + sizeof(T_realm__) - 1 + sizeof(T_auth_nonce) - 1 + 32 + sizeof(T__opaque) - 1 + 32 + 1;
-      String header;
-      if (header.reserve(len + strlen(realm))) {
-        const String nonce = genRandomMD5();
-        const String opaque = genRandomMD5();
-        if (nonce.length() && opaque.length()) {
-          header.concat(T_DIGEST_);
-          header.concat(T_realm__);
-          header.concat(realm);
-          header.concat(T_auth_nonce);
-          header.concat(nonce);
-          header.concat(T__opaque);
-          header.concat(opaque);
-          header.concat((char)0x22);  // '"'
-          r->addHeader(T_WWW_AUTH, header.c_str());
-        } else {
+      // stateless anti-replay scheme: the nonce embeds its
+      // issuing time, signed with the per-instance secret, so it can be validated
+      // later without any server-side storage. The opaque is derived from the
+      // same secret and identifies this server instance.
+      const AsyncWebServer::DigestAuthContext *digest = _server->_digestAuthContext();
+      if (digest == nullptr) {
+        delete r;
+        sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
+        return;
+      }
+      const String nonce = generateDigestNonce(digest->secret, millis());
+      const String &opaque = digest->opaque;
+      if (nonce.length() && opaque.length()) {
+        // Digest realm="<realm>", qop="auth", nonce="<nonce>", opaque="<opaque>"[, stale=true]
+        size_t len = sizeof(T_DIGEST_) - 1 + sizeof(T_realm__) - 1 + strlen(realm) + sizeof(T_auth_nonce) - 1 + nonce.length() + sizeof(T__opaque) - 1
+                     + opaque.length() + 1;
+        if (_reAuthRequired) {
+          len += sizeof(T_stale_true) - 1;
+        }
+        String header;
+        if (!header.reserve(len)) {
           async_ws_log_e("Failed to allocate");
           delete r;
           sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
           return;
         }
+        header.concat(T_DIGEST_);
+        header.concat(T_realm__);
+        header.concat(realm);
+        header.concat(T_auth_nonce);  // ends with an opening quote for the nonce
+        header.concat(nonce);
+        header.concat(T__opaque);  // starts with a closing quote for the nonce
+        header.concat(opaque);
+        header.concat((char)0x22);  // '"'
+        if (_reAuthRequired) {
+          header.concat(T_stale_true);
+        }
+        r->addHeader(T_WWW_AUTH, header.c_str());
+      } else {
+        async_ws_log_e("Failed to allocate");
+        delete r;
+        sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
+        return;
       }
       break;
     }

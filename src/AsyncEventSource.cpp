@@ -67,7 +67,7 @@ static String generateEventMessage(const char *message, const char *event, uint3
     }
 
     // a message is a multi-line string
-    char *nextLine = NULL;
+    char *nextLine = nullptr;
     if (nextN != NULL && nextR != NULL) {  // windows line-ending \r\n
       if (nextR + 1 == nextN) {
         // normal \r\n sequence

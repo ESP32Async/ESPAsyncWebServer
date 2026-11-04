@@ -107,6 +107,7 @@ static constexpr const char T_nn[] = "\n\n";
 static constexpr const char T_rn[] = "\r\n";
 static constexpr const char T_rnrn[] = "\r\n\r\n";
 static constexpr const char T_Server[] = "Server";
+static constexpr const char T_stale_true[] = ", stale=true";
 static constexpr const char T_Transfer_Encoding[] = "Transfer-Encoding";
 static constexpr const char T_TRUE[] = "true";
 static constexpr const char T_UPGRADE[] = "Upgrade";

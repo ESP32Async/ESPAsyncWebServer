@@ -96,7 +96,7 @@ public:
      * @return true if message was placed in a queue
      * @return false if queue is full
      */
-  bool send(const char *message, const char *event = NULL, uint32_t id = 0, uint32_t reconnect = 0);
+  bool send(const char *message, const char *event = nullptr, uint32_t id = 0, uint32_t reconnect = 0);
   bool send(const String &message, const String &event, uint32_t id = 0, uint32_t reconnect = 0) {
     return send(message.c_str(), event.c_str(), id, reconnect);
   }
@@ -234,7 +234,7 @@ public:
      * @param reconnect client's reconnect timeout
      * @return SendStatus if message was placed in any/all/part of the client's queues
      */
-  SendStatus send(const char *message, const char *event = NULL, uint32_t id = 0, uint32_t reconnect = 0);
+  SendStatus send(const char *message, const char *event = nullptr, uint32_t id = 0, uint32_t reconnect = 0);
   SendStatus send(const String &message, const String &event, uint32_t id = 0, uint32_t reconnect = 0) {
     return send(message.c_str(), event.c_str(), id, reconnect);
   }

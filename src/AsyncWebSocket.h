@@ -200,7 +200,7 @@ private:
   AwsFrameInfo _pinfo;
   std::unique_ptr<uint8_t[]> _pbuffer;  // Payload buffer for torn control frames
 
-  bool _queueControl(uint8_t opcode, const uint8_t *data = NULL, size_t len = 0, bool mask = false);
+  bool _queueControl(uint8_t opcode, const uint8_t *data = nullptr, size_t len = 0, bool mask = false);
   bool _queueMessage(AsyncWebSocketSharedBuffer buffer, uint8_t opcode = WS_TEXT, bool mask = false);
   // caller must hold _queue_lock via `lock`; _runQueue may unlock() it (e.g.
   // before a close() that can synchronously destroy *this) and never touch
@@ -286,8 +286,8 @@ public:
   }
 
   // control frames
-  void close(uint16_t code = 0, const char *message = NULL);
-  bool ping(const uint8_t *data = NULL, size_t len = 0);
+  void close(uint16_t code = 0, const char *message = nullptr);
+  bool ping(const uint8_t *data = nullptr, size_t len = 0);
 
   // set auto-ping period in seconds. disabled if zero (default)
   void keepAlivePeriod(uint16_t seconds) {
@@ -379,12 +379,12 @@ public:
     return client(id) != nullptr;
   }
 
-  void close(uint32_t id, uint16_t code = 0, const char *message = NULL);
-  void closeAll(uint16_t code = 0, const char *message = NULL);
+  void close(uint32_t id, uint16_t code = 0, const char *message = nullptr);
+  void closeAll(uint16_t code = 0, const char *message = nullptr);
   void cleanupClients(uint16_t maxClients = DEFAULT_MAX_WS_CLIENTS);
 
-  bool ping(uint32_t id, const uint8_t *data = NULL, size_t len = 0);
-  SendStatus pingAll(const uint8_t *data = NULL, size_t len = 0);  //  done
+  bool ping(uint32_t id, const uint8_t *data = nullptr, size_t len = 0);
+  SendStatus pingAll(const uint8_t *data = nullptr, size_t len = 0);  //  done
 
   bool text(uint32_t id, const uint8_t *message, size_t len);
   bool text(uint32_t id, const char *message, size_t len);
