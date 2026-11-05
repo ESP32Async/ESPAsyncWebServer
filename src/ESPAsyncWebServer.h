@@ -674,13 +674,6 @@ public:
   const String &url() const {
     return _url;
   }
-  // Effective request URI (RFC 7230 §5.5): raw request-target — path + query string
-  // in the exact percent-encoded form received on the request line, before URL decoding
-  // and before any rewrite is applied. Useful to build canonical links, audit raw input,
-  // or implement authentication schemes binding to the request target (e.g. HTTP Digest).
-  const String &rawUri() const {
-    return _rawUri;
-  }
   const String &host() const {
     return _host;
   }
