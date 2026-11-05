@@ -1314,8 +1314,12 @@ bool AsyncWebServerRequest::authenticateDigest(
   }
 
   // stateless anti-replay validation
+  const AsyncWebServer::DigestState *digest = _server->_digestState();
+  if (digest == nullptr) {
+    return false;
+  }
   DigestAuthStatus status = checkDigestAuthentication(
-    _authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, _rawUri.c_str(), _server->_digestSecret, _server->_digestNonceTtl
+    _authorization.c_str(), methodToString(), username, password, realm, passwordIsHash, _rawUri.c_str(), digest->secret, digest->nonceTtl
   );
   if (status == DigestAuthStatus::DIGEST_AUTH_STALE_NONCE) {
     _authStale = true;
@@ -1357,9 +1361,12 @@ bool AsyncWebServerRequest::authenticateDigest(const char *hash) const {
   hStr = hStr.substring(separator + 1);
 
   // stateless anti-replay validation
+  const AsyncWebServer::DigestState *digest = _server->_digestState();
+  if (digest == nullptr) {
+    return false;
+  }
   DigestAuthStatus status = checkDigestAuthentication(
-    _authorization.c_str(), methodToString(), username.c_str(), hStr.c_str(), realm.c_str(), true, _rawUri.c_str(), _server->_digestSecret,
-    _server->_digestNonceTtl
+    _authorization.c_str(), methodToString(), username.c_str(), hStr.c_str(), realm.c_str(), true, _rawUri.c_str(), digest->secret, digest->nonceTtl
   );
   if (status == DigestAuthStatus::DIGEST_AUTH_STALE_NONCE) {
     _authStale = true;
@@ -1399,8 +1406,14 @@ void AsyncWebServerRequest::requestAuthentication(AsyncAuthType method, const ch
       // issuing time, signed with the per-instance secret, so it can be validated
       // later without any server-side storage. The opaque is derived from the
       // same secret and identifies this server instance.
-      const String nonce = generateDigestNonce(_server->_digestSecret, millis());
-      const String &opaque = _server->digestOpaque();
+      const AsyncWebServer::DigestState *digest = _server->_digestState();
+      if (digest == nullptr) {
+        delete r;
+        abort();
+        return;
+      }
+      const String nonce = generateDigestNonce(digest->secret, millis());
+      const String &opaque = digest->opaque;
       if (nonce.length() && opaque.length()) {
         // Digest realm="<realm>", qop="auth", nonce="<nonce>", opaque="<opaque>"[, stale=true]
         size_t len = sizeof(T_DIGEST_) - 1 + sizeof(T_realm__) - 1 + strlen(realm) + sizeof(T_auth_nonce) - 1 + nonce.length() + sizeof(T__opaque) - 1

@@ -15,6 +15,7 @@
 #include <functional>
 #include <list>
 #include <memory>
+#include <new>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -1850,9 +1851,23 @@ protected:
   // Stateless Digest auth anti-replay: the nonce embeds
   // its issuing time and is HMAC-signed with this per-instance secret, so no
   // per-nonce storage is required. The opaque is derived from the same secret.
-  uint8_t _digestSecret[16] = {0};
-  uint32_t _digestNonceTtl = ASYNCWEBSERVER_DIGEST_NONCE_TTL * 1000;  // milliseconds
-  String _digestOpaque;
+  // Lazily allocated on first use so that instances not using Digest auth
+  // only pay for one pointer. First use happens either from setup() (setters)
+  // or from the async_tcp task processing a Digest request, so no locking is
+  // required.
+  struct DigestState {
+    uint8_t secret[16];
+    uint32_t nonceTtl = ASYNCWEBSERVER_DIGEST_NONCE_TTL * 1000;  // milliseconds
+    String opaque;
+  };
+  DigestState *_digest = nullptr;
+
+  /**
+   * @brief Digest auth state, initializing it on first use.
+   *
+   * @return the state, or nullptr if the allocation failed.
+   */
+  DigestState *_digestState();
 
 public:
   /**
@@ -2099,28 +2114,21 @@ public:
    * server-side storage is kept. 0 disables expiry (not recommended).
    * @param seconds nonce lifetime in seconds (default: ASYNCWEBSERVER_DIGEST_NONCE_TTL, 60s)
    */
-  void setDigestNonceTimeout(uint32_t seconds) {
-    _digestNonceTtl = seconds * 1000;
-  }
+  void setDigestNonceTimeout(uint32_t seconds);
 
   /**
    * @brief Set a custom secret used to sign Digest nonces and derive the opaque value.
    *
    * Changing the secret instantly revokes every nonce in circulation (clients will
    * be re-challenged and silently re-authenticate). If never called, a random
-   * per-instance secret is generated at startup.
+   * per-instance secret is generated when Digest auth is first used.
    * @param secret pointer to 16 raw bytes
    */
-  void setDigestSecret(const uint8_t secret[16]) {
-    if (secret) {
-      memcpy(_digestSecret, secret, sizeof(_digestSecret));
-      _digestOpaque = generateDigestOpaque(_digestSecret);
-    }
-  }
+  void setDigestSecret(const uint8_t secret[16]);
 
-  /** @brief Digest opaque value derived from the instance secret. */
+  /** @brief Digest opaque value derived from the instance secret (empty if Digest auth was never used). */
   const String &digestOpaque() const {
-    return _digestOpaque;
+    return _digest ? _digest->opaque : asyncsrv::emptyString;
   }
 
 #if ASYNC_JSON_SUPPORT == 1
