@@ -421,8 +421,7 @@ AsyncEventSourceResponse::AsyncEventSourceResponse(AsyncEventSource *server) : _
 
 void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
   String out;
-  _assembleHead(out, request->version());
-  if (!_headLength) {
+  if (!_assembleHead(out, request->version())) {
     // Head assembly ran out of memory: fail the stream instead of sending a
     // corrupted head.
     async_ws_log_e("Failed to allocate");

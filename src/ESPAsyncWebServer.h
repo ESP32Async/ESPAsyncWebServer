@@ -1766,7 +1766,7 @@ public:
     _assembleHead(buffer, version);
     return buffer;
   }
-  void _assembleHead(String &buffer, uint8_t version);
+  bool _assembleHead(String &buffer, uint8_t version);
 
   virtual bool _started() const;
   virtual bool _finished() const;

@@ -1561,8 +1561,7 @@ void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
     this
   );
   String out;
-  _assembleHead(out, request->version());
-  if (!_headLength) {
+  if (!_assembleHead(out, request->version())) {
     // Head assembly ran out of memory: fail the upgrade instead of sending a
     // corrupted handshake.
     async_ws_log_e("Failed to allocate");

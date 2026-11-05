@@ -183,7 +183,7 @@ bool AsyncWebServerResponse::addHeader(const char *name, const char *value, bool
   return true;
 }
 
-void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
+bool AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
   if (version) {
     addHeader(T_Accept_Ranges, T_none, false);
     if (_chunked) {
@@ -214,7 +214,7 @@ void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
     // response instead of writing a truncated head.
     async_ws_log_e("Failed to allocate");
     _headLength = 0;
-    return;
+    return false;
   }
 
   // HTTP header
@@ -244,6 +244,7 @@ void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
 
   buffer.concat(T_rn);
   _headLength = buffer.length();
+  return true;
 }
 
 bool AsyncWebServerResponse::_started() const {
@@ -280,8 +281,7 @@ AsyncBasicResponse::AsyncBasicResponse(int code, const char *contentType, const 
 
 void AsyncBasicResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_HEADERS;
-  _assembleHead(_assembled_headers, request->version());
-  if (!_headLength) {
+  if (!_assembleHead(_assembled_headers, request->version())) {
     // Head assembly ran out of memory: fail the response instead of sending
     // a corrupted (partial or missing) head.
     _state = RESPONSE_FAILED;
@@ -348,8 +348,7 @@ AsyncAbstractResponse::AsyncAbstractResponse(AwsTemplateProcessor callback) : _c
 
 void AsyncAbstractResponse::_respond(AsyncWebServerRequest *request) {
   addHeader(T_Connection, T_close, false);
-  _assembleHead(_assembled_headers, request->version());
-  if (!_headLength) {
+  if (!_assembleHead(_assembled_headers, request->version())) {
     // Head assembly ran out of memory: fail the response instead of sending
     // a corrupted (partial or missing) head.
     _state = RESPONSE_FAILED;
