@@ -223,11 +223,12 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     free(request->_tempObject);
     request->_tempObject = nullptr;
     // A copy of a non-empty path can only be empty when its allocation
-    // failed (c_str() is then null on ESP32); abort rather than serve the
-    // wrong file.
+    // failed (c_str() is then null on ESP32); reject with a best-effort 503
+    // rather than serve the wrong file.
     if (tempPathLen && !filename.length()) {
       async_ws_log_e("Failed to allocate");
-      request->abort();
+      request->_tempFile.close();
+      request->failWithRawResponse();
       return;
     }
   }

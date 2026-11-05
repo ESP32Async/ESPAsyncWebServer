@@ -75,6 +75,11 @@ static constexpr const char T_gzip[] = "gzip";
 static constexpr const char T_Host[] = "host";
 static constexpr const char T_HTTP_1_0[] = "HTTP/1.0";
 static constexpr const char T_HTTP_100_CONT[] = "HTTP/1.1 100 Continue\r\n\r\n";
+// Minimal pre-assembled 503 error head, emitted as-is by
+// AsyncWebServerRequest::failWithRawResponse() when the connection is dropped after
+// a failure (e.g. out of memory) that prevents building a proper response.
+// Kept as a literal so emitting it cannot itself fail an allocation.
+static constexpr const char T_HTTP_503_HEAD[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n";
 static constexpr const char T_id__[] = "id: ";
 static constexpr const char T_IMS[] = "If-Modified-Since";
 static constexpr const char T_INM[] = "If-None-Match";

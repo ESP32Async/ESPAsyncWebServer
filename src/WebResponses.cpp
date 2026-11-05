@@ -259,6 +259,7 @@ bool AsyncWebServerResponse::_failed() const {
 bool AsyncWebServerResponse::_sourceValid() const {
   return false;
 }
+
 void AsyncWebServerResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_END;
 }
@@ -285,7 +286,7 @@ void AsyncBasicResponse::_respond(AsyncWebServerRequest *request) {
     // Head assembly ran out of memory: fail the response instead of sending
     // a corrupted (partial or missing) head.
     _state = RESPONSE_FAILED;
-    request->client()->close();
+    request->failWithRawResponse();
     return;
   }
   write_send_buffs(request, 0, 0);
@@ -352,7 +353,7 @@ void AsyncAbstractResponse::_respond(AsyncWebServerRequest *request) {
     // Head assembly ran out of memory: fail the response instead of sending
     // a corrupted (partial or missing) head.
     _state = RESPONSE_FAILED;
-    request->client()->close();
+    request->failWithRawResponse();
     return;
   }
   _state = RESPONSE_HEADERS;

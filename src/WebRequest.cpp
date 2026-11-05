@@ -1216,6 +1216,17 @@ void AsyncWebServerRequest::abort() {
   }
 }
 
+void AsyncWebServerRequest::failWithRawResponse(const char *response) {
+  // write() queues the head and flushes immediately; lwIP defers the FIN until
+  // all queued data is acked, so the error head is delivered before the close.
+  if (!_sent && _client) {
+    _sent = true;
+    _paused = false;
+    _client->write(response, strlen(response));
+    _client->close();
+  }
+}
+
 size_t AsyncWebServerRequest::headers() const {
   return _headers.size();
 }

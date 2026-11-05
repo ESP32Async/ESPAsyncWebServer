@@ -1545,7 +1545,18 @@ AsyncWebSocketResponse::AsyncWebSocketResponse(const String &key, AsyncWebSocket
 
 void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
   if (_state == RESPONSE_FAILED) {
-    request->client()->close();
+    // Sec-WebSocket-Accept could not be computed in the constructor: refuse
+    // the upgrade instead of doing a bare close.
+    request->failWithRawResponse();
+    return;
+  }
+  String out;
+  if (!_assembleHead(out, request->version())) {
+    // Head assembly ran out of memory: fail the upgrade instead of sending a
+    // corrupted handshake.
+    async_ws_log_e("Failed to allocate");
+    _state = RESPONSE_FAILED;
+    request->failWithRawResponse();
     return;
   }
   // unbind client's onAck callback from AsyncWebServerRequest's, we will destroy it on next callback and steal the client,
@@ -1560,15 +1571,6 @@ void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
     },
     this
   );
-  String out;
-  if (!_assembleHead(out, request->version())) {
-    // Head assembly ran out of memory: fail the upgrade instead of sending a
-    // corrupted handshake.
-    async_ws_log_e("Failed to allocate");
-    _state = RESPONSE_FAILED;
-    request->client()->close();
-    return;
-  }
   request->client()->write(out.c_str(), _headLength);
   _state = RESPONSE_WAIT_ACK;
 }

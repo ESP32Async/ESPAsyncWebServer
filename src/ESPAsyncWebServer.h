@@ -925,6 +925,14 @@ public:
   }
 
   /**
+     * @brief Best-effort fixed error head for the client before closing the connection (out of memory).
+     * Marks the request as sent, writes a pre-assembled literal head (503 Service Unavailable and
+     * "Connection: close" by default, so it cannot itself fail an allocation), then closes the connection.
+     * Must only be used while nothing has been queued on the TCP connection yet.
+   */
+  void failWithRawResponse(const char *response = asyncsrv::T_HTTP_503_HEAD);
+
+  /**
    * @brief Aborts the request and close the client (RST).
    * Mark the request as sent.
    * If it was paused, it will be unpaused and it won't be possible to resume it.
