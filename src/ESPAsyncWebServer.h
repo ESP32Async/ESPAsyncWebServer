@@ -461,11 +461,18 @@ private:
   String _value;
 
 public:
+  // Result of AsyncWebHeader::parse()
+  enum class ParseError {
+    NONE,        // header parsed, returned header is valid
+    INVALID,     // malformed header line, returned header is empty
+    ALLOC_FAIL,  // allocation failure: request must be failed, not skipped
+  };
+
   AsyncWebHeader() {}
   AsyncWebHeader(const AsyncWebHeader &) = default;
   AsyncWebHeader(AsyncWebHeader &&) = default;
   AsyncWebHeader(const char *name, const char *value) : _name(name), _value(value) {}
-  AsyncWebHeader(const String &name, const String &value) : _name(name), _value(value) {}
+  AsyncWebHeader(String name, String value) : _name(std::move(name)), _value(std::move(value)) {}
 
   [[deprecated("Use AsyncWebHeader::parse(data) instead")]]
   AsyncWebHeader(const String &data)
@@ -480,14 +487,26 @@ public:
   const String &value() const {
     return _value;
   }
+  ParseError parseError() const;
 
   String toString() const;
 
   // returns true if the header is valid
   operator bool() const {
-    return _name.length();
+    return parseError() == ParseError::NONE;
   }
 
+  /**
+   * @brief Parse a header line.
+   *
+   * A NoMemory result must abort the request (see issue #500): a String whose
+   * internal allocation failed has a null c_str() on ESP32 and an empty one on
+   * ESP8266, and downstream header consumers would either dereference it or
+   * silently misparse the request.
+   *
+   * @param data raw header line "Name: value" (no CR/LF)
+   * @return the parse status together with the parsed header
+   */
   static const AsyncWebHeader parse(const String &data) {
     return parse(data.c_str());
   }
@@ -594,7 +613,7 @@ private:
   void _onData(void *buf, size_t len);
 
   bool _parseReqHead();
-  bool _parseReqHeader();
+  void _parseReqHeader();
   void _parseLine();
   void _parsePlainPostChar(uint8_t data);
   void _parseMultipartPostByte(uint8_t data, bool last);
@@ -895,6 +914,14 @@ public:
   bool isPaused() const {
     return _paused;
   }
+
+  /**
+     * @brief Best-effort fixed error head for the client before closing the connection (out of memory).
+     * Marks the request as sent, writes a pre-assembled literal head (503 Service Unavailable and
+     * "Connection: close" by default, so it cannot itself fail an allocation), then closes the connection.
+     * Must only be used while nothing has been queued on the TCP connection yet.
+   */
+  void sendRawResponse(const char *response);
 
   /**
    * @brief Aborts the request and close the client (RST).
@@ -1738,7 +1765,7 @@ public:
     _assembleHead(buffer, version);
     return buffer;
   }
-  void _assembleHead(String &buffer, uint8_t version);
+  bool _assembleHead(String &buffer, uint8_t version);
 
   virtual bool _started() const;
   virtual bool _finished() const;

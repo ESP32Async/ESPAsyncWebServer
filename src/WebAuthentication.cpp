@@ -3,7 +3,10 @@
 
 #include "WebAuthentication.h"
 #include "AsyncWebServerLogging.h"
+
 #include <libb64/cencode.h>
+
+#include <cstring>
 
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
 #include <MD5Builder.h>
@@ -28,28 +31,43 @@ String generateBasicHash(const char *username, const char *password) {
   if (username == NULL || password == NULL) {
     return asyncsrv::emptyString;
   }
+  const size_t userLen = strlen(username);
+  const size_t passLen = strlen(password);
 
-  size_t toencodeLen = strlen(username) + strlen(password) + 1;
-
-  char *toencode = new char[toencodeLen + 1];
-  if (toencode == NULL) {
+  String out;
+  // expected_len(n) == 4 * ceil(n / 3), exact output size including padding
+  if (!out.reserve(base64_encode_expected_len(userLen + 1 + passLen))) {
+    async_ws_log_e("Failed to allocate");
     return asyncsrv::emptyString;
   }
-  char *encoded = new char[base64_encode_expected_len(toencodeLen) + 1];
-  if (encoded == NULL) {
-    delete[] toencode;
+
+  base64_encodestate state;
+  base64_init_encodestate(&state);
+  // feed "username:password" through the encoder without materializing it;
+  // 3 input bytes per call make block() emit at most 4 chars into buf
+  const char *parts[3] = {username, ":", password};
+  const size_t lens[3] = {userLen, 1, passLen};
+  char buf[4];
+  for (int i = 0; i < 3; i++) {
+    const char *data = parts[i];
+    const size_t len = lens[i];
+    for (size_t off = 0; off < len; off += 3) {
+      const size_t chunk = len - off < 3 ? len - off : 3;
+      // base64_encode_block() may emit at most 4 * ceil(chunk / 3) == 4 chars into buf
+      const size_t emitted = (size_t)base64_encode_block(data + off, (int)chunk, buf, &state);
+      if (!out.concat(buf, (unsigned int)emitted)) {
+        // cannot happen with a correct reserve(), kept as a safety net
+        async_ws_log_e("Failed to concat");
+        return asyncsrv::emptyString;
+      }
+    }
+  }
+  const size_t emitted = (size_t)base64_encode_blockend(buf, &state);
+  if (!out.concat(buf, (unsigned int)emitted)) {
+    async_ws_log_e("Failed to concat");
     return asyncsrv::emptyString;
   }
-  sprintf_P(toencode, PSTR("%s:%s"), username, password);
-  if (base64_encode_chars(toencode, toencodeLen, encoded) > 0) {
-    String res = String(encoded);
-    delete[] toencode;
-    delete[] encoded;
-    return res;
-  }
-  delete[] toencode;
-  delete[] encoded;
-  return asyncsrv::emptyString;
+  return out;
 }
 
 static bool getMD5(uint8_t *data, uint16_t len, char *output) {  // 33 bytes or more
