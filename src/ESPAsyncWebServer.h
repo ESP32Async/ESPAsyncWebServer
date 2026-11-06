@@ -930,7 +930,7 @@ public:
      * "Connection: close" by default, so it cannot itself fail an allocation), then closes the connection.
      * Must only be used while nothing has been queued on the TCP connection yet.
    */
-  void failWithRawResponse(const char *response = asyncsrv::T_HTTP_503_HEAD);
+  void sendRawResponse(const char *response = asyncsrv::T_HTTP_503_HEAD);
 
   /**
    * @brief Aborts the request and close the client (RST).

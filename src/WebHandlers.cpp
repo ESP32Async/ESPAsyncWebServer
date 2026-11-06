@@ -228,7 +228,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
     if (tempPathLen && !filename.length()) {
       async_ws_log_e("Failed to allocate");
       request->_tempFile.close();
-      request->failWithRawResponse();
+      request->sendRawResponse();
       return;
     }
   }

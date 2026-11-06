@@ -426,7 +426,7 @@ void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
     // corrupted head.
     async_ws_log_e("Failed to allocate");
     _state = RESPONSE_FAILED;
-    request->failWithRawResponse();
+    request->sendRawResponse();
     return;
   }
   uint32_t lastId = 0;

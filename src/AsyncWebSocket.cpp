@@ -1547,7 +1547,7 @@ void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
   if (_state == RESPONSE_FAILED) {
     // Sec-WebSocket-Accept could not be computed in the constructor: refuse
     // the upgrade instead of doing a bare close.
-    request->failWithRawResponse();
+    request->sendRawResponse();
     return;
   }
   String out;
@@ -1556,7 +1556,7 @@ void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
     // corrupted handshake.
     async_ws_log_e("Failed to allocate");
     _state = RESPONSE_FAILED;
-    request->failWithRawResponse();
+    request->sendRawResponse();
     return;
   }
   // unbind client's onAck callback from AsyncWebServerRequest's, we will destroy it on next callback and steal the client,
