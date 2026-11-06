@@ -157,12 +157,15 @@ void setup() {
     .addMiddleware(&digestAuth);
 
   // digest authentication with hash
+  // protected with a hash: MD5(user:realm:pass) so no plain password is stored in RAM
+  // this is the privileged endpoint used by test_digest.sh to prove credentials are
+  // checked against the pre-computed hash instead of the plain password
   // curl -v -u admin:admin --digest  http://192.168.4.1/auth-digest-hash
   server
     .on(
       "/auth-digest-hash", HTTP_GET,
       [](AsyncWebServerRequest *request) {
-        request->send(200, "text/plain", "Hello, world!");
+        request->send(200, "text/plain", "DIGEST-HASH-ONLY: sensitive action");
       }
     )
     .addMiddleware(&digestAuthHash);
@@ -183,6 +186,28 @@ void setup() {
       }
     )
     .addMiddlewares({&complexAuth, &authz});
+
+  // digest authentication with caller-enforced uri binding (RFC 7616 §3.4.6):
+  // the library does not keep the raw request-target in memory, so binding the header
+  // "uri" field to the expected request-target is done explicitly by the caller.
+  // Nonce and opaque are still validated by the library.
+  static AsyncMiddlewareFunction digestUriAuth([](AsyncWebServerRequest *request, ArMiddlewareNext next) {
+    if (request->authenticateDigest("admin", "admin", "MyApp", false, NULL, NULL, "/auth-digest-bound")) {
+      next();
+    } else {
+      request->requestAuthentication(AsyncAuthType::AUTH_DIGEST, "MyApp");
+    }
+  });
+  // curl -v --digest -u admin:admin  http://192.168.4.1/auth-digest-bound => OK
+  // a digest header issued for another URI (uri="/auth-digest") => 401
+  server
+    .on(
+      "/auth-digest-bound", HTTP_GET,
+      [](AsyncWebServerRequest *request) {
+        request->send(200, "text/plain", "URI-BOUND: sensitive action");
+      }
+    )
+    .addMiddleware(&digestUriAuth);
 
   // Bearer authentication with a shared key
   // curl -v -H "Authorization: Bearer shared-secret-key" http://192.168.4.1/auth-bearer-shared-key => OK

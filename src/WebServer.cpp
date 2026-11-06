@@ -2,11 +2,15 @@
 // Copyright 2016-2026 Hristo Gochkov, Mathieu Carbou, Emil Muratov, Will Miles
 
 #include "ESPAsyncWebServer.h"
+#include "AsyncWebServerLogging.h"
+#include "WebAuthentication.h"
 #include "WebHandlerImpl.h"
 
 #include <memory>
 #include <string>
 #include <utility>
+
+#include "./literals.h"
 
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY) || defined(HOST)
 #include <WiFi.h>
@@ -69,6 +73,59 @@ AsyncWebServer::~AsyncWebServer() {
   reset();
   end();
   _catchAllHandler = nullptr;
+  delete _digest;
+}
+
+AsyncWebServer::DigestState *AsyncWebServer::_digestState() {
+  if (_digest == nullptr) {
+    DigestState *state = new (std::nothrow) DigestState();
+    if (state) {
+      generateSecret(state->secret);
+      state->opaque = generateDigestOpaque(state->secret);
+      if (state->opaque.length()) {
+        _digest = state;  // first use
+      } else {
+        // Opaque derivation failed (out of memory): retry on next use.
+        // The random secret is discarded safely — no challenge was ever
+        // issued with it (issuing requires the opaque).
+        delete state;
+      }
+    } else {
+      async_ws_log_e("Failed to allocate");
+    }
+  }
+  return _digest;
+}
+
+void AsyncWebServer::setDigestNonceTimeout(uint32_t seconds) {
+  if (DigestState *digest = _digestState()) {
+    digest->nonceTtl = seconds * 1000;
+  }
+}
+
+void AsyncWebServer::setDigestSecret(const uint8_t secret[16]) {
+  if (!secret) {
+    return;
+  }
+  // Derive before applying: on allocation failure the previous
+  // secret/opaque pair stays intact instead of being half-updated.
+  String opaque = generateDigestOpaque(secret);
+  if (!opaque.length()) {
+    return;
+  }
+  DigestState *digest = _digest;
+  if (!digest) {
+    // First use: allocate directly. _digestState() would initialize a
+    // random secret and derive its opaque, both overwritten right below.
+    digest = new (std::nothrow) DigestState();
+    if (!digest) {
+      async_ws_log_e("Failed to allocate");
+      return;
+    }
+    _digest = digest;
+  }
+  memcpy(digest->secret, secret, sizeof(digest->secret));
+  digest->opaque = std::move(opaque);
 }
 
 AsyncWebRewrite &AsyncWebServer::addRewrite(std::shared_ptr<AsyncWebRewrite> rewrite) {
