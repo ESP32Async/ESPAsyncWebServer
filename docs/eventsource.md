@@ -36,6 +36,29 @@ void loop(){
 }
 ```
 
+### Identify and close one connection
+
+Each connected client has a nonzero ID that remains stable for that connection.
+Use the request-aware connect callback when application state such as an
+authenticated session must be associated with the connection. Do not retain the
+client pointer after a callback; retain `client->id()` instead.
+
+```cpp
+AsyncEventSourceClientId clientId = 0;
+
+events.onConnectWithRequest([](AsyncWebServerRequest *request, AsyncEventSourceClient *client) {
+  clientId = client->id();
+  // Read authentication/session state from request here.
+});
+
+// Call from the application's normal service context, not an AsyncTCP callback.
+events.closeClient(clientId);
+```
+
+`closeClient()` returns `false` when the ID is zero or no longer connected. IDs
+are scoped to an `AsyncEventSource` instance and may eventually be reused after
+the 32-bit counter wraps.
+
 **IMPORTANT**: Use `AsyncAuthenticationMiddleware` instead of the deprecated `setAuthentication()` method for authentication.
 
 ```cpp
