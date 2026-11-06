@@ -472,8 +472,7 @@ public:
   AsyncWebHeader(const AsyncWebHeader &) = default;
   AsyncWebHeader(AsyncWebHeader &&) = default;
   AsyncWebHeader(const char *name, const char *value) : _name(name), _value(value) {}
-  AsyncWebHeader(const String &name, const String &value) : _name(name), _value(value) {}
-  AsyncWebHeader(String &&name, String &&value) : _name(std::move(name)), _value(std::move(value)) {}
+  AsyncWebHeader(String name, String value) : _name(std::move(name)), _value(std::move(value)) {}
 
   [[deprecated("Use AsyncWebHeader::parse(data) instead")]]
   AsyncWebHeader(const String &data)
