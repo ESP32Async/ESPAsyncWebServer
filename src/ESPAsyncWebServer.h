@@ -461,11 +461,19 @@ private:
   String _value;
 
 public:
+  // Result of AsyncWebHeader::parse()
+  enum class ParseError {
+    NONE,        // header parsed, returned header is valid
+    INVALID,     // malformed header line, returned header is empty
+    ALLOC_FAIL,  // allocation failure: request must be failed, not skipped
+  };
+
   AsyncWebHeader() {}
   AsyncWebHeader(const AsyncWebHeader &) = default;
   AsyncWebHeader(AsyncWebHeader &&) = default;
   AsyncWebHeader(const char *name, const char *value) : _name(name), _value(value) {}
   AsyncWebHeader(const String &name, const String &value) : _name(name), _value(value) {}
+  AsyncWebHeader(String &&name, String &&value) : _name(std::move(name)), _value(std::move(value)) {}
 
   [[deprecated("Use AsyncWebHeader::parse(data) instead")]]
   AsyncWebHeader(const String &data)
@@ -480,23 +488,14 @@ public:
   const String &value() const {
     return _value;
   }
+  ParseError parseError() const;
 
   String toString() const;
 
   // returns true if the header is valid
   operator bool() const {
-    return _name.length();
+    return parseError() == ParseError::NONE;
   }
-
-  // Result of AsyncWebHeader::tryParse()
-  enum class ParseStatus {
-    Ok,        // header parsed, returned header is valid
-    Invalid,   // malformed header line, returned header is empty
-    NoMemory,  // allocation failure: request must be failed, not skipped
-  };
-
-  /** @brief Outcome of tryParse(): the status and, when Ok, the header. */
-  struct ParseResult;
 
   /**
    * @brief Parse a header line.
@@ -509,16 +508,10 @@ public:
    * @param data raw header line "Name: value" (no CR/LF)
    * @return the parse status together with the parsed header
    */
-  static ParseResult tryParse(const char *data);
-
-  static const AsyncWebHeader parse(const String &data);
+  static const AsyncWebHeader parse(const String &data) {
+    return parse(data.c_str());
+  }
   static const AsyncWebHeader parse(const char *data);
-};
-
-/** @brief Outcome of AsyncWebHeader::tryParse(). */
-struct AsyncWebHeader::ParseResult {
-  ParseStatus status;
-  AsyncWebHeader header;
 };
 
 /*
@@ -621,8 +614,7 @@ private:
   void _onData(void *buf, size_t len);
 
   bool _parseReqHead();
-  bool _parseReqHeader();
-  void _parseHeader(AsyncWebHeader &&header);
+  void _parseReqHeader();
   void _parseLine();
   void _parsePlainPostChar(uint8_t data);
   void _parseMultipartPostByte(uint8_t data, bool last);
