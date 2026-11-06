@@ -473,11 +473,14 @@ bool checkDigestAuthentication(
 // Full digest verification with stateless server-side checks.
 // The nonce embeds its issuing time and is signed with the per-server secret, so no
 // per-nonce storage is required: any nonce not signed by this server, or expired, is rejected.
-// The uri field is validated against the effective request URI (raw request-target, path + query).
+// nonce, opaque and uri are caller overrides: a non-NULL value means the caller takes that
+// specific check over. With a NULL uri (default) the header uri is left unchecked: the library
+// does not keep the raw request-target; callers willing to bind the header to a resource
+// (RFC 7616 section 3.4.6) must pass the expected effective request URI.
 // Fails closed: on allocation failure the request is rejected.
 DigestAuthStatus checkDigestAuthentication(
-  const char *header, const char *method, const char *username, const char *password, const char *realm, bool passwordIsHash, const char *rawUri,
-  const uint8_t digestSecret[16], uint32_t digestNonceTtl
+  const char *header, const char *method, const char *username, const char *password, const char *realm, bool passwordIsHash, const uint8_t digestSecret[16],
+  uint32_t digestNonceTtl, const char *nonce, const char *opaque, const char *uri
 ) {
   if (header == NULL || method == NULL || username == NULL || password == NULL || digestSecret == NULL) {
     return DigestAuthStatus::DIGEST_AUTH_FAILED;
@@ -490,38 +493,52 @@ DigestAuthStatus checkDigestAuthentication(
   }
 
   // opaque must be the one bound to this server instance (compare on the stack, no allocation)
-  uint8_t opaqueMac[16];
-  hmacMD5(digestSecret, 16, (const uint8_t *)T_opaque, strlen(T_opaque), opaqueMac);
   if (myOpaque.length() != 32) {
     return DigestAuthStatus::DIGEST_AUTH_FAILED;
   }
-  uint8_t diff = 0;
-  const char *got = myOpaque.c_str();
-  for (uint8_t i = 0; i < 16; i++) {
-    diff |= (uint8_t)T_hex_chars[opaqueMac[i] >> 4] ^ (uint8_t)got[i * 2];
-    diff |= (uint8_t)T_hex_chars[opaqueMac[i] & 0x0f] ^ (uint8_t)got[i * 2 + 1];
-  }
-  if (diff) {
-    async_ws_log_e("Digest auth: invalid opaque");
-    return DigestAuthStatus::DIGEST_AUTH_FAILED;
+  if (opaque != NULL) {  // caller override: compare verbatim against the expected value
+    if (myOpaque != opaque) {
+      async_ws_log_e("Digest auth: invalid opaque");
+      return DigestAuthStatus::DIGEST_AUTH_FAILED;
+    }
+  } else {
+    uint8_t opaqueMac[16];
+    hmacMD5(digestSecret, 16, (const uint8_t *)T_opaque, strlen(T_opaque), opaqueMac);
+    uint8_t diff = 0;
+    const char *got = myOpaque.c_str();
+    for (uint8_t i = 0; i < 16; i++) {
+      diff |= (uint8_t)T_hex_chars[opaqueMac[i] >> 4] ^ (uint8_t)got[i * 2];
+      diff |= (uint8_t)T_hex_chars[opaqueMac[i] & 0x0f] ^ (uint8_t)got[i * 2 + 1];
+    }
+    if (diff) {
+      async_ws_log_e("Digest auth: invalid opaque");
+      return DigestAuthStatus::DIGEST_AUTH_FAILED;
+    }
   }
 
   // nonce must have been issued by this server, and must not be expired
-  bool stale = false;
-  if (!validateDigestNonce(myNonce.c_str(), digestSecret, millis(), digestNonceTtl, stale)) {
-    async_ws_log_e("Digest auth: invalid nonce");
-    return DigestAuthStatus::DIGEST_AUTH_FAILED;
-  }
-  if (stale) {
-    return DigestAuthStatus::DIGEST_AUTH_STALE_NONCE;
+  if (nonce != NULL) {  // caller override: compare verbatim against the expected value
+    if (myNonce != nonce) {
+      async_ws_log_e("Digest auth: invalid nonce");
+      return DigestAuthStatus::DIGEST_AUTH_FAILED;
+    }
+  } else {
+    bool stale = false;
+    if (!validateDigestNonce(myNonce.c_str(), digestSecret, millis(), digestNonceTtl, stale)) {
+      async_ws_log_e("Digest auth: invalid nonce");
+      return DigestAuthStatus::DIGEST_AUTH_FAILED;
+    }
+    if (stale) {
+      return DigestAuthStatus::DIGEST_AUTH_STALE_NONCE;
+    }
   }
 
-  // credentials + response hash, with the uri bound to the actual request-target.
-  // The already-validated nonce/opaque are passed to the inner check: it compares every
-  // occurrence of these parameters against them, so a header carrying duplicated
-  // nonce/opaque fields (e.g. a fresh one first, an expired one last, used to bypass
-  // the validation with the last occurrence) is rejected.
-  if (!checkDigestAuthentication(header, method, username, password, realm, passwordIsHash, myNonce.c_str(), myOpaque.c_str(), rawUri)) {
+  // credentials + response hash. The validated nonce/opaque are passed to the inner check:
+  // it compares every occurrence of these parameters against them, so a header carrying
+  // duplicated nonce/opaque fields (e.g. a fresh one first, an expired one last, used to
+  // bypass the validation with the last occurrence) is rejected. A caller-supplied uri is
+  // likewise compared against every occurrence.
+  if (!checkDigestAuthentication(header, method, username, password, realm, passwordIsHash, myNonce.c_str(), myOpaque.c_str(), uri)) {
     return DigestAuthStatus::DIGEST_AUTH_FAILED;
   }
 

@@ -125,9 +125,6 @@ Digest authentication includes server-side protections against replay attacks, u
   secret (`HMAC-MD5`). A nonce not issued by this server is rejected, and an expired nonce triggers a
   new challenge with `stale=true` (RFC 7616 §3.3), so compliant clients (browsers, curl) re-authenticate
   silently without prompting the user again.
-- **URI binding**: the `uri` field of the `Authorization: Digest ...` header must match the effective
-  request URI (raw request-target: path **and** query string). A header captured on one endpoint cannot
-  be replayed against another endpoint, nor against the same endpoint with a different query string.
 - **Opaque**: each challenge carries an opaque derived from the instance secret, identifying the server
   instance that issued the nonce.
 
@@ -147,18 +144,21 @@ server.setDigestSecret(secret); // kill-switch: invalidates all outstanding nonc
 
 > [!NOTE]
 > As with any stateless scheme, a captured `Authorization: Digest ...` header remains valid for the
-> remainder of the nonce TTL **on the exact same request URI only**. For one-shot semantics, keep the
-> TTL short and serve Digest-protected endpoints over HTTPS.
+> remainder of the nonce TTL. The library does not keep the raw request-target in memory, so the
+> header `uri` field is not checked by default — to bind a header to the resource it was issued for
+> (RFC 7616 §3.4.6), pass the expected request-target with `authenticateDigest(..., uri = "/path")`.
+> For one-shot semantics, keep the TTL short and serve Digest-protected endpoints over HTTPS.
 
 For custom validation of every digest parameter, `AsyncWebServerRequest::authenticateDigest()` accepts
 optional `nonce`, `opaque` and `uri` arguments — a NULL argument lets the library validate it
 automatically, while a non-NULL value is compared verbatim against the caller-supplied value:
 
 ```c++
-// the library validates nonce, opaque and the effective request URI
+// the library validates nonce and opaque (header uri is left unchecked)
 request->authenticateDigest("admin", "admin", "MyApp");
 
-// the caller takes over the uri check (nonce/opaque still validated by the library)
+// the caller takes over the uri check and binds the header to a request-target
+// (nonce/opaque are still validated by the library)
 request->authenticateDigest("admin", "admin", "MyApp", false, NULL, NULL, "/my/custom/uri");
 ```
 

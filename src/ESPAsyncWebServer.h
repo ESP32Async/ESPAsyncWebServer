@@ -559,10 +559,6 @@ private:
   String _contentType;
   String _boundary;
   String _authorization;
-  // Effective request URI (RFC 7230 §5.5): raw request-target — path + query string,
-  // percent-encoded form as received on the request line, before any rewriting.
-  // Used to validate the "uri" parameter of Digest authentication.
-  String _rawUri;
   RequestedConnectionType _reqconntype;
   AsyncAuthType _authMethod = AsyncAuthType::AUTH_NONE;
   // set by authenticateDigest() when the client nonce was valid but expired (RFC 7616 §3.3):
@@ -732,11 +728,14 @@ public:
    *
    * Beyond the standard digest verification, this call validates that:
    *  - the nonce was issued by this server and is not expired (stateless signed nonce);
-   *  - the opaque is the one bound to this server instance;
-   *  - the header "uri" matches the actual request-target (path + query string).
+   *  - the opaque is the one bound to this server instance.
    *
    * A NULL nonce/opaque/uri argument means "let the library validate it automatically";
    * passing a value means the caller takes over that specific check.
+   *
+   * Note: the library does not keep the raw request-target in memory, so a NULL uri
+   * leaves the header "uri" field unchecked (RFC 7616 §3.4.6 recommends binding it to
+   * the request target). Pass the expected request-target explicitly to enforce that check.
    *
    * @param username user name
    * @param credentials password or pre-computed digest hash (see isHash)
@@ -744,7 +743,7 @@ public:
    * @param isHash true if credentials is md5(user:realm:password) instead of the raw password
    * @param nonce NULL to validate the server-issued signed nonce, or the exact value to compare against
    * @param opaque NULL to validate the instance opaque, or the exact value to compare against
-   * @param uri NULL to validate against the effective request URI, or the exact value to compare against
+   * @param uri NULL to leave the header "uri" unchecked, or the exact request-target to compare against
    * @return true if the request is authenticated
    */
   bool authenticateDigest(

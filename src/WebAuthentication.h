@@ -20,12 +20,15 @@ bool checkDigestAuthentication(
 );
 
 // Full verification: parses the Digest header, checks credentials, and — using the
-// stateless scheme — validates the server-issued signed nonce, the instance opaque and
-// the effective request URI. No per-nonce storage is kept.
-// now is expected to be a monotonic millisecond counter (e.g. millis()).
+// stateless scheme — validates the server-issued signed nonce and the instance opaque.
+// No per-nonce storage is kept. now is expected to be a monotonic millisecond counter (e.g. millis()).
+// nonce, opaque and uri are caller overrides: a non-NULL value means the caller takes that
+// specific check over. With a NULL uri (default) the header uri is left unchecked: the library
+// does not keep the raw request-target; callers willing to bind the header to a resource
+// (RFC 7616 section 3.4.6) must pass the expected effective request URI.
 DigestAuthStatus checkDigestAuthentication(
-  const char *header, const char *method, const char *username, const char *password, const char *realm, bool passwordIsHash, const char *rawUri,
-  const uint8_t digestSecret[16], uint32_t digestNonceTtl
+  const char *header, const char *method, const char *username, const char *password, const char *realm, bool passwordIsHash, const uint8_t digestSecret[16],
+  uint32_t digestNonceTtl, const char *nonce = NULL, const char *opaque = NULL, const char *uri = NULL
 );
 
 // Extracts one parameter value from a Digest header (e.g. getDigestParam(header, "nonce", out)).
