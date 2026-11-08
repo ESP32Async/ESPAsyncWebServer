@@ -1095,7 +1095,10 @@ const char *AsyncWebServerRequest::_parseLine() {
     if (!_temp.length()) {
       // end of headers
       _server->_rewriteRequest(this);
-      _server->_attachHandler(this);
+      if (!_server->_attachHandler(this)) {
+        // a handler ended the request
+        return nullptr;
+      }
       if (_expectingContinue) {
         // Write the literal directly: wrapping it in a String allocates (it
         // exceeds String's small-buffer optimization), and an OOM'd String

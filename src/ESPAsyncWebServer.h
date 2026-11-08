@@ -2074,7 +2074,7 @@ public:
 
   void reset();  // remove all writers and handlers, with onNotFound/onFileUpload/onRequestBody
 
-  void _attachHandler(AsyncWebServerRequest *request);
+  bool _attachHandler(AsyncWebServerRequest *request);
   void _rewriteRequest(AsyncWebServerRequest *request);
 };
 
