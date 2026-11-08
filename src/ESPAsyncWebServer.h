@@ -603,7 +603,7 @@ private:
   size_t _chunkSize;        // Size of the current chunk
   uint8_t _chunkedParseState;
   uint8_t _chunkedLastChar;
-  bool _parseChunkedBytes(uint8_t *data, size_t len);
+  void _parseChunkedBytes(uint8_t *data, size_t len);
 
   void _onPoll();
   void _onAck(size_t len, uint32_t time);

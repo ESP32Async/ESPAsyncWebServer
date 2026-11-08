@@ -186,11 +186,7 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
       }
     } else if (_parseState == PARSE_REQ_BODY) {
       if (_chunkedParseState != CHUNK_NONE) {
-        if (_parseChunkedBytes((uint8_t *)buf, len)) {
-          _parseState = PARSE_REQ_END;
-          _runMiddlewareChain();
-          _send();
-        }
+        _parseChunkedBytes((uint8_t *)buf, len);
         break;
       }
       // A handler should be already attached at this point in _parseLine function.
@@ -369,8 +365,7 @@ bool AsyncWebServerRequest::_parseReqHead() {
   return true;
 }
 
-// Returns true when done
-bool AsyncWebServerRequest::_parseChunkedBytes(uint8_t *buf, size_t len) {
+void AsyncWebServerRequest::_parseChunkedBytes(uint8_t *buf, size_t len) {
   for (size_t i = 0; i < len;) {
     if (_chunkedParseState == CHUNK_DATA) {
       // In DATA state, we pass the bytes off to handleBody as a group
@@ -467,7 +462,10 @@ bool AsyncWebServerRequest::_parseChunkedBytes(uint8_t *buf, size_t len) {
               // If we needed to support trailers, we would switch to
               // TRAILER state, but since we have no use case for them,
               // we just stop processing the body.
-              return true;
+              _parseState = PARSE_REQ_END;
+              _runMiddlewareChain();
+              _send();
+              return;
             }
             _chunkSize = 0;
             _chunkedParseState = CHUNK_LENGTH;
@@ -479,18 +477,13 @@ bool AsyncWebServerRequest::_parseChunkedBytes(uint8_t *buf, size_t len) {
 
       if (_chunkedParseState == CHUNK_ERROR) {
         // If there was an error when parsing the chunk length, the
-        // rest of the data stream is unreliable.  Ideally we should
-        // close the connection, but that risks leaving things dangling
-        // (e.g. an open file), so it is probably best to just ignore
-        // the rest of the data and give handleRequest a chance to
-        // clean up.
+        // rest of the data stream is unreliable: reject the request.
         _chunkSize = 0;
         sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
-        return true;
+        return;
       }
     }
   }
-  return false;
 }
 
 static inline const char *skip_ows(const char *p, const char *end) {
