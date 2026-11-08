@@ -131,22 +131,35 @@ bool AsyncStaticWebHandler::_getFile(AsyncWebServerRequest *request) const {
   }
 
   // Do we have a file or .gz file
-  if (!canSkipFileCheck && const_cast<AsyncStaticWebHandler *>(this)->_searchFile(request, path)) {
-    return true;
+  if (canSkipFileCheck || !const_cast<AsyncStaticWebHandler *>(this)->_searchFile(request, path)) {
+    // Can't handle if not default file
+    if (_default_file.length() == 0) {
+      return false;
+    }
+
+    // Try to add default file, ensure there is a trailing '/' to the path.
+    if (path.length() == 0 || path[path.length() - 1] != '/') {
+      path += String('/');
+    }
+    path += _default_file;
+
+    if (!const_cast<AsyncStaticWebHandler *>(this)->_searchFile(request, path)) {
+      return false;
+    }
   }
 
-  // Can't handle if not default file
-  if (_default_file.length() == 0) {
+  // Extract the file name from the path and keep it in _tempObject
+  size_t pathLen = path.length();
+  char *_tempPath = (char *)malloc(pathLen + 1);
+  if (_tempPath == NULL) {
+    async_ws_log_e("Failed to allocate");
+    request->_tempFile.close();
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
     return false;
   }
-
-  // Try to add default file, ensure there is a trailing '/' to the path.
-  if (path.length() == 0 || path[path.length() - 1] != '/') {
-    path += String('/');
-  }
-  path += _default_file;
-
-  return const_cast<AsyncStaticWebHandler *>(this)->_searchFile(request, path);
+  snprintf_P(_tempPath, pathLen + 1, PSTR("%s"), path.c_str());
+  request->_tempObject = (void *)_tempPath;
+  return true;
 }
 
 #ifdef ESP32
@@ -185,23 +198,7 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
     }
   }
 
-  bool found = fileFound || gzipFound;
-
-  if (found) {
-    // Extract the file name from the path and keep it in _tempObject
-    size_t pathLen = path.length();
-    char *_tempPath = (char *)malloc(pathLen + 1);
-    if (_tempPath == NULL) {
-      async_ws_log_e("Failed to allocate");
-      request->_tempFile.close();
-      request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-      return false;
-    }
-    snprintf_P(_tempPath, pathLen + 1, PSTR("%s"), path.c_str());
-    request->_tempObject = (void *)_tempPath;
-  }
-
-  return found;
+  return fileFound || gzipFound;
 }
 
 /**
