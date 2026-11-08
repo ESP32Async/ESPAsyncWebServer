@@ -1373,6 +1373,7 @@ AsyncWebServerResponse *AsyncWebServerRequest::beginResponse_P(int code, const S
 void AsyncWebServerRequest::send(AsyncWebServerResponse *response) {
   // request is already sent on the wire ?
   if (_sent) {
+    delete response;
     return;
   }
 
