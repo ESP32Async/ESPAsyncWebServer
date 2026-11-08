@@ -127,7 +127,6 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
 #ifndef ASYNC_TCP_SSL_ENABLED
   if (_parseState == PARSE_REQ_START && len && ((uint8_t *)buf)[0] == 0x16) {  // 0x16 indicates a Handshake message (SSL/TLS).
     async_ws_log_d("SSL/TLS handshake detected: resetting connection");
-    _parseState = PARSE_REQ_FAIL;
     abort();
     return;
   }
@@ -142,7 +141,6 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
       for (i = 0; i < len; i++) {
         // Check for null characters in header
         if (!str[i]) {
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
           return;
         }
@@ -155,7 +153,6 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         str[len - 1] = 0;
         if (!_temp.reserve(_temp.length() + len)) {
           async_ws_log_e("Failed to allocate");
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
           return;
         }
@@ -167,7 +164,6 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         // truncate the header line and desync the parser, so abort instead.
         if (!_temp.concat(str)) {
           async_ws_log_e("Failed to allocate");
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
           return;
         }
@@ -515,7 +511,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
 
   // oom ?
   if (header.parseError() == AsyncWebHeader::ParseError::ALLOC_FAIL) {
-    _parseState = PARSE_REQ_FAIL;
     sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
     return;
   }
@@ -530,7 +525,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
       _host = value;
       if (value.length() && !_host.length()) {
         async_ws_log_e("Failed to allocate");
-        _parseState = PARSE_REQ_FAIL;
         sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
         return;
       }
@@ -540,7 +534,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
       // ';': an empty result then means the allocation failed.
       if (value.length() && value[0] != ';' && !_contentType.length()) {
         async_ws_log_e("Failed to allocate");
-        _parseState = PARSE_REQ_FAIL;
         sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
         return;
       }
@@ -588,7 +581,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
         if (bvdata == nullptr) {
           // No valid boundary parameter found — cannot parse multipart body.
           async_ws_log_d("Missing multipart boundary parameter, aborting");
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
           return;
         }
@@ -607,7 +599,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
           // the full (attacker-controlled) remaining suffix length.
           if (!_boundary.reserve(70)) {
             async_ws_log_e("Failed to allocate");
-            _parseState = PARSE_REQ_FAIL;
             sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
             return;
           }
@@ -625,7 +616,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
             // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
             if (_boundary.length() > 70) {
               async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
-              _parseState = PARSE_REQ_FAIL;
               sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
               return;
             }
@@ -633,7 +623,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
           if (!closed) {
             // Opening quote was never closed — malformed header.
             async_ws_log_d("Invalid multipart boundary (unterminated quote), aborting");
-            _parseState = PARSE_REQ_FAIL;
             sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
             return;
           }
@@ -648,7 +637,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
           // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
           if (bvlen == 0 || bvlen > 70) {
             async_ws_log_d("Invalid multipart boundary length (%u), aborting", (unsigned)bvlen);
-            _parseState = PARSE_REQ_FAIL;
             sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
             return;
           }
@@ -675,7 +663,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
         // would cause --\r\n to be accepted as a delimiter).
         if (_boundary.length() == 0 || _boundary.length() > 70) {
           async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
           return;
         }
@@ -697,7 +684,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
         // failed; abort rather than authenticate against a corrupt token.
         if (value.length() && !_authorization.length()) {
           async_ws_log_e("Failed to allocate");
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
           return;
         }
@@ -706,7 +692,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
         String method = value.substring(0, space);
         if (space && !method.length()) {
           async_ws_log_e("Failed to allocate");
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
           return;
         }
@@ -724,7 +709,6 @@ void AsyncWebServerRequest::_parseReqHeader() {
         // after the space: an empty result then means the allocation failed.
         if (value.length() > (size_t)(space + 1) && !_authorization.length()) {
           async_ws_log_e("Failed to allocate");
-          _parseState = PARSE_REQ_FAIL;
           sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
           return;
         }
@@ -797,7 +781,6 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
     // the parameter being parsed, so abort the request instead.
     if (!_temp.concat((char)data)) {
       async_ws_log_e("Failed to allocate");
-      _parseState = PARSE_REQ_FAIL;
       sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
       return;
     }
@@ -810,7 +793,6 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
     // corrupt parameter (see issue #500).
     if (_temp.length() && !value.length()) {
       async_ws_log_e("Failed to allocate");
-      _parseState = PARSE_REQ_FAIL;
       sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
       return;
     }
@@ -821,7 +803,6 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
       // back empty.  Abort the request instead of storing a corrupt pair.
       if ((_temp.indexOf('=') && !name.length()) || (_temp.length() > (size_t)(_temp.indexOf('=') + 1) && !value.length())) {
         async_ws_log_e("Failed to allocate");
-        _parseState = PARSE_REQ_FAIL;
         sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
         return;
       }
@@ -882,7 +863,6 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
     else if (!_itemValue.concat((char)(b))) {     \
       /* truncated item value: abort */           \
       async_ws_log_e("Failed to allocate");       \
-      _multiParseState = PARSE_ERROR;             \
       sendRawResponse(asyncsrv::T_HTTP_503_HEAD); \
       return;                                     \
     }                                             \
@@ -931,7 +911,6 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       // allocation failure rather than continue with a corrupt line.
       if (!_temp.concat((char)data)) {
         async_ws_log_e("Failed to allocate");
-        _multiParseState = PARSE_ERROR;
         sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
         return;
       }
@@ -987,7 +966,6 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
           _itemBuffer = (uint8_t *)malloc(RESPONSE_STREAM_BUFFER_SIZE);
           if (_itemBuffer == NULL) {
             async_ws_log_e("Failed to allocate");
-            _multiParseState = PARSE_ERROR;
             sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
             return;
           }
@@ -1105,13 +1083,11 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
 void AsyncWebServerRequest::_parseLine() {
   if (_parseState == PARSE_REQ_START) {
     if (!_temp.length()) {
-      _parseState = PARSE_REQ_FAIL;
       sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
     } else {
       if (_parseReqHead()) {
         _parseState = PARSE_REQ_HEADERS;
       } else {
-        _parseState = PARSE_REQ_FAIL;
         sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
       }
     }
@@ -1203,6 +1179,7 @@ void AsyncWebServerRequest::abort() {
   if (!_sent) {
     _sent = true;
     _paused = false;
+    _parseState = PARSE_REQ_FAIL;
     async_ws_log_v("Abort request: %s", _url.c_str());
     _client->abort();
   }
@@ -1214,6 +1191,7 @@ void AsyncWebServerRequest::sendRawResponse(const char *response) {
   if (!_sent && _client) {
     _sent = true;
     _paused = false;
+    _parseState = PARSE_REQ_FAIL;
     _client->write(response, strlen(response));
     _client->close();
   }
