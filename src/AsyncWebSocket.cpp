@@ -1458,7 +1458,7 @@ void AsyncWebSocket::handleRequest(AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse(400);
     if (!response) {
       async_ws_log_e("Failed to allocate");
-      request->abort();
+      request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
       return;
     }
     response->addHeader(WS_STR_VERSION, T_13);
@@ -1469,7 +1469,7 @@ void AsyncWebSocket::handleRequest(AsyncWebServerRequest *request) {
   AsyncWebServerResponse *response = new (std::nothrow) AsyncWebSocketResponse(key->value(), this);
   if (response == NULL) {
     async_ws_log_e("Failed to allocate");
-    request->abort();
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
     return;
   }
   if (!response->_sourceValid()) {
@@ -1477,7 +1477,7 @@ void AsyncWebSocket::handleRequest(AsyncWebServerRequest *request) {
     // memory): fail the upgrade instead of sending an invalid handshake.
     async_ws_log_e("Failed to allocate");
     delete response;
-    request->abort();
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
     return;
   }
   if (request->hasHeader(WS_STR_PROTOCOL)) {

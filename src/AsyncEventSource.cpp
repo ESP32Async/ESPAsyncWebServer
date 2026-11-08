@@ -389,7 +389,7 @@ void AsyncEventSource::handleRequest(AsyncWebServerRequest *request) {
   AsyncWebServerResponse *response = new (std::nothrow) AsyncEventSourceResponse(this);
   if (!response) {
     async_ws_log_e("Failed to allocate");
-    request->abort();
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
     return;
   }
   request->send(response);

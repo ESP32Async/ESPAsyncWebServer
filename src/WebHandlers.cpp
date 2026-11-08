@@ -194,7 +194,7 @@ bool AsyncStaticWebHandler::_searchFile(AsyncWebServerRequest *request, const St
     if (_tempPath == NULL) {
       async_ws_log_e("Failed to allocate");
       request->_tempFile.close();
-      request->abort();
+      request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
       return false;
     }
     snprintf_P(_tempPath, pathLen + 1, PSTR("%s"), path.c_str());
@@ -294,7 +294,7 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
 
   if (!response) {
     async_ws_log_e("Failed to allocate");
-    request->abort();
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
     return;
   }
 

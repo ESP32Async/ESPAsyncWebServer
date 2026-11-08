@@ -80,6 +80,7 @@ static constexpr const char T_HTTP_100_CONT[] = "HTTP/1.1 100 Continue\r\n\r\n";
 // a failure (e.g. out of memory) that prevents building a proper response.
 // Kept as a literal so emitting it cannot itself fail an allocation.
 static constexpr const char T_HTTP_503_HEAD[] = "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n";
+static constexpr const char T_HTTP_400_HEAD[] = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n";
 static constexpr const char T_id__[] = "id: ";
 static constexpr const char T_IMS[] = "If-Modified-Since";
 static constexpr const char T_INM[] = "If-None-Match";
