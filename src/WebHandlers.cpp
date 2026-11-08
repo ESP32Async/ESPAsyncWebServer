@@ -218,14 +218,13 @@ void AsyncStaticWebHandler::handleRequest(AsyncWebServerRequest *request) {
   String filename;
   if (request->_tempObject != nullptr) {
     const char *tempPath = (const char *)request->_tempObject;
-    const size_t tempPathLen = strlen(tempPath);
     filename = String(tempPath);
     free(request->_tempObject);
     request->_tempObject = nullptr;
     // A copy of a non-empty path can only be empty when its allocation
     // failed (c_str() is then null on ESP32); reject with a best-effort 503
     // rather than serve the wrong file.
-    if (tempPathLen && !filename.length()) {
+    if ((*tempPath != '\0') && !filename.length()) {
       async_ws_log_e("Failed to allocate");
       request->_tempFile.close();
       request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
