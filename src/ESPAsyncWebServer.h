@@ -616,7 +616,7 @@ private:
   // return the raw response to fail the request with, or nullptr
   const char *_parseReqHeader();
   const char *_parseLine();
-  void _parsePlainPostChar(uint8_t data);
+  const char *_parsePlainPostChar(uint8_t data);
   bool _parseMultipartPostByte(uint8_t data, bool last);
   void _addGetParams(const String &params);
 

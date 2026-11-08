@@ -230,13 +230,11 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         } else if (needParse) {
           size_t idx;
           for (idx = 0; idx < len; idx++) {
-            if (_parseState != PARSE_REQ_BODY) {
-              // the parser aborted this request (e.g. out of memory): stop
-              // processing the remaining bytes
-              break;
-            }
             _parsedLength++;
-            _parsePlainPostChar(((uint8_t *)buf)[idx]);
+            if (const char *response = _parsePlainPostChar(((uint8_t *)buf)[idx])) {
+              sendRawResponse(response);
+              return;
+            }
           }
         } else {
           _parsedLength += len;
@@ -762,14 +760,13 @@ const char *AsyncWebServerRequest::_parseReqHeader() {
   return nullptr;
 }
 
-void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
+const char *AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
   if (data && (char)data != '&') {
     // concat() can fail to allocate; a truncated value would silently corrupt
     // the parameter being parsed, so abort the request instead.
     if (!_temp.concat((char)data)) {
       async_ws_log_e("Failed to allocate");
-      sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-      return;
+      return asyncsrv::T_HTTP_503_HEAD;
     }
   }
   if (!data || (char)data == '&' || _parsedLength == _contentLength) {
@@ -780,8 +777,7 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
     // corrupt parameter (see issue #500).
     if (_temp.length() && !value.length()) {
       async_ws_log_e("Failed to allocate");
-      sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-      return;
+      return asyncsrv::T_HTTP_503_HEAD;
     }
     if (!(_temp.charAt(0) == '{') && !(_temp.charAt(0) == '[') && _temp.indexOf('=') > 0) {
       name = _temp.substring(0, _temp.indexOf('='));
@@ -790,8 +786,7 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
       // back empty.  Abort the request instead of storing a corrupt pair.
       if ((_temp.indexOf('=') && !name.length()) || (_temp.length() > (size_t)(_temp.indexOf('=') + 1) && !value.length())) {
         async_ws_log_e("Failed to allocate");
-        sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-        return;
+        return asyncsrv::T_HTTP_503_HEAD;
       }
     }
     name = urlDecode(name);
@@ -806,6 +801,7 @@ void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
     _temp.clear();
 #endif
   }
+  return nullptr;
 }
 
 void AsyncWebServerRequest::_handleUploadByte(uint8_t data, bool last) {
