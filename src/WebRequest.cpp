@@ -198,12 +198,9 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         if (needParse) {
           size_t idx;
           for (idx = 0; idx < len; idx++) {
-            if (_parseState != PARSE_REQ_BODY) {
-              // the parser aborted this request (e.g. out of memory): stop
-              // processing the remaining bytes
-              break;
+            if (!_parseMultipartPostByte(((uint8_t *)buf)[idx], idx == len - 1)) {
+              return;
             }
-            _parseMultipartPostByte(((uint8_t *)buf)[idx], idx == len - 1);
             _parsedLength++;
           }
         } else {
@@ -844,7 +841,7 @@ enum {
   PARSE_ERROR
 };
 
-void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
+bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
 #define itemWriteByte(b)                          \
   do {                                            \
     _itemSize++;                                  \
@@ -854,7 +851,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       /* truncated item value: abort */           \
       async_ws_log_e("Failed to allocate");       \
       sendRawResponse(asyncsrv::T_HTTP_503_HEAD); \
-      return;                                     \
+      return false;                               \
     }                                             \
   } while (0)
 
@@ -880,17 +877,17 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
     // first two bytes (the '--' prefix) are consumed without error.
     if (_parsedLength < 2 && data != '-') {
       _multiParseState = PARSE_ERROR;
-      return;
+      return true;
     } else if (_parsedLength - 2 < _boundary.length() && _boundary.c_str()[_parsedLength - 2] != data) {
       _multiParseState = PARSE_ERROR;
-      return;
+      return true;
     } else if (_parsedLength - 2 == _boundary.length() && data != '\r') {
       _multiParseState = PARSE_ERROR;
-      return;
+      return true;
     } else if (_parsedLength - 3 == _boundary.length()) {
       if (data != '\n') {
         _multiParseState = PARSE_ERROR;
-        return;
+        return true;
       }
       _multiParseState = PARSE_HEADERS;
       _itemIsFile = false;
@@ -902,7 +899,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       if (!_temp.concat((char)data)) {
         async_ws_log_e("Failed to allocate");
         sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-        return;
+        return false;
       }
     }
     if ((char)data == '\n') {
@@ -957,7 +954,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
           if (_itemBuffer == NULL) {
             async_ws_log_e("Failed to allocate");
             sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-            return;
+            return false;
           }
           _itemBufferIndex = 0;
         }
@@ -967,7 +964,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
     if (data != '\n') {
       _multiParseState = WAIT_FOR_RETURN1;
       itemWriteByte('\r');
-      _parseMultipartPostByte(data, last);
+      return _parseMultipartPostByte(data, last);
     } else {
       _multiParseState = EXPECT_DASH1;
     }
@@ -976,7 +973,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       _multiParseState = WAIT_FOR_RETURN1;
       itemWriteByte('\r');
       itemWriteByte('\n');
-      _parseMultipartPostByte(data, last);
+      return _parseMultipartPostByte(data, last);
     } else {
       _multiParseState = EXPECT_DASH2;
     }
@@ -986,7 +983,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       itemWriteByte('\r');
       itemWriteByte('\n');
       itemWriteByte('-');
-      _parseMultipartPostByte(data, last);
+      return _parseMultipartPostByte(data, last);
     } else {
       _multiParseState = BOUNDARY_OR_DATA;
       _boundaryPosition = 0;
@@ -1003,7 +1000,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       for (size_t i = 0; i < _boundaryPosition; i++) {
         itemWriteByte(_boundary.c_str()[i]);
       }
-      _parseMultipartPostByte(data, last);
+      return _parseMultipartPostByte(data, last);
     } else if (_boundaryPosition == _boundary.length() - 1) {
       _multiParseState = DASH3_OR_RETURN2;
       if (!_itemIsFile) {
@@ -1049,7 +1046,7 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       for (size_t i = 0; i < _boundary.length(); i++) {
         itemWriteByte(_boundary.c_str()[i]);
       }
-      _parseMultipartPostByte(data, last);
+      return _parseMultipartPostByte(data, last);
     }
   } else if (_multiParseState == EXPECT_FEED2) {
     if (data == '\n') {
@@ -1065,9 +1062,10 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
         itemWriteByte(_boundary.c_str()[i]);
       }
       itemWriteByte('\r');
-      _parseMultipartPostByte(data, last);
+      return _parseMultipartPostByte(data, last);
     }
   }
+  return true;
 }
 
 const char *AsyncWebServerRequest::_parseLine() {

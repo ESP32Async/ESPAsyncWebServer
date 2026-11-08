@@ -617,7 +617,7 @@ private:
   const char *_parseReqHeader();
   const char *_parseLine();
   void _parsePlainPostChar(uint8_t data);
-  void _parseMultipartPostByte(uint8_t data, bool last);
+  bool _parseMultipartPostByte(uint8_t data, bool last);
   void _addGetParams(const String &params);
 
   void _handleUploadStart();
