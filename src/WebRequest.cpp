@@ -225,6 +225,10 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
           // ESP_LOGD("AsyncWebServer", "_isPlainPost: %d, _handler: %p", _isPlainPost, _handler);
           if (_handler) {
             _handler->handleBody(this, (uint8_t *)buf, len, _parsedLength, _contentLength);
+            if (_sent) {
+              // the handler ended the request
+              return;
+            }
           }
           _parsedLength += len;
         } else if (needParse) {
@@ -383,6 +387,10 @@ void AsyncWebServerRequest::_parseChunkedBytes(uint8_t *buf, size_t len) {
 
       if (_handler) {
         _handler->handleBody(this, buf + i, curLen, _chunkStartIndex, _contentLength);
+        if (_sent) {
+          // the handler ended the request
+          return;
+        }
       }
       _chunkOffset += curLen;
       _chunkStartIndex += curLen;
@@ -804,12 +812,12 @@ const char *AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
   return nullptr;
 }
 
-void AsyncWebServerRequest::_handleUploadByte(uint8_t data, bool last) {
+bool AsyncWebServerRequest::_handleUploadByte(uint8_t data, bool last) {
   // CWE-476 defense-in-depth: never write through a NULL buffer pointer.
   // The primary fix resets _itemIsFile when the buffer is freed, but this guard
   // protects against any future code path that might reach here without one.
   if (_itemBuffer == NULL) {
-    return;
+    return true;
   }
 
   _itemBuffer[_itemBufferIndex++] = data;
@@ -818,9 +826,14 @@ void AsyncWebServerRequest::_handleUploadByte(uint8_t data, bool last) {
     // check if authenticated before calling the upload
     if (_handler) {
       _handler->handleUpload(this, _itemFilename, _itemSize - _itemBufferIndex, _itemBuffer, _itemBufferIndex, false);
+      if (_sent) {
+        // the handler ended the request
+        return false;
+      }
     }
     _itemBufferIndex = 0;
   }
+  return true;
 }
 
 enum {
@@ -841,9 +854,10 @@ bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
 #define itemWriteByte(b)                          \
   do {                                            \
     _itemSize++;                                  \
-    if (_itemIsFile)                              \
-      _handleUploadByte(b, last);                 \
-    else if (!_itemValue.concat((char)(b))) {     \
+    if (_itemIsFile) {                            \
+      if (!_handleUploadByte(b, last))            \
+        return false;                             \
+    } else if (!_itemValue.concat((char)(b))) {   \
       /* truncated item value: abort */           \
       async_ws_log_e("Failed to allocate");       \
       sendRawResponse(asyncsrv::T_HTTP_503_HEAD); \
@@ -1004,6 +1018,10 @@ bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       } else {
         if (_handler) {
           _handler->handleUpload(this, _itemFilename, _itemSize - _itemBufferIndex, _itemBuffer, _itemBufferIndex, true);
+          if (_sent) {
+            // the handler ended the request
+            return false;
+          }
         }
         _itemBufferIndex = 0;
         _params.emplace_back(_itemName, _itemFilename, true, true, _itemSize);

@@ -621,7 +621,7 @@ private:
   void _addGetParams(const String &params);
 
   void _handleUploadStart();
-  void _handleUploadByte(uint8_t data, bool last);
+  bool _handleUploadByte(uint8_t data, bool last);
   void _handleUploadEnd();
 
   void _send();
