@@ -613,8 +613,9 @@ private:
   void _onData(void *buf, size_t len);
 
   bool _parseReqHead();
-  void _parseReqHeader();
-  void _parseLine();
+  // return the raw response to fail the request with, or nullptr
+  const char *_parseReqHeader();
+  const char *_parseLine();
   void _parsePlainPostChar(uint8_t data);
   void _parseMultipartPostByte(uint8_t data, bool last);
   void _addGetParams(const String &params);

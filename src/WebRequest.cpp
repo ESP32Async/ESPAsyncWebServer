@@ -168,7 +168,15 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
           return;
         }
         _temp.trim();
-        _parseLine();
+        if (const char *response = _parseLine()) {
+          sendRawResponse(response);
+          return;
+        }
+        if (_parseState == PARSE_REQ_END) {
+          _runMiddlewareChain();
+          _send();
+          return;
+        }
         if (++i < len) {
           // Still have more buffer to process
           buf = str + i;
@@ -499,7 +507,7 @@ static inline const char *rtrim_ows(const char *start, const char *end) {
   return end;
 }
 
-void AsyncWebServerRequest::_parseReqHeader() {
+const char *AsyncWebServerRequest::_parseReqHeader() {
   AsyncWebHeader header = AsyncWebHeader::parse(_temp);
 
 #if defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(LIBRETINY) || defined(HOST)
@@ -511,8 +519,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
 
   // oom ?
   if (header.parseError() == AsyncWebHeader::ParseError::ALLOC_FAIL) {
-    sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-    return;
+    return asyncsrv::T_HTTP_503_HEAD;
   }
 
   // header validity ?
@@ -525,8 +532,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
       _host = value;
       if (value.length() && !_host.length()) {
         async_ws_log_e("Failed to allocate");
-        sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-        return;
+        return asyncsrv::T_HTTP_503_HEAD;
       }
     } else if (name.equalsIgnoreCase(T_Content_Type)) {
       _contentType = value.substring(0, value.indexOf(';'));
@@ -534,8 +540,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
       // ';': an empty result then means the allocation failed.
       if (value.length() && value[0] != ';' && !_contentType.length()) {
         async_ws_log_e("Failed to allocate");
-        sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-        return;
+        return asyncsrv::T_HTTP_503_HEAD;
       }
       // Trim _contentType defensively; AsyncWebHeader::parse now strips all
       // leading OWS per RFC 7230, but trim() guards against any future change.
@@ -581,8 +586,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
         if (bvdata == nullptr) {
           // No valid boundary parameter found — cannot parse multipart body.
           async_ws_log_d("Missing multipart boundary parameter, aborting");
-          sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
-          return;
+          return asyncsrv::T_HTTP_400_HEAD;
         }
 
         // Strip leading OWS after 'boundary=' — non-RFC but seen in the wild.
@@ -599,8 +603,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
           // the full (attacker-controlled) remaining suffix length.
           if (!_boundary.reserve(70)) {
             async_ws_log_e("Failed to allocate");
-            sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-            return;
+            return asyncsrv::T_HTTP_503_HEAD;
           }
           bool closed = false;
           while (bvdata < end) {
@@ -616,15 +619,13 @@ void AsyncWebServerRequest::_parseReqHeader() {
             // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
             if (_boundary.length() > 70) {
               async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
-              sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
-              return;
+              return asyncsrv::T_HTTP_400_HEAD;
             }
           }
           if (!closed) {
             // Opening quote was never closed — malformed header.
             async_ws_log_d("Invalid multipart boundary (unterminated quote), aborting");
-            sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
-            return;
+            return asyncsrv::T_HTTP_400_HEAD;
           }
         } else {
           // Token form: value ends at the next ';' or end of string.
@@ -637,8 +638,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
           // CWE-190 / DoS fix: RFC 2046 §5.1 limits boundary strings to 70 characters.
           if (bvlen == 0 || bvlen > 70) {
             async_ws_log_d("Invalid multipart boundary length (%u), aborting", (unsigned)bvlen);
-            sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
-            return;
+            return asyncsrv::T_HTTP_400_HEAD;
           }
 #ifdef ESP8266
           {
@@ -663,8 +663,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
         // would cause --\r\n to be accepted as a delimiter).
         if (_boundary.length() == 0 || _boundary.length() > 70) {
           async_ws_log_d("Invalid multipart boundary length (%u), aborting", _boundary.length());
-          sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
-          return;
+          return asyncsrv::T_HTTP_400_HEAD;
         }
 
         _isMultipart = true;
@@ -684,16 +683,14 @@ void AsyncWebServerRequest::_parseReqHeader() {
         // failed; abort rather than authenticate against a corrupt token.
         if (value.length() && !_authorization.length()) {
           async_ws_log_e("Failed to allocate");
-          sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-          return;
+          return asyncsrv::T_HTTP_503_HEAD;
         }
         _authMethod = AsyncAuthType::AUTH_OTHER;
       } else {
         String method = value.substring(0, space);
         if (space && !method.length()) {
           async_ws_log_e("Failed to allocate");
-          sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-          return;
+          return asyncsrv::T_HTTP_503_HEAD;
         }
         if (method.equalsIgnoreCase(T_BASIC)) {
           _authMethod = AsyncAuthType::AUTH_BASIC;
@@ -709,8 +706,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
         // after the space: an empty result then means the allocation failed.
         if (value.length() > (size_t)(space + 1) && !_authorization.length()) {
           async_ws_log_e("Failed to allocate");
-          sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-          return;
+          return asyncsrv::T_HTTP_503_HEAD;
         }
       }
     } else if (name.equalsIgnoreCase(T_UPGRADE) && value.equalsIgnoreCase(T_WS)) {
@@ -773,6 +769,7 @@ void AsyncWebServerRequest::_parseReqHeader() {
     }
     _headers.emplace_back(std::move(header));
   }
+  return nullptr;
 }
 
 void AsyncWebServerRequest::_parsePlainPostChar(uint8_t data) {
@@ -1080,18 +1077,13 @@ void AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
   }
 }
 
-void AsyncWebServerRequest::_parseLine() {
+const char *AsyncWebServerRequest::_parseLine() {
   if (_parseState == PARSE_REQ_START) {
-    if (!_temp.length()) {
-      sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-    } else {
-      if (_parseReqHead()) {
-        _parseState = PARSE_REQ_HEADERS;
-      } else {
-        sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-      }
+    if (!_temp.length() || !_parseReqHead()) {
+      return asyncsrv::T_HTTP_503_HEAD;
     }
-    return;
+    _parseState = PARSE_REQ_HEADERS;
+    return nullptr;
   }
 
   if (_parseState == PARSE_REQ_HEADERS) {
@@ -1112,13 +1104,12 @@ void AsyncWebServerRequest::_parseLine() {
         _parseState = PARSE_REQ_BODY;
       } else {
         _parseState = PARSE_REQ_END;
-        _runMiddlewareChain();
-        _send();
       }
     } else {
-      _parseReqHeader();
+      return _parseReqHeader();
     }
   }
+  return nullptr;
 }
 
 void AsyncWebServerRequest::_runMiddlewareChain() {
