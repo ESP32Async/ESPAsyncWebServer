@@ -27,6 +27,9 @@ enum {
   PARSE_REQ_FAIL = 4
 };
 
+// raw response for a request a hook already ended: sendRawResponse() sends nothing
+static constexpr const char REQUEST_ENDED[] = "";
+
 enum {
   CHUNK_NONE = 0,   // Body transfer encoding is not chunked
   CHUNK_LENGTH,     // Getting chunk length - HHHH[;...] CR LF
@@ -198,7 +201,8 @@ void AsyncWebServerRequest::_onData(void *buf, size_t len) {
         if (needParse) {
           size_t idx;
           for (idx = 0; idx < len; idx++) {
-            if (!_parseMultipartPostByte(((uint8_t *)buf)[idx], idx == len - 1)) {
+            if (const char *response = _parseMultipartPostByte(((uint8_t *)buf)[idx], idx == len - 1)) {
+              sendRawResponse(response);
               return;
             }
             _parsedLength++;
@@ -850,19 +854,18 @@ enum {
   PARSE_ERROR
 };
 
-bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
-#define itemWriteByte(b)                          \
-  do {                                            \
-    _itemSize++;                                  \
-    if (_itemIsFile) {                            \
-      if (!_handleUploadByte(b, last))            \
-        return false;                             \
-    } else if (!_itemValue.concat((char)(b))) {   \
-      /* truncated item value: abort */           \
-      async_ws_log_e("Failed to allocate");       \
-      sendRawResponse(asyncsrv::T_HTTP_503_HEAD); \
-      return false;                               \
-    }                                             \
+const char *AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
+#define itemWriteByte(b)                        \
+  do {                                          \
+    _itemSize++;                                \
+    if (_itemIsFile) {                          \
+      if (!_handleUploadByte(b, last))          \
+        return REQUEST_ENDED;                   \
+    } else if (!_itemValue.concat((char)(b))) { \
+      /* truncated item value: abort */         \
+      async_ws_log_e("Failed to allocate");     \
+      return asyncsrv::T_HTTP_503_HEAD;         \
+    }                                           \
   } while (0)
 
   if (!_parsedLength) {
@@ -887,17 +890,17 @@ bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
     // first two bytes (the '--' prefix) are consumed without error.
     if (_parsedLength < 2 && data != '-') {
       _multiParseState = PARSE_ERROR;
-      return true;
+      return nullptr;
     } else if (_parsedLength - 2 < _boundary.length() && _boundary.c_str()[_parsedLength - 2] != data) {
       _multiParseState = PARSE_ERROR;
-      return true;
+      return nullptr;
     } else if (_parsedLength - 2 == _boundary.length() && data != '\r') {
       _multiParseState = PARSE_ERROR;
-      return true;
+      return nullptr;
     } else if (_parsedLength - 3 == _boundary.length()) {
       if (data != '\n') {
         _multiParseState = PARSE_ERROR;
-        return true;
+        return nullptr;
       }
       _multiParseState = PARSE_HEADERS;
       _itemIsFile = false;
@@ -908,8 +911,7 @@ bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       // allocation failure rather than continue with a corrupt line.
       if (!_temp.concat((char)data)) {
         async_ws_log_e("Failed to allocate");
-        sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-        return false;
+        return asyncsrv::T_HTTP_503_HEAD;
       }
     }
     if ((char)data == '\n') {
@@ -963,8 +965,7 @@ bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
           _itemBuffer = (uint8_t *)malloc(RESPONSE_STREAM_BUFFER_SIZE);
           if (_itemBuffer == NULL) {
             async_ws_log_e("Failed to allocate");
-            sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
-            return false;
+            return asyncsrv::T_HTTP_503_HEAD;
           }
           _itemBufferIndex = 0;
         }
@@ -1019,8 +1020,7 @@ bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
         if (_handler) {
           _handler->handleUpload(this, _itemFilename, _itemSize - _itemBufferIndex, _itemBuffer, _itemBufferIndex, true);
           if (_sent) {
-            // the handler ended the request
-            return false;
+            return REQUEST_ENDED;
           }
         }
         _itemBufferIndex = 0;
@@ -1079,7 +1079,7 @@ bool AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool last) {
       return _parseMultipartPostByte(data, last);
     }
   }
-  return true;
+  return nullptr;
 }
 
 const char *AsyncWebServerRequest::_parseLine() {
@@ -1096,8 +1096,7 @@ const char *AsyncWebServerRequest::_parseLine() {
       // end of headers
       _server->_rewriteRequest(this);
       if (!_server->_attachHandler(this)) {
-        // a handler ended the request
-        return nullptr;
+        return REQUEST_ENDED;
       }
       if (_expectingContinue) {
         // Write the literal directly: wrapping it in a String allocates (it
