@@ -151,15 +151,20 @@ void AsyncWebServer::_rewriteRequest(AsyncWebServerRequest *request) {
   }
 }
 
-void AsyncWebServer::_attachHandler(AsyncWebServerRequest *request) {
+bool AsyncWebServer::_attachHandler(AsyncWebServerRequest *request) {
   for (auto &entry : _handlers) {
     if (entry->filter(request) && entry->canHandle(request)) {
       request->setHandler(entry.get());
-      return;
+      return true;
+    }
+    if (request->_sent) {
+      // the handler ended the request
+      return false;
     }
   }
   // A catch-all handler is always installed — fallback to it.
   request->setHandler(_catchAllHandler.get());
+  return true;
 }
 
 AsyncCallbackWebHandler &AsyncWebServer::on(

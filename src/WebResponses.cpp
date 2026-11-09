@@ -183,7 +183,7 @@ bool AsyncWebServerResponse::addHeader(const char *name, const char *value, bool
   return true;
 }
 
-void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
+bool AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
   if (version) {
     addHeader(T_Accept_Ranges, T_none, false);
     if (_chunked) {
@@ -199,15 +199,23 @@ void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
     addHeader(T_Content_Type, _contentType.c_str(), false);
   }
 
-  // precompute buffer size to avoid reallocations by String class
-  size_t len = 0;
-  len += 50;  // HTTP/1.1 200 <reason>\r\n
+  // precompute buffer size to avoid reallocations by String class:
+  // the status line is at most 50 bytes ("HTTP/1." + version digit + space +
+  // 3-digit code + space + the longest reason phrase (31) + CRLF = 46), and
+  // each header needs exactly its name + value + ": " + CRLF = 4 extra bytes.
+  // With that capacity reserved, the concat() calls below cannot allocate.
+  size_t len = 50;
   for (const auto &header : _headers) {
     len += header.name().length() + header.value().length() + 4;
   }
 
-  // prepare buffer
-  buffer.reserve(len);
+  if (!buffer.reserve(len)) {
+    // Out of memory: leave the buffer empty so callers treat this as a failed
+    // response instead of writing a truncated head.
+    async_ws_log_e("Failed to allocate");
+    _headLength = 0;
+    return false;
+  }
 
   // HTTP header
 #ifdef ESP8266
@@ -236,6 +244,7 @@ void AsyncWebServerResponse::_assembleHead(String &buffer, uint8_t version) {
 
   buffer.concat(T_rn);
   _headLength = buffer.length();
+  return true;
 }
 
 bool AsyncWebServerResponse::_started() const {
@@ -250,6 +259,7 @@ bool AsyncWebServerResponse::_failed() const {
 bool AsyncWebServerResponse::_sourceValid() const {
   return false;
 }
+
 void AsyncWebServerResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_END;
 }
@@ -272,7 +282,13 @@ AsyncBasicResponse::AsyncBasicResponse(int code, const char *contentType, const 
 
 void AsyncBasicResponse::_respond(AsyncWebServerRequest *request) {
   _state = RESPONSE_HEADERS;
-  _assembleHead(_assembled_headers, request->version());
+  if (!_assembleHead(_assembled_headers, request->version())) {
+    // Head assembly ran out of memory: fail the response instead of sending
+    // a corrupted (partial or missing) head.
+    _state = RESPONSE_FAILED;
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
+    return;
+  }
   write_send_buffs(request, 0, 0);
 }
 
@@ -333,7 +349,13 @@ AsyncAbstractResponse::AsyncAbstractResponse(AwsTemplateProcessor callback) : _c
 
 void AsyncAbstractResponse::_respond(AsyncWebServerRequest *request) {
   addHeader(T_Connection, T_close, false);
-  _assembleHead(_assembled_headers, request->version());
+  if (!_assembleHead(_assembled_headers, request->version())) {
+    // Head assembly ran out of memory: fail the response instead of sending
+    // a corrupted (partial or missing) head.
+    _state = RESPONSE_FAILED;
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
+    return;
+  }
   _state = RESPONSE_HEADERS;
   write_send_buffs(request, 0, 0);
 }

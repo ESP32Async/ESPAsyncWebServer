@@ -208,7 +208,7 @@ void AsyncCallbackJsonWebHandler::handleBody(AsyncWebServerRequest *request, uin
         // way to handle this would be to use a String instead of
         // a fixed-length buffer, but for now we just reject.
         async_ws_log_w("AsyncJson cannot handle chunked requests without X-Expected-Entity-Length");
-        request->abort();
+        request->sendRawResponse(asyncsrv::T_HTTP_400_HEAD);
         return;
       }
 
@@ -217,7 +217,7 @@ void AsyncCallbackJsonWebHandler::handleBody(AsyncWebServerRequest *request, uin
         request->_tempObject = calloc(total + 1, sizeof(uint8_t));  // null-terminated string
         if (request->_tempObject == NULL) {
           async_ws_log_e("Failed to allocate");
-          request->abort();
+          request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
           return;
         }
       }

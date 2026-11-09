@@ -468,7 +468,9 @@ public:
     return 0;
   };
   bool _sourceValid() const override {
-    return true;
+    // _state is RESPONSE_FAILED when the Sec-WebSocket-Accept computation
+    // could not allocate (see the constructor).
+    return _state != RESPONSE_FAILED;
   }
 };
 

@@ -3,6 +3,12 @@
 
 #include <ESPAsyncWebServer.h>
 
+#include <utility>
+
+AsyncWebHeader::ParseError AsyncWebHeader::parseError() const {
+  return _name.length() ? ParseError::NONE : (_value.length() ? ParseError::ALLOC_FAIL : ParseError::INVALID);
+}
+
 const AsyncWebHeader AsyncWebHeader::parse(const char *data) {
   // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers
   // In HTTP/1.X, a header is a case-insensitive name followed by a colon, then optional whitespace which will be ignored, and finally by its value
@@ -29,7 +35,21 @@ const AsyncWebHeader AsyncWebHeader::parse(const char *data) {
     startOfValue++;
   }
   String name;
-  name.reserve(colon - data);
-  name.concat(data, colon - data);
-  return AsyncWebHeader(name, String(startOfValue));
+  if (!name.reserve(colon - data) || !name.concat(data, colon - data)) {
+    async_ws_log_e("Failed to allocate while parsing header");
+    // 'M' means NoMemory - no allocation => set in SSO buffer directly
+    return AsyncWebHeader(String(), String('M'));
+  }
+  String value(startOfValue);
+  // A copy of a non-empty value can never be empty: Arduino String leaves
+  // length() == 0 only when the heap buffer could not be allocated (its
+  // c_str() is then null on ESP32, which downstream header consumers such as
+  // atoi() and strncasecmp() would dereference).  Report it so the caller can
+  // fail the request.
+  if (*startOfValue && !value.length()) {
+    async_ws_log_e("Failed to allocate while parsing header");
+    // 'M' means NoMemory - no allocation => set in SSO buffer directly
+    return AsyncWebHeader(String(), String('M'));
+  }
+  return AsyncWebHeader(std::move(name), std::move(value));
 }
