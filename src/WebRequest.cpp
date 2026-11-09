@@ -23,8 +23,7 @@ enum {
   PARSE_REQ_START = 0,
   PARSE_REQ_HEADERS = 1,
   PARSE_REQ_BODY = 2,
-  PARSE_REQ_END = 3,
-  PARSE_REQ_FAIL = 4
+  PARSE_REQ_END = 3
 };
 
 // raw response for a request a hook already ended: sendRawResponse() sends nothing
@@ -1177,7 +1176,7 @@ void AsyncWebServerRequest::abort() {
   if (!_sent) {
     _sent = true;
     _paused = false;
-    _parseState = PARSE_REQ_FAIL;
+    _parseState = PARSE_REQ_END;
     async_ws_log_v("Abort request: %s", _url.c_str());
     _client->abort();
   }
@@ -1189,7 +1188,7 @@ void AsyncWebServerRequest::sendRawResponse(const char *response) {
   if (!_sent && _client) {
     _sent = true;
     _paused = false;
-    _parseState = PARSE_REQ_FAIL;
+    _parseState = PARSE_REQ_END;
     _client->write(response, strlen(response));
     _client->close();
   }
