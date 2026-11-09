@@ -1084,7 +1084,7 @@ const char *AsyncWebServerRequest::_parseMultipartPostByte(uint8_t data, bool la
 const char *AsyncWebServerRequest::_parseLine() {
   if (_parseState == PARSE_REQ_START) {
     if (!_temp.length() || !_parseReqHead()) {
-      return asyncsrv::T_HTTP_503_HEAD;
+      return asyncsrv::T_HTTP_400_HEAD;
     }
     _parseState = PARSE_REQ_HEADERS;
     return nullptr;
