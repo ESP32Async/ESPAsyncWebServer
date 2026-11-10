@@ -437,6 +437,7 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
         // data is pending in buffer from a previous call or previous iteration; attempt to send it
         size_t const added_len =
           request->client()->add(reinterpret_cast<char *>(_send_buffer->data() + _send_buffer_offset), _send_buffer_len - _send_buffer_offset);
+        payloadlen += added_len;
         if (added_len != _send_buffer_len - _send_buffer_offset) {
           // we were not able to add entire buffer's content to tcp buffs, leave it for later
           // (this should not happen normally unless connection's TCP window suddenly changed from remote or mem pressure)
@@ -445,7 +446,6 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
         } else {
           _send_buffer_len = _send_buffer_offset = 0;  // consider buffer empty
         }
-        payloadlen += added_len;
         tcp_win -= added_len;
       }
 

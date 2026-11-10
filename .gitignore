@@ -9,3 +9,5 @@
 /build
 /examples/arduino/**/*idf_component.yml
 /examples/arduino/**/*idf_component.yml.orig
+
+__pycache__/
