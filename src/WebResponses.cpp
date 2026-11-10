@@ -302,7 +302,8 @@ size_t AsyncBasicResponse::write_send_buffs(AsyncWebServerRequest *request, size
   // send http headers first
   if (_state == RESPONSE_HEADERS) {
     // copy headers buffer to sock buffer
-    size_t const pcb_written = request->client()->add(_assembled_headers.c_str() + _writtenHeadersLength, _assembled_headers.length() - _writtenHeadersLength);
+    size_t const pcb_written =
+      request->client()->add(_assembled_headers.c_str() + _writtenHeadersLength, _assembled_headers.length() - _writtenHeadersLength, ASYNC_WRITE_FLAG_COPY);
     _writtenHeadersLength += pcb_written;
     if (_writtenHeadersLength < _assembled_headers.length()) {
       // we were not able to fit all headers in current buff, send this part here and return later for the rest
@@ -320,7 +321,7 @@ size_t AsyncBasicResponse::write_send_buffs(AsyncWebServerRequest *request, size
   }
 
   if (_state == RESPONSE_CONTENT) {
-    size_t const pcb_written = request->client()->write(_content.c_str() + _sentLength, _content.length() - _sentLength);
+    size_t const pcb_written = request->client()->write(_content.c_str() + _sentLength, _content.length() - _sentLength, ASYNC_WRITE_FLAG_COPY);
     _sentLength += pcb_written;  // body written data
     payloadlen += pcb_written;   // data writtent in current buff
     if (_sentLength >= _content.length()) {
@@ -401,7 +402,8 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
   // send http headers first
   if (_state == RESPONSE_HEADERS) {
     // copy headers buffer to sock buffer
-    size_t const pcb_written = request->client()->add(_assembled_headers.c_str() + _writtenHeadersLength, _assembled_headers.length() - _writtenHeadersLength);
+    size_t const pcb_written =
+      request->client()->add(_assembled_headers.c_str() + _writtenHeadersLength, _assembled_headers.length() - _writtenHeadersLength, ASYNC_WRITE_FLAG_COPY);
     _writtenHeadersLength += pcb_written;
     if (_writtenHeadersLength < _assembled_headers.length()) {
 // we were not able to fit all headers in current buff, send this part here and return later for the rest
@@ -432,8 +434,9 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
 
       if (_send_buffer_len && _send_buffer) {
         // data is pending in buffer from a previous call or previous iteration; attempt to send it
-        size_t const added_len =
-          request->client()->add(reinterpret_cast<char *>(_send_buffer->data() + _send_buffer_offset), _send_buffer_len - _send_buffer_offset);
+        size_t const added_len = request->client()->add(
+          reinterpret_cast<char *>(_send_buffer->data() + _send_buffer_offset), _send_buffer_len - _send_buffer_offset, ASYNC_WRITE_FLAG_COPY
+        );
         payloadlen += added_len;
         if (added_len != _send_buffer_len - _send_buffer_offset) {
           // we were not able to add entire buffer's content to tcp buffs, leave it for later

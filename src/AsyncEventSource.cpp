@@ -433,7 +433,7 @@ void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
   if (request->hasHeader(T_Last_Event_ID)) {
     lastId = strtoul(request->getHeader(T_Last_Event_ID)->value().c_str(), nullptr, 10);
   }
-  request->client()->write(out.c_str(), _headLength);
+  request->client()->write(out.c_str(), _headLength, ASYNC_WRITE_FLAG_COPY);
   // Add a new AsyncEventSourceClient to the server's list of clients
   // This adopts the ownership of the AsyncTCP's client pointer from `request` parameter
   new AsyncEventSourceClient(request->clientRelease(), _server, lastId);

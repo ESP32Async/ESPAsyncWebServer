@@ -921,6 +921,11 @@ public:
      * Marks the request as sent, writes a pre-assembled literal head (503 Service Unavailable and
      * "Connection: close" by default, so it cannot itself fail an allocation), then closes the connection.
      * Must only be used while nothing has been queued on the TCP connection yet.
+     *
+     * @param response Pointer to the response head to write as a NUL-terminated C string.
+     * @warning ASYNC_WRITE_FLAG_COPY is not used, so the buffer could be written by reference: 
+     * `response` must point to data that stays valid until the head has actually been
+     * transmitted (i.e. it must outlive the call, e.g. a string literal or static memory).
    */
   void sendRawResponse(const char *response);
 
