@@ -8,7 +8,16 @@
 
 #include <cstring>
 
+// platform classification for the MD5 backend used in this file:
+//  - HAS_MD5_BUILDER: the MD5Builder wrapper class exists (ESP32 arduino, RP2040, HOST)
+//  - everything else (ESP8266, LibreTiny): low-level md5_context_t C API from <md5.h>
 #if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+#define HAS_MD5_BUILDER 1
+#else
+#define HAS_MD5_BUILDER 0
+#endif
+
+#if HAS_MD5_BUILDER
 #include <MD5Builder.h>
 #else
 #include <md5.h>
@@ -71,7 +80,7 @@ String generateBasicHash(const char *username, const char *password) {
 }
 
 static bool getMD5(uint8_t *data, uint16_t len, char *output) {  // 33 bytes or more
-#if defined(ESP32) || defined(TARGET_RP2040) || defined(TARGET_RP2350) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(HOST)
+#if HAS_MD5_BUILDER
   MD5Builder md5;
   md5.begin();
   md5.add(data, len);
