@@ -321,8 +321,8 @@ size_t AsyncBasicResponse::write_send_buffs(AsyncWebServerRequest *request, size
 
   if (_state == RESPONSE_CONTENT) {
     size_t const pcb_written = request->client()->write(_content.c_str() + _sentLength, _content.length() - _sentLength);
-    _sentLength += pcb_written;     // body written data
-    payloadlen += pcb_written;      // data writtent in current buff
+    _sentLength += pcb_written;  // body written data
+    payloadlen += pcb_written;   // data writtent in current buff
     if (_sentLength >= _content.length()) {
       // we've just sent all the (remainder) data in current buff, complete the response
       _state = RESPONSE_END;
