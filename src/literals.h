@@ -112,6 +112,7 @@ static constexpr const char T_TRUE[] = "true";
 static constexpr const char T_UPGRADE[] = "Upgrade";
 static constexpr const char T_uri[] = "uri";
 static constexpr const char T_username[] = "username";
+static constexpr const char T_hex_chars[] = "0123456789abcdef";
 static constexpr const char T_WS[] = "websocket";
 static constexpr const char T_WWW_AUTH[] = "WWW-Authenticate";
 static constexpr const char T_X_Expected_Entity_Length[] = "X-Expected-Entity-Length";
