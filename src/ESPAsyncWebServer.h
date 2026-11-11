@@ -923,7 +923,7 @@ public:
      * Must only be used while nothing has been queued on the TCP connection yet.
      *
      * @param response Pointer to the response head to write as a NUL-terminated C string.
-     * @warning ASYNC_WRITE_FLAG_COPY is not used, so the buffer could be written by reference: 
+     * @warning ASYNC_WRITE_FLAG_COPY is not used, so the buffer could be written by reference:
      * `response` must point to data that stays valid until the head has actually been
      * transmitted (i.e. it must outlive the call, e.g. a string literal or static memory).
    */
