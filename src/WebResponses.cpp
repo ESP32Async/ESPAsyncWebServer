@@ -74,7 +74,7 @@ STR_RETURN_TYPE AsyncWebServerResponse::responseCodeToString(int code) {
 }
 
 AsyncWebServerResponse::AsyncWebServerResponse()
-  : _code(0), _contentType(), _contentLength(0), _sendContentLength(true), _chunked(false), _headLength(0), _sentLength(0), _ackedLength(0), _writtenLength(0),
+  : _code(0), _contentType(), _contentLength(0), _sendContentLength(true), _chunked(false), _headLength(0), _sentLength(0), _ackedLength(0),
     _state(RESPONSE_SETUP) {
   for (const auto &header : DefaultHeaders::Instance()) {
     _headers.emplace_back(header);
@@ -303,7 +303,6 @@ size_t AsyncBasicResponse::write_send_buffs(AsyncWebServerRequest *request, size
   if (_state == RESPONSE_HEADERS) {
     // copy headers buffer to sock buffer
     size_t const pcb_written = request->client()->add(_assembled_headers.c_str() + _writtenHeadersLength, _assembled_headers.length() - _writtenHeadersLength);
-    _writtenLength += pcb_written;
     _writtenHeadersLength += pcb_written;
     if (_writtenHeadersLength < _assembled_headers.length()) {
       // we were not able to fit all headers in current buff, send this part here and return later for the rest
@@ -322,7 +321,6 @@ size_t AsyncBasicResponse::write_send_buffs(AsyncWebServerRequest *request, size
 
   if (_state == RESPONSE_CONTENT) {
     size_t const pcb_written = request->client()->write(_content.c_str() + _sentLength, _content.length() - _sentLength);
-    _writtenLength += pcb_written;  // total written data (hdrs + body)
     _sentLength += pcb_written;     // body written data
     payloadlen += pcb_written;      // data writtent in current buff
     if (_sentLength >= _content.length()) {
@@ -404,7 +402,6 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
   if (_state == RESPONSE_HEADERS) {
     // copy headers buffer to sock buffer
     size_t const pcb_written = request->client()->add(_assembled_headers.c_str() + _writtenHeadersLength, _assembled_headers.length() - _writtenHeadersLength);
-    _writtenLength += pcb_written;
     _writtenHeadersLength += pcb_written;
     if (_writtenHeadersLength < _assembled_headers.length()) {
 // we were not able to fit all headers in current buff, send this part here and return later for the rest
@@ -519,7 +516,6 @@ size_t AsyncAbstractResponse::write_send_buffs(AsyncWebServerRequest *request, s
 
     // execute sending whatever we have in sock buffs now
     request->client()->send();
-    _writtenLength += payloadlen;
 #if ASYNCWEBSERVER_USE_CHUNK_INFLIGHT
     // Take a credit only for data actually put in flight.  When the source
     // had nothing yet (RESPONSE_TRY_AGAIN), nothing will be acked to return
