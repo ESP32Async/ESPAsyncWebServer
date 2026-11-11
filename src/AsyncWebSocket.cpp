@@ -1571,7 +1571,7 @@ void AsyncWebSocketResponse::_respond(AsyncWebServerRequest *request) {
     },
     this
   );
-  request->client()->write(out.c_str(), _headLength);
+  request->client()->write(out.c_str(), _headLength, ASYNC_WRITE_FLAG_COPY);
   _state = RESPONSE_WAIT_ACK;
 }
 
