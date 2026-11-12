@@ -58,8 +58,17 @@
 #endif
 #endif
 
+// Validity window, in seconds, of a Digest authentication nonce.
+// Statelessness relies on the nonce embedding its issuing time: beyond this window
+// the nonce is stale and clients must re-authenticate (silently, via stale=true).
+// Set to 0 to disable nonce expiry (not recommended: widens the replay window).
+#if !defined(ASYNCWEBSERVER_DIGEST_NONCE_TTL)
+#define ASYNCWEBSERVER_DIGEST_NONCE_TTL 60
+#endif
+
 #include "AsyncWebServerVersion.h"
 #define ASYNCWEBSERVER_FORK_ESP32Async
+#include "WebAuthentication.h"
 
 #ifdef ASYNCWEBSERVER_REGEX
 #include <regex>
@@ -570,6 +579,11 @@ private:
   String _authorization;
   RequestedConnectionType _reqconntype;
   AsyncAuthType _authMethod = AsyncAuthType::AUTH_NONE;
+  // set by an authentication method when verification failed for a reason that a re-challenge can
+  // resolve. For Digest, this is the case when the client nonce was valid but expired (RFC 7616 §3.3):
+  // the next challenge must carry stale=true so compliant clients silently re-authenticate.
+  // A future authentication mechanism may reuse it for its own equivalent condition.
+  mutable bool _reAuthRequired = false;
   bool _isMultipart;
   bool _isPlainPost;
   bool _expectingContinue;
@@ -623,6 +637,18 @@ private:
   void _handleUploadStart();
   bool _handleUploadByte(uint8_t data, bool last);
   void _handleUploadEnd();
+
+  /**
+   * @brief Digest authentication implementation (internal): verifies the "Authorization: Digest"
+   * header against the credentials and — using the stateless scheme — the server-issued signed
+   * nonce and the instance opaque. Sets _reAuthRequired when the nonce was valid but expired.
+   *
+   * A NULL nonce/opaque/uri argument means "let the library validate it automatically";
+   * passing a value means the caller takes over that specific check.
+   */
+  bool _authenticateDigest(
+    const char *username, const char *password, const char *realm, bool passwordIsHash, const char *nonce, const char *opaque, const char *uri
+  ) const;
 
   void _send();
   void _runMiddlewareChain();
@@ -727,7 +753,56 @@ public:
   //  base64(user:pass) for basic or
   //  user:realm:md5(user:realm:pass) for digest
   bool authenticate(const char *hash) const;
-  bool authenticate(const char *username, const char *credentials, const char *realm = NULL, bool isHash = false) const;
+
+  /**
+   * @brief authenticate the request with the given credentials, for the auth
+   * scheme detected in the "Authorization" header (see authType()).
+   *
+   * When the client used Basic or Bearer auth, only username and credentials are checked;
+   * the realm/hash args follow the Basic semantics (see the other authenticate() signature).
+   *
+   * When the client used Digest auth, this call delegates to the Digest verification which,
+   * beyond the standard digest verification, validates that:
+   *  - the nonce was issued by this server and is not expired (stateless signed nonce);
+   *  - the opaque is the one bound to this server instance.
+   *
+   * A NULL nonce/opaque/uri argument means "let the library validate it automatically";
+   * passing a value means the caller takes over that specific check. These arguments have
+   * no effect for non-Digest auth schemes.
+   *
+   * Note: the library does not keep the raw request-target in memory, so a NULL uri
+   * leaves the header "uri" field unchecked (RFC 7616 §3.4.6 recommends binding it to
+   * the request target). Pass the expected request-target explicitly to enforce that check.
+   *
+   * @param username user name
+   * @param credentials password, or pre-computed hash (see isHash)
+   * @param realm authentication realm (NULL: not checked) - Digest only
+   * @param isHash true if credentials is a pre-computed hash (md5(user:realm:password) for Digest)
+   * @param nonce NULL to validate the server-issued signed nonce, or the exact value to compare against - Digest only
+   * @param opaque NULL to validate the instance opaque, or the exact value to compare against - Digest only
+   * @param uri NULL to leave the header "uri" unchecked, or the exact request-target to compare against - Digest only
+   * @return true if the request is authenticated
+   */
+  bool authenticate(
+    const char *username, const char *credentials, const char *realm = nullptr, bool isHash = false, const char *nonce = nullptr, const char *opaque = nullptr,
+    const char *uri = nullptr
+  ) const;
+
+  /**
+   * @brief true when the last authenticate() call failed for a reason that a re-challenge can
+   * resolve, i.e. re-sending the same credentials against a fresh challenge will eventually
+   * succeed.
+   *
+   * With Digest auth: the request credentials were correct and the nonce was issued by this
+   * server, but it expired. requestAuthentication() then issues the next challenge with
+   * stale=true (RFC 7616 §3.3), so compliant clients re-authenticate silently without
+   * prompting the user again.
+   *
+   * Future authentication mechanisms may set it for their own equivalent conditions.
+   */
+  bool reAuthRequired() const {
+    return _reAuthRequired;
+  }
   void requestAuthentication(const char *realm = nullptr, bool isDigest = true) {
     requestAuthentication(isDigest ? AsyncAuthType::AUTH_DIGEST : AsyncAuthType::AUTH_BASIC, realm);
   }
@@ -1815,6 +1890,8 @@ typedef AsyncCallbackJsonWebHandler AsyncCallbackMessagePackWebHandler;
 
 class AsyncWebServer : public AsyncMiddlewareChain {
 protected:
+  friend class AsyncWebServerRequest;
+
   AsyncServer _server;
   std::list<std::shared_ptr<AsyncWebRewrite>> _rewrites;
   // Unified handler list: each entry is an asyncsrv::MaybeOwned<AsyncWebHandler>.
@@ -1824,6 +1901,27 @@ protected:
   // Catch-all handler, also tracked with asyncsrv::MaybeOwned for consistent ownership semantics.
   // A catch-all handler is always installed (never nullptr).
   asyncsrv::MaybeOwned<AsyncCallbackWebHandler> _catchAllHandler;
+
+  // Stateless Digest auth anti-replay: the nonce embeds
+  // its issuing time and is HMAC-signed with this per-instance secret, so no
+  // per-nonce storage is required. The opaque is derived from the same secret.
+  // Lazily allocated on first use so that instances not using Digest auth
+  // only pay for one pointer. First use happens either from setup() (setters)
+  // or from the async_tcp task processing a Digest request, so no locking is
+  // required.
+  struct DigestAuthContext {
+    uint8_t secret[16];
+    uint32_t nonceTtl = ASYNCWEBSERVER_DIGEST_NONCE_TTL * 1000;  // milliseconds
+    String opaque;
+  };
+  DigestAuthContext *_digest = nullptr;
+
+  /**
+   * @brief Digest auth context, initializing it on first use.
+   *
+   * @return the state, or nullptr if the allocation failed.
+   */
+  DigestAuthContext *_digestAuthContext();
 
 public:
   /**
@@ -2063,11 +2161,35 @@ public:
     ArBodyHandlerFunction onBody = nullptr
   );
 
+  /**
+   * @brief Set the validity window of Digest nonces issued by this server (stateless scheme).
+   *
+   * Nonces embed their issuing time and are signed with a per-instance secret; no
+   * server-side storage is kept. 0 disables expiry (not recommended).
+   * @param seconds nonce lifetime in seconds (default: ASYNCWEBSERVER_DIGEST_NONCE_TTL, 60s)
+   */
+  void setDigestNonceTimeout(uint32_t seconds);
+
+  /**
+   * @brief Set a custom secret used to sign Digest nonces and derive the opaque value.
+   *
+   * Changing the secret instantly revokes every nonce in circulation (clients will
+   * be re-challenged and silently re-authenticate). If never called, a random
+   * per-instance secret is generated when Digest auth is first used.
+   * @param secret pointer to 16 raw bytes
+   */
+  void setDigestSecret(const uint8_t secret[16]);
+
+  /** @brief Digest opaque value derived from the instance secret (empty if Digest auth was never used). */
+  const String &digestOpaque() const {
+    return _digest ? _digest->opaque : asyncsrv::emptyString;
+  }
+
 #if ASYNC_JSON_SUPPORT == 1
   AsyncCallbackJsonWebHandler &on(AsyncURIMatcher uri, WebRequestMethodComposite method, ArJsonRequestHandlerFunction onBody);
 #endif
 
-  AsyncStaticWebHandler &serveStatic(const char *uri, fs::FS &fs, const char *path, const char *cache_control = NULL);
+  AsyncStaticWebHandler &serveStatic(const char *uri, fs::FS &fs, const char *path, const char *cache_control = nullptr);
 
   void onNotFound(ArRequestHandlerFunction fn);   // called when handler is not assigned
   void onFileUpload(ArUploadHandlerFunction fn);  // handle file uploads
