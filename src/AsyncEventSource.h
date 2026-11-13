@@ -46,11 +46,18 @@
 #include <list>
 #include <memory>
 #include <utility>
+#include <vector>
 
 class AsyncEventSource;
 class AsyncEventSourceResponse;
 class AsyncEventSourceClient;
+// Ownership-safe handle to an SSE client connection.
+// The handle keeps the client object alive even after it disconnected, and can
+// be retained past any callback; use it as a stable connection identifier.
+using AsyncEventSourceClientPtr = std::shared_ptr<AsyncEventSourceClient>;
 using ArEventHandlerFunction = std::function<void(AsyncEventSourceClient *client)>;
+using ArEventHandlerFunctionSafe = std::function<void(const AsyncEventSourceClientPtr &client)>;
+using ArEventRequestConnectHandlerFunction = std::function<void(AsyncWebServerRequest *request, const AsyncEventSourceClientPtr &client)>;
 using ArAuthorizeConnectHandler = ArAuthorizeFunction;
 // shared message object container
 using AsyncEvent_SharedData_t = std::shared_ptr<String>;
@@ -59,8 +66,9 @@ using AsyncEvent_SharedData_t = std::shared_ptr<String>;
  * @brief class holds a sse messages queue for a particular client's connection
  *
  */
-class AsyncEventSourceClient {
+class AsyncEventSourceClient : public std::enable_shared_from_this<AsyncEventSourceClient> {
 private:
+  friend class AsyncEventSource;
   AsyncClient *_client;
   AsyncEventSource *_server;
   uint32_t _lastId{0};
@@ -72,11 +80,19 @@ private:
   mutable asyncsrv::mutex_type _lockmq;
   bool _queueMessage(AsyncEvent_SharedData_t &&msg);
   void _runQueue();
+  // bind AsyncTCP callbacks (ack/poll/timeout/disconnect) to this client;
+  // called by AsyncEventSource::_addClient() once the client is shared-owned
+  void _attach();
+  // detach from the owning server (used when the server dies before the client);
+  // clears AsyncTCP callbacks and closes the connection
+  void _detach();
 
 public:
   /**
    * @brief Construct a new Async Event Source Client object
    * @note constructor is normally passed a client object from AsyncWebServerRequest::releaseClient(); see AsyncEventSourceResponse::_respond()
+   * @note the client does not register itself with the server; ownership passes to
+   *       AsyncEventSource::_addClient(), which stores it in the shared client list
    *
    * @param client
    * @param server
@@ -116,7 +132,7 @@ public:
     return connected() && _queueMessage(std::move(message));
   };
 
-  [[deprecated("Use _write(AsyncEvent_SharedData_t message) instead to share same data with multiple SSE clients")]]
+  [[deprecated("Use write(AsyncEvent_SharedData_t message) instead to share same data with multiple SSE clients")]]
   bool write(const char *message, size_t len) {
     if (!connected()) {
       return false;
@@ -185,12 +201,15 @@ public:
 class AsyncEventSource : public AsyncWebHandler {
 private:
   String _url;
-  std::list<std::unique_ptr<AsyncEventSourceClient>> _clients;
+  std::list<AsyncEventSourceClientPtr> _clients;
   // Same as for individual messages, protect mutations of _clients list
   // since simultaneous access from different tasks is possible
   mutable asyncsrv::mutex_type _client_queue_lock;
-  ArEventHandlerFunction _connectcb = nullptr;
-  ArEventHandlerFunction _disconnectcb = nullptr;
+  // One callback slot per event: the raw-pointer setters (onConnect/onDisconnect)
+  // wrap their callback into the shared-handle form, so both flavors share storage
+  ArEventHandlerFunctionSafe _connectsafecb = nullptr;
+  ArEventHandlerFunctionSafe _disconnectsafecb = nullptr;
+  ArEventRequestConnectHandlerFunction _requestConnectcb = nullptr;
 
   // this method manipulates in-fligh data size for connected client depending on number of active connections
   void _adjust_inflight_window();
@@ -204,9 +223,9 @@ public:
 
   AsyncEventSource(const char *url) : _url(url){};
   AsyncEventSource(const String &url) : _url(url){};
-  ~AsyncEventSource() {
-    close();
-  };
+  // Detaches clients still connected at destruction time so any app-held
+  // handles survive without touching the dead server (see AsyncEventSource.cpp)
+  ~AsyncEventSource();
 
   const char *url() const {
     return _url.c_str();
@@ -215,13 +234,47 @@ public:
   void close();
 
   /**
-     * @brief set on-connect callback for the client
+     * @brief set on-connect callback for the client (raw-pointer flavor)
      * used to deliver messages to client on first connect
+     * @note the pointer is valid only during the callback and must not be stored.
+     *       Shares the slot with onConnectSafe(): the last registered callback wins.
+     * @note prefer onConnectSafe(): it delivers a handle that may also be stored
      *
      * @param cb
      */
-  void onConnect(ArEventHandlerFunction cb) {
-    _connectcb = cb;
+  void onConnect(ArEventHandlerFunction cb);
+
+  /**
+     * @brief set on-connect callback delivering an ownership-safe shared handle
+     * The handle may be stored and used past the end of the callback (e.g. to
+     * close this connection later or to send targeted messages); the client
+     * object stays alive until the last handle is dropped.
+     */
+  void onConnectSafe(ArEventHandlerFunctionSafe cb) {
+    _connectsafecb = cb;
+  }
+
+  /**
+     * @brief set an on-connect callback that also receives the originating request
+     * @note the request pointer is valid only for the duration of the callback
+     *       (read authentication/session state here); the client handle may be stored
+     */
+  void onConnectWithRequest(ArEventRequestConnectHandlerFunction cb) {
+    _requestConnectcb = cb;
+  }
+
+  // The client pointer sent to the callback is valid for the duration of the callback
+  // (the server keeps the object alive while the callback runs); it must not be
+  // stored. Prefer onDisconnectSafe(): it delivers a handle that may be stored.
+  // Shares the slot with onDisconnectSafe(): the last registered callback wins.
+  void onDisconnect(ArEventHandlerFunction cb);
+
+  /**
+     * @brief set on-disconnect callback delivering an ownership-safe shared handle
+     * Safe to call methods on the handle inside the callback.
+     */
+  void onDisconnectSafe(ArEventHandlerFunctionSafe cb) {
+    _disconnectsafecb = cb;
   }
 
   /**
@@ -242,10 +295,6 @@ public:
     return send(message.c_str(), event, id, reconnect);
   }
 
-  // The client pointer sent to the callback is only for reference purposes. DO NOT CALL ANY METHOD ON IT !
-  void onDisconnect(ArEventHandlerFunction cb) {
-    _disconnectcb = cb;
-  }
   void authorizeConnect(ArAuthorizeConnectHandler cb);
 
   // returns number of connected clients
@@ -254,8 +303,18 @@ public:
   // returns average number of messages pending in all client's queues
   size_t avgPacketsWaiting() const;
 
+  /**
+     * @brief Get a snapshot of all registered clients as shared handles.
+     * The returned handles stay valid while held, even if a client disconnects
+     * mid-iteration (it merely reports connected() == false). Use for targeted
+     * sends or closes without retaining unsafe raw pointers.
+     */
+  std::vector<AsyncEventSourceClientPtr> getClients() const;
+
   // system callbacks (do not call from user code!)
-  void _addClient(AsyncEventSourceClient *client);
+  // registers a pre-allocated client; when a request is supplied, adopts its
+  // AsyncClient (ownership transfer) before registration
+  void _addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request = nullptr);
   void _handleDisconnect(AsyncEventSourceClient *client);
   bool canHandle(AsyncWebServerRequest *request) const final;
   void handleRequest(AsyncWebServerRequest *request) final;
