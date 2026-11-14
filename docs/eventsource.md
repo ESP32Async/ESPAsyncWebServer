@@ -92,6 +92,8 @@ for (const auto &client : events.getClients()) {
 
 By the time the connect callback runs, the connection belongs to the SSE client, so `request->client()` is null. Use `client->client()` instead, for example `client->client()->remoteIP()`.
 
+The server lists a client only once its connect callback has returned. Until then, `events.send()` and `getClients()` do not include it, so send to it with `client->send()` inside the callback. If the callback passes the handle to another task, and that task closes the connection before the callback returns, the disconnect callback can run first.
+
 `onDisconnect` accepts either of the first two. A generic lambda taking `auto` receives the shared handle. Methods may be called on the client inside either callback:
 
 ```cpp

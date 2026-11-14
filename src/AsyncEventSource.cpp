@@ -342,27 +342,27 @@ void AsyncEventSource::_addClient(const AsyncEventSourceClientPtr &client, Async
     return;
   }
 
-  // Arm the AsyncTCP callbacks under the list lock, together with the list
-  // insertion: the disconnect callback is armed by _attach() itself
-  // (clientRelease() cleared them beforehand), so a disconnect racing this
-  // section can only run after we release the lock -- and _handleDisconnect()
-  // then finds the client in the list and erases it cleanly. Attaching and
-  // inserting in separate critical sections would let a disconnect run in
-  // between and erase from an empty list, leaving a dead entry behind.
-  // Callbacks are attached here (not in the constructor) because they rely on
+  // Network callbacks are attached here (not in the constructor) because they rely on
   // shared_from_this(), which requires shared_ptr ownership.
-  {
-    asyncsrv::lock_guard_type lock(_client_queue_lock);
-    client->_attach();
-    _clients.emplace_back(client);
-    _adjust_inflight_window();
-  }
+  // We are running on the AsyncTCP task here, so none of the network event callbacks will
+  // execute until after _addClient returns.
+  client->_attach();
 
-  // Fire user callbacks outside the list lock, after registration: a
-  // broadcast or close inside a connect callback now behaves consistently
-  // (the client is part of the list while its callback runs).
+  // Run user connect callback before adding the client to the list.
+  // This prevents races with a user task closing clients via getClients(), which could
+  // trigger the disconnect callback before we ever notified them of the new connection.
+  // Note the user may choose to disconnect in their callback if they want to reject this
+  // connection for any reason.
   if (_connectcb) {
     _connectcb(request, client);
+  }
+
+  // connected() is false before a disconnect is reported, so either that
+  // report finds the client listed, or it is never listed.
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
+  if (client->connected()) {
+    _clients.emplace_back(client);
+    _adjust_inflight_window();
   }
 }
 
