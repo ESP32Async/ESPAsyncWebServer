@@ -86,8 +86,8 @@ private:
   // bind AsyncTCP callbacks (ack/poll/timeout/disconnect) to this client;
   // called by AsyncEventSource::_addClient() once the client is shared-owned
   void _attach();
-  // detach from the owning server (used when the server dies before the client);
-  // clears AsyncTCP callbacks and closes the connection
+  // detach from the owning server (used when the server dies before the client)
+  // and close the connection
   void _detach();
 
 public:
@@ -132,7 +132,7 @@ public:
      * @return false on queue overflow or no client connected
      */
   bool write(AsyncEvent_SharedData_t message) {
-    return connected() && _queueMessage(std::move(message));
+    return _queueMessage(std::move(message));
   };
 
   [[deprecated("Use write(AsyncEvent_SharedData_t message) instead to share same data with multiple SSE clients")]]

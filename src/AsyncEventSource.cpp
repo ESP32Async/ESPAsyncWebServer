@@ -138,12 +138,12 @@ void AsyncEventSourceClient::_attach() {
   );
   _client->onDisconnect(
     [](void *r, AsyncClient *c) {
-      // Pin first: _onDisconnect() may end up dropping the last server-side
-      // reference; the client must survive until this frame returns, and
-      // the AsyncClient delete must happen on this AsyncTCP callback frame.
+      (void)c;
+      // Pin first: _onDisconnect() may drop the server's reference. The
+      // AsyncClient is not deleted here: any task holding a handle may still be
+      // using it, so it lives until the last handle is dropped.
       AsyncEventSourceClientPtr self = static_cast<AsyncEventSourceClient *>(r)->shared_from_this();
       self->_onDisconnect();
-      delete c;
     },
     this
   );
@@ -151,23 +151,10 @@ void AsyncEventSourceClient::_attach() {
 }
 
 AsyncEventSourceClient::~AsyncEventSourceClient() {
-  // Protect message queue access (size checks and modifications) which is not thread-safe.
-  {
-    asyncsrv::lock_guard_type lock(_lockmq);
-    _messageQueue.clear();
-  }
-  if (_client) {
-    // Still connected: the last handle was dropped (or the server was torn
-    // down) before the TCP connection ended. Close it directly, but detach the
-    // AsyncTCP callbacks first -- shared_from_this() is invalid inside a
-    // destructor, so no callback may re-enter this object while it dies.
-    _client->onDisconnect({}, nullptr);
-    _client->onAck({}, nullptr);
-    _client->onPoll({}, nullptr);
-    _client->onTimeout({}, nullptr);
-    delete _client;  // ~AsyncClient closes the connection
-    _client = nullptr;
-  }
+  // No disconnect is owed by now - the server holds a handle until one is
+  // reported, and _detach() closes - so ~AsyncClient reports nothing back here.
+  // This often runs inside that disconnect callback, as its pin is released.
+  delete _client;
 }
 
 bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
@@ -183,12 +170,13 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
     return false;  // Invalid message
   }
 
-  if (_client) {
-    _messageQueue.emplace_back(std::move(msg));
-  } else {
-    _messageQueue.clear();
+  // Checked under the lock: connected() is false before a disconnect is
+  // reported, so either this sees it, or _onDisconnect() clears the message.
+  if (!_client->connected()) {
     return false;
   }
+
+  _messageQueue.emplace_back(std::move(msg));
 
   // Send new content if we're not waiting on network buffer space
   if (!_ack_pending && (_inflight < _max_inflight)) {
@@ -225,22 +213,10 @@ void AsyncEventSourceClient::_onPoll() {
 }
 
 void AsyncEventSourceClient::_onTimeout(uint32_t time __attribute__((unused))) {
-  if (_client) {
-    _client->close();
-  }
+  _client->close();
 }
 
 void AsyncEventSourceClient::_onDisconnect() {
-  if (!_client) {
-    return;
-  }
-  {
-    // Every queue method (_queueMessage, _runQueue, _onAck, _onPoll) reads
-    // _client while holding _lockmq; for those guarded reads to be
-    // meaningful, this write must be synchronized the same way.
-    asyncsrv::lock_guard_type lock(_lockmq);
-    _client = nullptr;
-  }
   if (_server) {
     _server->_handleDisconnect(this);
   }
@@ -263,16 +239,7 @@ void AsyncEventSourceClient::close() {
 
 void AsyncEventSourceClient::_detach() {
   _server = nullptr;
-  if (_client) {
-    // Detach AsyncTCP callbacks first so the close cannot re-enter this
-    // object after the owning server is gone.
-    _client->onDisconnect({}, nullptr);
-    _client->onAck({}, nullptr);
-    _client->onPoll({}, nullptr);
-    _client->onTimeout({}, nullptr);
-    delete _client;  // ~AsyncClient closes the connection
-    _client = nullptr;
-  }
+  close();
 }
 
 bool AsyncEventSourceClient::send(const char *message, const char *event, uint32_t id, uint32_t reconnect) {
@@ -283,10 +250,6 @@ bool AsyncEventSourceClient::send(const char *message, const char *event, uint32
 }
 
 void AsyncEventSourceClient::_runQueue() {
-  if (!_client) {
-    return;
-  }
-
   // there is no need to lock the mutex here, 'cause all the calls to this method must be already lock'ed
   size_t total_bytes_written = 0;
   while (!_messageQueue.empty()) {
@@ -328,7 +291,7 @@ void AsyncEventSourceClient::_runQueue() {
   }
 
   // flush socket
-  if (_client && total_bytes_written) {
+  if (total_bytes_written) {
     _client->send();
   }
 }
