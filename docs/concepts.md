@@ -79,6 +79,9 @@ flowchart TD
   A `Handler` registered with `addHandler(ref)` is **non-owning** (borrow) — the caller manages
   its lifetime. This lets you place handlers in static RAM, PSRAM, or any custom memory region.
   See [Routing — Handler Ownership and Memory Placement](routing.md#handler-ownership-and-memory-placement).
+- A `Handler` can serve **multiple URIs** by holding a list of URI matchers (`setUri()` + `addUri()`).
+  One HTTP method mask applies to all its URIs; `setMethod()` accepts a composite (`HTTP_GET | HTTP_POST`).
+  See [Routing — Multiple URIs per Handler](routing.md#multiple-uris-per-handler).
 
 ### Responses and how do they work
 
