@@ -70,14 +70,10 @@ void setup() {
     request->send(200, "text/html", (uint8_t *)htmlContent, htmlContentLength);
   });
 
-  events.onConnect([](AsyncEventSourceClient *client) {
+  // the handle may be stored past the callback; a raw AsyncEventSourceClient * parameter also works
+  events.onConnect([](const AsyncEventSourceClientPtr &client) {
     Serial.printf("SSE Client connected!");
     client->send("hello!", NULL, millis(), 1000);
-  });
-
-  // ownership-safe variant: the handle may be stored past the callback
-  events.onConnectSafe([](const AsyncEventSourceClientPtr &client) {
-    Serial.printf("SSE Client handle %p connected!\n", (void *)client.get());
   });
 
   events.onDisconnect([](AsyncEventSourceClient *client) {

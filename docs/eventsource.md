@@ -53,12 +53,12 @@ events.addMiddleware(&authMiddleware);
 
 Each SSE client is exposed as a shared handle (`AsyncEventSourceClientPtr`, a `std::shared_ptr`). A handle may be stored past the end of any callback: it keeps the client object alive until the last handle is dropped, and a client that disconnects simply reports `connected() == false` instead of becoming a dangling pointer.
 
-The request-aware connect callback lets you associate the connection with request-scoped state (such as the authenticated user) while the request is still alive:
+A connect callback that also takes the request lets you associate the connection with request-scoped state (such as the authenticated user) while the request is still alive:
 
 ```cpp
 std::map<String, std::weak_ptr<AsyncEventSourceClient>> sessions;  // app-side map
 
-events.onConnectWithRequest([](AsyncWebServerRequest *request, const AsyncEventSourceClientPtr &client) {
+events.onConnect([](AsyncWebServerRequest *request, const AsyncEventSourceClientPtr &client) {
   // read authentication/session state from request here
   String user = getUserFrom(request);
   // store a weak reference: an expired session must not keep a dead client object alive
@@ -80,24 +80,25 @@ for (const auto &client : events.getClients()) {
 
 **Note**: if you access such app-side containers from several tasks, guard them with a mutex of your own — the connect/disconnect callbacks run on the AsyncTCP task.
 
-### Ownership-safe callbacks
+### Callback forms
 
-Besides the classic `onConnect` / `onDisconnect` callbacks (raw pointer, valid only inside the callback), ownership-safe variants deliver the shared handle and are safe to store:
+`onConnect` accepts a callable taking any one of:
+
+- `AsyncEventSourceClient *` — the raw pointer is valid only inside the callback;
+- `const AsyncEventSourceClientPtr &` — the shared handle, which may be stored;
+- `AsyncWebServerRequest *, const AsyncEventSourceClientPtr &` — the request as well, valid only inside the callback.
+
+`onDisconnect` accepts either of the first two. A generic lambda taking `auto` receives the shared handle. Methods may be called on the client inside either callback:
 
 ```cpp
-events.onConnectSafe([](const AsyncEventSourceClientPtr &client) {
-  // client->send(...) works as usual, and the handle may be retained
-});
-
-events.onDisconnectSafe([](const AsyncEventSourceClientPtr &client) {
-  // safe to call methods: the object is kept alive by the handle
+events.onDisconnect([](const AsyncEventSourceClientPtr &client) {
   Serial.printf("SSE client gone, lastId=%u\n", client->lastId());
 });
 ```
 
-Each connect/disconnect event has a single callback slot shared by the classic and the safe setter: registering one overwrites the other (the last registered wins). Pick one flavor per event.
+Each event has one callback: registering another replaces it, whatever its form. Passing `nullptr` clears it.
 
-`shared_from_this()` (inherited from `std::enable_shared_from_this`) provides the same handle from a client pointer you already hold, e.g. inside the classic `onConnect` callback — do not call it from the client constructor.
+`shared_from_this()` (inherited from `std::enable_shared_from_this`) provides the same handle from a client pointer you already hold, e.g. inside a raw-pointer callback — do not call it from the client constructor.
 
 ### Setup Event Source in the browser
 

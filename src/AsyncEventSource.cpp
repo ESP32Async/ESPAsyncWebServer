@@ -357,28 +357,6 @@ AsyncEventSource::~AsyncEventSource() {
   }
 }
 
-// wrap the raw-pointer flavor into the shared-handle slot; std::function owns
-// its callable, so an anonymous temporary registered by the user stays alive
-void AsyncEventSource::onConnect(ArEventHandlerFunction cb) {
-  if (cb) {
-    _connectsafecb = [cb](const AsyncEventSourceClientPtr &client) {
-      cb(client.get());
-    };
-  } else {
-    _connectsafecb = nullptr;
-  }
-}
-
-void AsyncEventSource::onDisconnect(ArEventHandlerFunction cb) {
-  if (cb) {
-    _disconnectsafecb = [cb](const AsyncEventSourceClientPtr &client) {
-      cb(client.get());
-    };
-  } else {
-    _disconnectsafecb = nullptr;
-  }
-}
-
 void AsyncEventSource::authorizeConnect(ArAuthorizeConnectHandler cb) {
   AsyncAuthorizationMiddleware *m = new AsyncAuthorizationMiddleware(401, cb);
   m->_freeOnRemoval = true;
@@ -419,19 +397,16 @@ void AsyncEventSource::_addClient(const AsyncEventSourceClientPtr &client, Async
   // Fire user callbacks outside the list lock, after registration: a
   // broadcast or close inside a connect callback now behaves consistently
   // (the client is part of the list while its callback runs).
-  if (_connectsafecb) {
-    _connectsafecb(client);
-  }
-  if (_requestConnectcb) {
-    _requestConnectcb(request, client);
+  if (_connectcb) {
+    _connectcb(request, client);
   }
 }
 
 void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
   // The client is kept alive by the caller's shared handle (network callback
   // pin or app-held handle), so firing callbacks with a usable object is safe.
-  if (_disconnectsafecb) {
-    _disconnectsafecb(client->shared_from_this());
+  if (_disconnectcb) {
+    _disconnectcb(client->shared_from_this());
   }
   asyncsrv::lock_guard_type lock(_client_queue_lock);
   for (auto i = _clients.begin(); i != _clients.end(); ++i) {
