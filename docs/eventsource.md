@@ -90,6 +90,8 @@ for (const auto &client : events.getClients()) {
 - `const AsyncEventSourceClientPtr &` — the shared handle, which may be stored;
 - `AsyncWebServerRequest *, const AsyncEventSourceClientPtr &` — the request as well, valid only inside the callback.
 
+By the time the connect callback runs, the connection belongs to the SSE client, so `request->client()` is null. Use `client->client()` instead, for example `client->client()->remoteIP()`.
+
 `onDisconnect` accepts either of the first two. A generic lambda taking `auto` receives the shared handle. Methods may be called on the client inside either callback:
 
 ```cpp
