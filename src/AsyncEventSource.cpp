@@ -112,8 +112,9 @@ void AsyncEventSourceClient::_attach() {
   _client->onAck(
     [](void *r, AsyncClient *c, size_t len, uint32_t time) {
       (void)c;
-      // Pin the client for the duration of the callback so a disconnect
-      // inside AsyncTCP cannot free it while this frame still runs.
+      // Pin the client for the duration of the callback, so a release while it
+      // runs cannot free it. A release by another task before the callback
+      // starts is not covered; AsyncTCP must not dispatch after that.
       AsyncEventSourceClientPtr self = static_cast<AsyncEventSourceClient *>(r)->shared_from_this();
       self->_onAck(len, time);
     },
