@@ -78,7 +78,9 @@ for (const auto &client : events.getClients()) {
 }
 ```
 
-**Note**: if you access such app-side containers from several tasks, guard them with a mutex of your own — the connect/disconnect callbacks run on the AsyncTCP task.
+**Note**: if you access such app-side containers from several tasks, guard them with a mutex of your own. The connect callback runs on the AsyncTCP task. The disconnect callback runs either on the AsyncTCP task or on a task that calls `close()`.
+
+**Limitation**: destroying an `AsyncEventSource` while clients are still connected is not yet safe.
 
 ### Callback forms
 
