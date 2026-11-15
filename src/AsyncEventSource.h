@@ -72,6 +72,7 @@ using AsyncEvent_SharedData_t = std::shared_ptr<String>;
 class AsyncEventSourceClient : public std::enable_shared_from_this<AsyncEventSourceClient> {
 private:
   friend class AsyncEventSource;
+  friend class AsyncEventSourceResponse;
   AsyncClient *_client;
   AsyncEventSource *_server;
   uint32_t _lastId{0};
@@ -89,19 +90,16 @@ private:
   // detach from the owning server (used when the server dies before the client)
   // and close the connection
   void _detach();
+  void _onAck(size_t len, uint32_t time);
+  void _onPoll();
+  void _onTimeout(uint32_t time);
+  void _onDisconnect();
+
+  // Created by AsyncEventSourceResponse::_respond() without a connection;
+  // AsyncEventSource::_addClient() adopts the request's and lists the client.
+  AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId = 0);
 
 public:
-  /**
-   * @brief Construct a new Async Event Source Client object
-   * @note constructor is normally passed a client object from AsyncWebServerRequest::releaseClient(); see AsyncEventSourceResponse::_respond()
-   * @note the client does not register itself with the server; ownership passes to
-   *       AsyncEventSource::_addClient(), which stores it in the shared client list
-   *
-   * @param client
-   * @param server
-   * @param lastId
-   */
-  AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId = 0);
   ~AsyncEventSourceClient();
 
   /**
@@ -161,7 +159,7 @@ public:
     return _client;
   }
   bool connected() const {
-    return _client && _client->connected();
+    return _client->connected();
   }
   uint32_t lastId() const {
     return _lastId;
@@ -188,12 +186,6 @@ public:
   size_t get_max_inflight_bytes() const {
     return _max_inflight;
   }
-
-  // system callbacks (do not call if from user code!)
-  void _onAck(size_t len, uint32_t time);
-  void _onPoll();
-  void _onTimeout(uint32_t time);
-  void _onDisconnect();
 };
 
 /**
@@ -203,6 +195,8 @@ public:
  */
 class AsyncEventSource : public AsyncWebHandler {
 private:
+  friend class AsyncEventSourceClient;
+  friend class AsyncEventSourceResponse;
   String _url;
   std::list<AsyncEventSourceClientPtr> _clients;
   // Same as for individual messages, protect mutations of _clients list
@@ -213,6 +207,10 @@ private:
 
   // this method manipulates in-fligh data size for connected client depending on number of active connections
   void _adjust_inflight_window();
+
+  // gives a pre-allocated client the request's connection, then registers it
+  void _addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request);
+  void _handleDisconnect(AsyncEventSourceClient *client);
 
 public:
   typedef enum {
@@ -293,21 +291,17 @@ public:
      */
   std::vector<AsyncEventSourceClientPtr> getClients() const;
 
-  // system callbacks (do not call from user code!)
-  // registers a pre-allocated client; when a request is supplied, adopts its
-  // AsyncClient (ownership transfer) before registration
-  void _addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request = nullptr);
-  void _handleDisconnect(AsyncEventSourceClient *client);
   bool canHandle(AsyncWebServerRequest *request) const final;
   void handleRequest(AsyncWebServerRequest *request) final;
 };
 
 class AsyncEventSourceResponse : public AsyncWebServerResponse {
 private:
+  friend class AsyncEventSource;
   AsyncEventSource *_server;
+  AsyncEventSourceResponse(AsyncEventSource *server);
 
 public:
-  AsyncEventSourceResponse(AsyncEventSource *server);
   void _respond(AsyncWebServerRequest *request) override;
   size_t _ack(AsyncWebServerRequest *request, size_t len, uint32_t time) override {
     return 0;

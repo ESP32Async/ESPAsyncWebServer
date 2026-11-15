@@ -233,9 +233,7 @@ void AsyncEventSourceClient::_onDisconnect() {
 }
 
 void AsyncEventSourceClient::close() {
-  if (_client) {
-    _client->close();
-  }
+  _client->close();
 }
 
 void AsyncEventSourceClient::_detach() {
@@ -328,19 +326,9 @@ void AsyncEventSource::authorizeConnect(ArAuthorizeConnectHandler cb) {
 }
 
 void AsyncEventSource::_addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request) {
-  if (!client) {
-    return;
-  }
-  if (!client->_client && request) {
-    // Adopt the connection from the request. The client was pre-allocated
-    // (before any bytes were written to the socket) in AsyncEventSourceResponse::_respond().
-    client->_client = request->clientRelease();
-  }
-  if (!client->_client) {
-    // No connection to adopt (e.g. the request was already gone): drop the
-    // half-constructed client instead of registering a zombie.
-    return;
-  }
+  // The client was pre-allocated in AsyncEventSourceResponse::_respond(), before
+  // any bytes were written to the socket.
+  client->_client = request->clientRelease();
 
   // Network callbacks are attached here (not in the constructor) because they rely on
   // shared_from_this(), which requires shared_ptr ownership.
@@ -383,20 +371,16 @@ void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
 }
 
 void AsyncEventSource::close() {
-  // Snapshot the list under the lock, close outside it: a synchronous
-  // _onDisconnect() inside c->close() erases list nodes, which would
-  // otherwise invalidate the loop iterator (and could deadlock).
-  std::vector<AsyncEventSourceClientPtr> live;
+  // Take the list, then close outside the lock. Close unconditionally: a client
+  // can be disconnected with its report still queued, and closing reports it
+  // while we hold the handle, rather than from its destructor.
+  std::list<AsyncEventSourceClientPtr> closing;
   {
     asyncsrv::lock_guard_type lock(_client_queue_lock);
-    for (const auto &c : _clients) {
-      live.push_back(c);
-    }
+    closing.splice(closing.end(), _clients);
   }
-  for (const auto &c : live) {
-    if (c->connected()) {
-      c->close();
-    }
+  for (const auto &c : closing) {
+    c->close();
   }
 }
 
