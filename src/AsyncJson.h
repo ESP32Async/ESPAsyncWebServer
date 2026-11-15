@@ -6,6 +6,7 @@
 #include <ESPAsyncWebServer.h>
 #include "ChunkPrint.h"
 
+#include <list>
 #include <utility>
 
 #if ASYNC_JSON_SUPPORT == 1
@@ -90,7 +91,9 @@ public:
 
 class AsyncCallbackJsonWebHandler : public AsyncWebHandler {
 protected:
-  AsyncURIMatcher _uri;
+  // A handler can serve multiple URIs. One method mask applies to all of them.
+  // setMethod() accepts a composite: handler.setMethod(HTTP_GET | HTTP_POST)
+  std::list<AsyncURIMatcher> _uris;
   WebRequestMethodComposite _method;
   ArJsonRequestHandlerFunction _onRequest;
 #if ARDUINOJSON_VERSION_MAJOR == 6
@@ -105,6 +108,24 @@ public:
   AsyncCallbackJsonWebHandler(AsyncURIMatcher uri, ArJsonRequestHandlerFunction onRequest = nullptr);
 #endif
 
+  /// Set the URI matcher, replacing any previously added matchers (backward-compatible).
+  void setUri(AsyncURIMatcher uri) {
+    _uris.clear();
+    _uris.push_back(std::move(uri));
+  }
+
+  /// Add an additional URI matcher — the same handler serves all added URIs.
+  void addUri(AsyncURIMatcher uri) {
+    _uris.push_back(std::move(uri));
+  }
+
+  /// Remove all URI matchers.
+  void clearUris() {
+    _uris.clear();
+  }
+
+  /// Set the HTTP method mask for all URIs of this handler.
+  /// Accepts a composite: `handler.setMethod(HTTP_GET | HTTP_POST)`.
   void setMethod(WebRequestMethodComposite method) {
     _method = std::move(method);
   }

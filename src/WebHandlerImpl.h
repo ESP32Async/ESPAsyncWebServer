@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <time.h>
 
+#include <list>
 #include <string>
 #include <utility>
 
@@ -55,7 +56,11 @@ public:
 class AsyncCallbackWebHandler : public AsyncWebHandler {
 private:
 protected:
-  AsyncURIMatcher _uri;
+  // A handler can serve multiple URIs. One method mask applies to all of them.
+  // setMethod() accepts a composite: handler.setMethod(HTTP_GET | HTTP_POST)
+  // Use separate handlers when different methods need different callbacks
+  // (e.g. a GET handler and a POST handler with onBody/onUpload callbacks).
+  std::list<AsyncURIMatcher> _uris;
   WebRequestMethodComposite _method;
   ArRequestHandlerFunction _onRequest;
   ArUploadHandlerFunction _onUpload;
@@ -63,8 +68,42 @@ protected:
   bool _isRegex;
 
 public:
-  AsyncCallbackWebHandler() : _uri(), _method(AsyncWebRequestMethod::HTTP_ALL), _onRequest(NULL), _onUpload(NULL), _onBody(NULL), _isRegex(false) {}
+  AsyncCallbackWebHandler() : _method(AsyncWebRequestMethod::HTTP_ALL), _onRequest(NULL), _onUpload(NULL), _onBody(NULL), _isRegex(false) {}
+
+  /**
+   * @brief Set the URI matcher, replacing any previously added matchers.
+   *
+   * Backward-compatible: same behavior as before when only one URI is used.
+   * Use addUri() to serve additional URIs with the same handler.
+   */
   void setUri(AsyncURIMatcher uri);
+
+  /**
+   * @brief Add an additional URI matcher.
+   *
+   * The same handler object will serve all added URIs, matched against the
+   * method mask set via setMethod() (which accepts a composite, e.g.
+   * `HTTP_GET | HTTP_POST`).
+   *
+   * @code
+   * handler.setMethod(HTTP_GET | HTTP_POST);
+   * handler.setUri(AsyncURIMatcher::exact("/hello"));
+   * handler.addUri(AsyncURIMatcher::exact("/hi"));
+   * handler.addUri(AsyncURIMatcher::prefix("/greet/"));
+   * @endcode
+   */
+  void addUri(AsyncURIMatcher uri);
+
+  /// Remove all URI matchers (the handler will no longer match any request).
+  void clearUris();
+
+  /**
+   * @brief Set the HTTP method mask for all URIs of this handler.
+   *
+   * Accepts a composite: `handler.setMethod(HTTP_GET | HTTP_POST)`.
+   * Use separate handlers when different methods need different callbacks
+   * (onBody/onUpload).
+   */
   void setMethod(WebRequestMethodComposite method) {
     _method = std::move(method);
   }
