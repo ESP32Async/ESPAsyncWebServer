@@ -208,9 +208,8 @@ private:
   // this method manipulates in-fligh data size for connected client depending on number of active connections
   void _adjust_inflight_window();
 
-  // registers a pre-allocated client; when a request is supplied, adopts its
-  // AsyncClient (ownership transfer) before registration
-  void _addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request = nullptr);
+  // gives a pre-allocated client the request's connection, then registers it
+  void _addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request);
   void _handleDisconnect(AsyncEventSourceClient *client);
 
 public:

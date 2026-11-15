@@ -328,19 +328,9 @@ void AsyncEventSource::authorizeConnect(ArAuthorizeConnectHandler cb) {
 }
 
 void AsyncEventSource::_addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request) {
-  if (!client) {
-    return;
-  }
-  if (!client->_client && request) {
-    // Adopt the connection from the request. The client was pre-allocated
-    // (before any bytes were written to the socket) in AsyncEventSourceResponse::_respond().
-    client->_client = request->clientRelease();
-  }
-  if (!client->_client) {
-    // No connection to adopt (e.g. the request was already gone): drop the
-    // half-constructed client instead of registering a zombie.
-    return;
-  }
+  // The client was pre-allocated in AsyncEventSourceResponse::_respond(), before
+  // any bytes were written to the socket.
+  client->_client = request->clientRelease();
 
   // Network callbacks are attached here (not in the constructor) because they rely on
   // shared_from_this(), which requires shared_ptr ownership.
