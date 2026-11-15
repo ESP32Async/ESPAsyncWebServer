@@ -5,8 +5,10 @@
 #include "AsyncWebServerLogging.h"
 
 #include <algorithm>
+#include <list>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #define ASYNC_SSE_NEW_LINE_CHAR (char)0xa
 
@@ -102,48 +104,58 @@ static String generateEventMessage(const char *message, const char *event, uint3
 // Client
 
 AsyncEventSourceClient::AsyncEventSourceClient(AsyncClient *client, AsyncEventSource *server, uint32_t lastId)
-  : _client(client), _server(server), _lastId(lastId) {
+  : _client(client), _server(server), _lastId(lastId) {}
 
+void AsyncEventSourceClient::_attach() {
   _client->setRxTimeout(0);
   _client->onError(NULL, NULL);
   _client->onAck(
     [](void *r, AsyncClient *c, size_t len, uint32_t time) {
       (void)c;
-      static_cast<AsyncEventSourceClient *>(r)->_onAck(len, time);
+      // Pin the client for the duration of the callback, so a release while it
+      // runs cannot free it. A release by another task before the callback
+      // starts is not covered; AsyncTCP must not dispatch after that.
+      AsyncEventSourceClientPtr self = static_cast<AsyncEventSourceClient *>(r)->shared_from_this();
+      self->_onAck(len, time);
     },
     this
   );
   _client->onPoll(
     [](void *r, AsyncClient *c) {
       (void)c;
-      static_cast<AsyncEventSourceClient *>(r)->_onPoll();
+      AsyncEventSourceClientPtr self = static_cast<AsyncEventSourceClient *>(r)->shared_from_this();
+      self->_onPoll();
     },
     this
   );
   _client->onData(NULL, NULL);
   _client->onTimeout(
-    [this](void *r, AsyncClient *c __attribute__((unused)), uint32_t time) {
-      static_cast<AsyncEventSourceClient *>(r)->_onTimeout(time);
+    [](void *r, AsyncClient *c, uint32_t time) {
+      (void)c;
+      AsyncEventSourceClientPtr self = static_cast<AsyncEventSourceClient *>(r)->shared_from_this();
+      self->_onTimeout(time);
     },
     this
   );
   _client->onDisconnect(
-    [this](void *r, AsyncClient *c) {
-      static_cast<AsyncEventSourceClient *>(r)->_onDisconnect();
-      delete c;
+    [](void *r, AsyncClient *c) {
+      (void)c;
+      // Pin first: _onDisconnect() may drop the server's reference. The
+      // AsyncClient is not deleted here: any task holding a handle may still be
+      // using it, so it lives until the last handle is dropped.
+      AsyncEventSourceClientPtr self = static_cast<AsyncEventSourceClient *>(r)->shared_from_this();
+      self->_onDisconnect();
     },
     this
   );
-
-  _server->_addClient(this);
   _client->setNoDelay(true);
 }
 
 AsyncEventSourceClient::~AsyncEventSourceClient() {
-  // Protect message queue access (size checks and modifications) which is not thread-safe.
-  asyncsrv::lock_guard_type lock(_lockmq);
-  _messageQueue.clear();
-  close();
+  // No disconnect is owed by now - the server holds a handle until one is
+  // reported, and _detach() closes - so ~AsyncClient reports nothing back here.
+  // This often runs inside that disconnect callback, as its pin is released.
+  delete _client;
 }
 
 bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
@@ -159,12 +171,13 @@ bool AsyncEventSourceClient::_queueMessage(AsyncEvent_SharedData_t &&msg) {
     return false;  // Invalid message
   }
 
-  if (_client) {
-    _messageQueue.emplace_back(std::move(msg));
-  } else {
-    _messageQueue.clear();
+  // Checked under the lock: connected() is false before a disconnect is
+  // reported, so either this sees it, or _onDisconnect() clears the message.
+  if (!_client->connected()) {
     return false;
   }
+
+  _messageQueue.emplace_back(std::move(msg));
 
   // Send new content if we're not waiting on network buffer space
   if (!_ack_pending && (_inflight < _max_inflight)) {
@@ -201,23 +214,33 @@ void AsyncEventSourceClient::_onPoll() {
 }
 
 void AsyncEventSourceClient::_onTimeout(uint32_t time __attribute__((unused))) {
-  if (_client) {
-    _client->close();
-  }
+  _client->close();
 }
 
 void AsyncEventSourceClient::_onDisconnect() {
-  if (!_client) {
-    return;
+  if (_server) {
+    _server->_handleDisconnect(this);
   }
-  _client = nullptr;
-  _server->_handleDisconnect(this);
+  // Drop queued messages: they can never be delivered anymore. Do it after
+  // the disconnect callback so packetsWaiting() still reports the backlog
+  // there, as it did when the client was destroyed immediately on erase.
+  // Without this, an app holding a handle would keep the backlog in memory
+  // until the last handle is dropped.
+  {
+    asyncsrv::lock_guard_type lock(_lockmq);
+    _messageQueue.clear();
+  }
 }
 
 void AsyncEventSourceClient::close() {
   if (_client) {
     _client->close();
   }
+}
+
+void AsyncEventSourceClient::_detach() {
+  _server = nullptr;
+  close();
 }
 
 bool AsyncEventSourceClient::send(const char *message, const char *event, uint32_t id, uint32_t reconnect) {
@@ -228,10 +251,6 @@ bool AsyncEventSourceClient::send(const char *message, const char *event, uint32
 }
 
 void AsyncEventSourceClient::_runQueue() {
-  if (!_client) {
-    return;
-  }
-
   // there is no need to lock the mutex here, 'cause all the calls to this method must be already lock'ed
   size_t total_bytes_written = 0;
   while (!_messageQueue.empty()) {
@@ -273,7 +292,7 @@ void AsyncEventSourceClient::_runQueue() {
   }
 
   // flush socket
-  if (_client && total_bytes_written) {
+  if (total_bytes_written) {
     _client->send();
   }
 }
@@ -286,30 +305,72 @@ void AsyncEventSourceClient::set_max_inflight_bytes(size_t value) {
 
 /*  AsyncEventSource  */
 
+AsyncEventSource::~AsyncEventSource() {
+  close();
+  // Detach any client whose handle an application may still hold: the server
+  // object is going away, so clients must not touch it anymore. New clients
+  // cannot appear past this point: the handler is removed from the server
+  // before destruction begins.
+  std::list<AsyncEventSourceClientPtr> leftovers;
+  {
+    asyncsrv::lock_guard_type lock(_client_queue_lock);
+    leftovers.splice(leftovers.end(), _clients);
+  }
+  for (const auto &c : leftovers) {
+    c->_detach();
+  }
+}
+
 void AsyncEventSource::authorizeConnect(ArAuthorizeConnectHandler cb) {
   AsyncAuthorizationMiddleware *m = new AsyncAuthorizationMiddleware(401, cb);
   m->_freeOnRemoval = true;
   addMiddleware(m);
 }
 
-void AsyncEventSource::_addClient(AsyncEventSourceClient *client) {
+void AsyncEventSource::_addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request) {
   if (!client) {
     return;
   }
-
-  if (_connectcb) {
-    _connectcb(client);
+  if (!client->_client && request) {
+    // Adopt the connection from the request. The client was pre-allocated
+    // (before any bytes were written to the socket) in AsyncEventSourceResponse::_respond().
+    client->_client = request->clientRelease();
+  }
+  if (!client->_client) {
+    // No connection to adopt (e.g. the request was already gone): drop the
+    // half-constructed client instead of registering a zombie.
+    return;
   }
 
-  asyncsrv::lock_guard_type lock(_client_queue_lock);
-  _clients.emplace_back(client);
+  // Network callbacks are attached here (not in the constructor) because they rely on
+  // shared_from_this(), which requires shared_ptr ownership.
+  // We are running on the AsyncTCP task here, so none of the network event callbacks will
+  // execute until after _addClient returns.
+  client->_attach();
 
-  _adjust_inflight_window();
+  // Run user connect callback before adding the client to the list.
+  // This prevents races with a user task closing clients via getClients(), which could
+  // trigger the disconnect callback before we ever notified them of the new connection.
+  // Note the user may choose to disconnect in their callback if they want to reject this
+  // connection for any reason.
+  if (_connectcb) {
+    _connectcb(request, client);
+  }
+
+  // connected() is false before a disconnect is reported, so either that
+  // report finds the client listed, or it is never listed.
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
+  if (client->connected()) {
+    _clients.emplace_back(client);
+    _adjust_inflight_window();
+  }
 }
 
 void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
+  // The client is kept alive by the caller's shared handle (network callback
+  // pin or app-held handle), so firing callbacks with a usable object is safe.
   if (_disconnectcb) {
-    _disconnectcb(client);
+    _disconnectcb(client->shared_from_this());
   }
   asyncsrv::lock_guard_type lock(_client_queue_lock);
   for (auto i = _clients.begin(); i != _clients.end(); ++i) {
@@ -322,20 +383,31 @@ void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
 }
 
 void AsyncEventSource::close() {
-  // While the whole loop is not done, the linked list is locked and so the
-  // iterator should remain valid even when AsyncEventSource::_handleDisconnect()
-  // is called very early
-  asyncsrv::lock_guard_type lock(_client_queue_lock);
-  for (const auto &c : _clients) {
+  // Snapshot the list under the lock, close outside it: a synchronous
+  // _onDisconnect() inside c->close() erases list nodes, which would
+  // otherwise invalidate the loop iterator (and could deadlock).
+  std::vector<AsyncEventSourceClientPtr> live;
+  {
+    asyncsrv::lock_guard_type lock(_client_queue_lock);
+    for (const auto &c : _clients) {
+      live.push_back(c);
+    }
+  }
+  for (const auto &c : live) {
     if (c->connected()) {
-      /**
-       * @brief: Fix self-deadlock by using recursive_mutex instead.
-       * Due to c->close() shall call the callback function _onDisconnect()
-       * The calling flow _onDisconnect() --> _handleDisconnect() --> deadlock
-      */
       c->close();
     }
   }
+}
+
+std::vector<AsyncEventSourceClientPtr> AsyncEventSource::getClients() const {
+  std::vector<AsyncEventSourceClientPtr> snapshot;
+  asyncsrv::lock_guard_type lock(_client_queue_lock);
+  snapshot.reserve(_clients.size());
+  for (const auto &c : _clients) {
+    snapshot.push_back(c);
+  }
+  return snapshot;
 }
 
 // pmb fix
@@ -433,8 +505,20 @@ void AsyncEventSourceResponse::_respond(AsyncWebServerRequest *request) {
   if (request->hasHeader(T_Last_Event_ID)) {
     lastId = strtoul(request->getHeader(T_Last_Event_ID)->value().c_str(), nullptr, 10);
   }
+  // Allocate the SSE client before committing anything to the connection, so
+  // an allocation failure can still be answered with 503 on the raw HTTP
+  // connection (after clientRelease() the request can no longer respond).
+  // The connection itself is adopted from the request inside _addClient().
+  AsyncEventSourceClientPtr client(new (std::nothrow) AsyncEventSourceClient(nullptr, _server, lastId));
+  if (!client) {
+    async_ws_log_e("Failed to allocate");
+    _state = RESPONSE_FAILED;
+    request->sendRawResponse(asyncsrv::T_HTTP_503_HEAD);
+    return;
+  }
   request->client()->write(out.c_str(), _headLength, ASYNC_WRITE_FLAG_COPY);
-  // Add a new AsyncEventSourceClient to the server's list of clients
-  // This adopts the ownership of the AsyncTCP's client pointer from `request` parameter
-  new AsyncEventSourceClient(request->clientRelease(), _server, lastId);
+  // Hold the request in scope for the connect callback to inspect
+  // (clientRelease() inside _addClient() drops the request's self-reference)
+  std::shared_ptr<AsyncWebServerRequest> reqLock = request->shared_from_this();
+  _server->_addClient(client, request);
 }

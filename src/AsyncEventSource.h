@@ -43,14 +43,24 @@
 #endif
 #endif
 
+#include <functional>
 #include <list>
 #include <memory>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 class AsyncEventSource;
 class AsyncEventSourceResponse;
 class AsyncEventSourceClient;
+// Ownership-safe handle to an SSE client connection.
+// The handle keeps the client object alive even after it disconnected, and can
+// be retained past any callback; use it as a stable connection identifier.
+using AsyncEventSourceClientPtr = std::shared_ptr<AsyncEventSourceClient>;
 using ArEventHandlerFunction = std::function<void(AsyncEventSourceClient *client)>;
+// Stored callback forms; onConnect()/onDisconnect() adapt narrower callables into these.
+using ArEventConnectHandler = std::function<void(AsyncWebServerRequest *request, const AsyncEventSourceClientPtr &client)>;
+using ArEventDisconnectHandler = std::function<void(const AsyncEventSourceClientPtr &client)>;
 using ArAuthorizeConnectHandler = ArAuthorizeFunction;
 // shared message object container
 using AsyncEvent_SharedData_t = std::shared_ptr<String>;
@@ -59,8 +69,9 @@ using AsyncEvent_SharedData_t = std::shared_ptr<String>;
  * @brief class holds a sse messages queue for a particular client's connection
  *
  */
-class AsyncEventSourceClient {
+class AsyncEventSourceClient : public std::enable_shared_from_this<AsyncEventSourceClient> {
 private:
+  friend class AsyncEventSource;
   AsyncClient *_client;
   AsyncEventSource *_server;
   uint32_t _lastId{0};
@@ -72,11 +83,19 @@ private:
   mutable asyncsrv::mutex_type _lockmq;
   bool _queueMessage(AsyncEvent_SharedData_t &&msg);
   void _runQueue();
+  // bind AsyncTCP callbacks (ack/poll/timeout/disconnect) to this client;
+  // called by AsyncEventSource::_addClient() once the client is shared-owned
+  void _attach();
+  // detach from the owning server (used when the server dies before the client)
+  // and close the connection
+  void _detach();
 
 public:
   /**
    * @brief Construct a new Async Event Source Client object
    * @note constructor is normally passed a client object from AsyncWebServerRequest::releaseClient(); see AsyncEventSourceResponse::_respond()
+   * @note the client does not register itself with the server; ownership passes to
+   *       AsyncEventSource::_addClient(), which stores it in the shared client list
    *
    * @param client
    * @param server
@@ -113,10 +132,10 @@ public:
      * @return false on queue overflow or no client connected
      */
   bool write(AsyncEvent_SharedData_t message) {
-    return connected() && _queueMessage(std::move(message));
+    return _queueMessage(std::move(message));
   };
 
-  [[deprecated("Use _write(AsyncEvent_SharedData_t message) instead to share same data with multiple SSE clients")]]
+  [[deprecated("Use write(AsyncEvent_SharedData_t message) instead to share same data with multiple SSE clients")]]
   bool write(const char *message, size_t len) {
     if (!connected()) {
       return false;
@@ -185,12 +204,12 @@ public:
 class AsyncEventSource : public AsyncWebHandler {
 private:
   String _url;
-  std::list<std::unique_ptr<AsyncEventSourceClient>> _clients;
+  std::list<AsyncEventSourceClientPtr> _clients;
   // Same as for individual messages, protect mutations of _clients list
   // since simultaneous access from different tasks is possible
   mutable asyncsrv::mutex_type _client_queue_lock;
-  ArEventHandlerFunction _connectcb = nullptr;
-  ArEventHandlerFunction _disconnectcb = nullptr;
+  ArEventConnectHandler _connectcb;
+  ArEventDisconnectHandler _disconnectcb;
 
   // this method manipulates in-fligh data size for connected client depending on number of active connections
   void _adjust_inflight_window();
@@ -204,9 +223,9 @@ public:
 
   AsyncEventSource(const char *url) : _url(url){};
   AsyncEventSource(const String &url) : _url(url){};
-  ~AsyncEventSource() {
-    close();
-  };
+  // Detaches clients still connected at destruction time so any app-held
+  // handles survive without touching the dead server (see AsyncEventSource.cpp)
+  ~AsyncEventSource();
 
   const char *url() const {
     return _url.c_str();
@@ -217,11 +236,27 @@ public:
   /**
      * @brief set on-connect callback for the client
      * used to deliver messages to client on first connect
-     *
-     * @param cb
+     * @param cb callable as void(AsyncEventSourceClient *),
+     *           void(const AsyncEventSourceClientPtr &), or
+     *           void(AsyncWebServerRequest *, const AsyncEventSourceClientPtr &);
+     *           a callable accepting several of these receives the last form.
+     *           A raw pointer or the request is valid only during the callback;
+     *           the shared handle may be stored.
      */
-  void onConnect(ArEventHandlerFunction cb) {
-    _connectcb = cb;
+  template<typename F> void onConnect(F &&cb);
+  void onConnect(std::nullptr_t) {
+    _connectcb = nullptr;
+  }
+
+  /**
+     * @brief set on-disconnect callback for the client
+     * @param cb callable as void(AsyncEventSourceClient *) or
+     *           void(const AsyncEventSourceClientPtr &);
+     *           a raw pointer is valid only during the callback
+     */
+  template<typename F> void onDisconnect(F &&cb);
+  void onDisconnect(std::nullptr_t) {
+    _disconnectcb = nullptr;
   }
 
   /**
@@ -242,10 +277,6 @@ public:
     return send(message.c_str(), event, id, reconnect);
   }
 
-  // The client pointer sent to the callback is only for reference purposes. DO NOT CALL ANY METHOD ON IT !
-  void onDisconnect(ArEventHandlerFunction cb) {
-    _disconnectcb = cb;
-  }
   void authorizeConnect(ArAuthorizeConnectHandler cb);
 
   // returns number of connected clients
@@ -254,8 +285,18 @@ public:
   // returns average number of messages pending in all client's queues
   size_t avgPacketsWaiting() const;
 
+  /**
+     * @brief Get a snapshot of all registered clients as shared handles.
+     * The returned handles stay valid while held, even if a client disconnects
+     * mid-iteration (it merely reports connected() == false). Use for targeted
+     * sends or closes without retaining unsafe raw pointers.
+     */
+  std::vector<AsyncEventSourceClientPtr> getClients() const;
+
   // system callbacks (do not call from user code!)
-  void _addClient(AsyncEventSourceClient *client);
+  // registers a pre-allocated client; when a request is supplied, adopts its
+  // AsyncClient (ownership transfer) before registration
+  void _addClient(const AsyncEventSourceClientPtr &client, AsyncWebServerRequest *request = nullptr);
   void _handleDisconnect(AsyncEventSourceClient *client);
   bool canHandle(AsyncWebServerRequest *request) const final;
   void handleRequest(AsyncWebServerRequest *request) final;
@@ -275,3 +316,114 @@ public:
     return true;
   }
 };
+
+namespace asyncsrv {
+namespace detail {
+
+// C++11 stand-in for std::is_invocable: is an lvalue G callable with Args?
+template<typename G, typename... Args> auto callable_test(int) -> decltype((void)std::declval<G &>()(std::declval<Args>()...), std::true_type{});
+template<typename, typename...> std::false_type callable_test(...);
+template<typename G, typename... Args> struct is_callable_with : decltype(callable_test<G, Args...>(0)) {};
+
+// Empty-callable test: only function pointers and std::function can be null.
+template<typename T> bool is_null(const T &) {
+  return false;
+}
+template<typename R, typename... A> bool is_null(R (*p)(A...)) {
+  return p == nullptr;
+}
+template<typename S> bool is_null(const std::function<S> &f) {
+  return !f;
+}
+
+template<int N> using tag = std::integral_constant<int, N>;
+template<typename> struct always_false : std::false_type {};
+
+// Adapters hold the user's functor directly, so there is one type erasure, at assignment.
+template<typename F> struct SseWithRequest {
+  F f;
+  void operator()(AsyncWebServerRequest *r, const AsyncEventSourceClientPtr &c) {
+    f(r, c);
+  }
+};
+template<typename F> struct SseFromShared {
+  F f;
+  void operator()(AsyncWebServerRequest *, const AsyncEventSourceClientPtr &c) {
+    f(c);
+  }
+  void operator()(const AsyncEventSourceClientPtr &c) {
+    f(c);
+  }
+};
+template<typename F> struct SseFromRaw {
+  F f;
+  void operator()(AsyncWebServerRequest *, const AsyncEventSourceClientPtr &c) {
+    f(c.get());
+  }
+  void operator()(const AsyncEventSourceClientPtr &c) {
+    f(c.get());
+  }
+};
+
+// Richest form first, so a callable accepting several resolves deterministically.
+// Each probe is instantiated only if the one before it failed: probing a generic
+// lambda instantiates its body, and a body error there is a hard error.
+template<typename F, bool = is_callable_with<F, AsyncEventSourceClient *>::value> struct sse_raw_kind : tag<1> {};
+template<typename F> struct sse_raw_kind<F, false> : tag<0> {};
+template<typename F, bool = is_callable_with<F, const AsyncEventSourceClientPtr &>::value> struct sse_disconnect_kind : tag<2> {};
+template<typename F> struct sse_disconnect_kind<F, false> : sse_raw_kind<F> {};
+template<typename F, bool = is_callable_with<F, AsyncWebServerRequest *, const AsyncEventSourceClientPtr &>::value> struct sse_connect_kind : tag<3> {};
+template<typename F> struct sse_connect_kind<F, false> : sse_disconnect_kind<F> {};
+
+template<typename F> ArEventConnectHandler make_sse_connect_handler(F &&cb, tag<3>) {
+  return SseWithRequest<typename std::decay<F>::type>{std::forward<F>(cb)};
+}
+template<typename F> ArEventConnectHandler make_sse_connect_handler(F &&cb, tag<2>) {
+  return SseFromShared<typename std::decay<F>::type>{std::forward<F>(cb)};
+}
+template<typename F> ArEventConnectHandler make_sse_connect_handler(F &&cb, tag<1>) {
+  return SseFromRaw<typename std::decay<F>::type>{std::forward<F>(cb)};
+}
+template<typename F> ArEventConnectHandler make_sse_connect_handler(F &&, tag<0>) {
+  static_assert(
+    always_false<F>::value, "onConnect() callback must be callable as void(AsyncEventSourceClient *), "
+                            "void(const AsyncEventSourceClientPtr &), or "
+                            "void(AsyncWebServerRequest *, const AsyncEventSourceClientPtr &)"
+  );
+  return nullptr;
+}
+
+template<typename F> ArEventDisconnectHandler make_sse_disconnect_handler(F &&cb, tag<2>) {
+  return SseFromShared<typename std::decay<F>::type>{std::forward<F>(cb)};
+}
+template<typename F> ArEventDisconnectHandler make_sse_disconnect_handler(F &&cb, tag<1>) {
+  return SseFromRaw<typename std::decay<F>::type>{std::forward<F>(cb)};
+}
+template<typename F> ArEventDisconnectHandler make_sse_disconnect_handler(F &&, tag<0>) {
+  static_assert(
+    always_false<F>::value, "onDisconnect() callback must be callable as void(AsyncEventSourceClient *) "
+                            "or void(const AsyncEventSourceClientPtr &)"
+  );
+  return nullptr;
+}
+
+}  // namespace detail
+}  // namespace asyncsrv
+
+template<typename F> void AsyncEventSource::onConnect(F &&cb) {
+  if (asyncsrv::detail::is_null(cb)) {
+    _connectcb = nullptr;
+    return;
+  }
+  _connectcb =
+    asyncsrv::detail::make_sse_connect_handler(std::forward<F>(cb), typename asyncsrv::detail::sse_connect_kind<typename std::decay<F>::type>::type{});
+}
+
+template<typename F> void AsyncEventSource::onDisconnect(F &&cb) {
+  if (asyncsrv::detail::is_null(cb)) {
+    _disconnectcb = nullptr;
+    return;
+  }
+  _disconnectcb =
+    asyncsrv::detail::make_sse_disconnect_handler(std::forward<F>(cb), typename asyncsrv::detail::sse_disconnect_kind<typename std::decay<F>::type>::type{});
+}

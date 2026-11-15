@@ -49,6 +49,63 @@ authMiddleware.generateHash();
 events.addMiddleware(&authMiddleware);
 ```
 
+### Track and close a single client
+
+Each SSE client is exposed as a shared handle (`AsyncEventSourceClientPtr`, a `std::shared_ptr`). A handle may be stored past the end of any callback: it keeps the client object alive until the last handle is dropped, and a client that disconnects simply reports `connected() == false` instead of becoming a dangling pointer.
+
+A connect callback that also takes the request lets you associate the connection with request-scoped state (such as the authenticated user) while the request is still alive:
+
+```cpp
+std::map<String, std::weak_ptr<AsyncEventSourceClient>> sessions;  // app-side map
+
+events.onConnect([](AsyncWebServerRequest *request, const AsyncEventSourceClientPtr &client) {
+  // read authentication/session state from request here
+  String user = getUserFrom(request);
+  // store a weak reference: an expired session must not keep a dead client object alive
+  sessions[user] = client;
+});
+
+// later, from your normal service context (e.g. session expiry):
+if (auto client = sessions["bob"].lock()) {
+  client->close();  // closes ONLY this connection, other clients stay connected
+}
+
+// send a message to every connected client (safe snapshot):
+for (const auto &client : events.getClients()) {
+  if (client->connected()) {
+    client->send("update", "state");
+  }
+}
+```
+
+**Note**: if you access such app-side containers from several tasks, guard them with a mutex of your own. The connect callback runs on the AsyncTCP task. The disconnect callback runs either on the AsyncTCP task or on a task that calls `close()`.
+
+**Limitation**: destroying an `AsyncEventSource` while clients are still connected is not yet safe.
+
+### Callback forms
+
+`onConnect` accepts a callable taking any one of:
+
+- `AsyncEventSourceClient *` — the raw pointer is valid only inside the callback;
+- `const AsyncEventSourceClientPtr &` — the shared handle, which may be stored;
+- `AsyncWebServerRequest *, const AsyncEventSourceClientPtr &` — the request as well, valid only inside the callback.
+
+By the time the connect callback runs, the connection belongs to the SSE client, so `request->client()` is null. Use `client->client()` instead, for example `client->client()->remoteIP()`.
+
+The server lists a client only once its connect callback has returned. Until then, `events.send()` and `getClients()` do not include it, so send to it with `client->send()` inside the callback. If the callback passes the handle to another task, and that task closes the connection before the callback returns, the disconnect callback can run first.
+
+`onDisconnect` accepts either of the first two. A generic lambda taking `auto` receives the shared handle. Methods may be called on the client inside either callback:
+
+```cpp
+events.onDisconnect([](const AsyncEventSourceClientPtr &client) {
+  Serial.printf("SSE client gone, lastId=%u\n", client->lastId());
+});
+```
+
+Each event has one callback: registering another replaces it, whatever its form. Passing `nullptr` clears it.
+
+`shared_from_this()` (inherited from `std::enable_shared_from_this`) provides the same handle from a client pointer you already hold, e.g. inside a raw-pointer callback — do not call it from the client constructor.
+
 ### Setup Event Source in the browser
 
 ```javascript
