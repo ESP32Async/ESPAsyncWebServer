@@ -383,20 +383,16 @@ void AsyncEventSource::_handleDisconnect(AsyncEventSourceClient *client) {
 }
 
 void AsyncEventSource::close() {
-  // Snapshot the list under the lock, close outside it: a synchronous
-  // _onDisconnect() inside c->close() erases list nodes, which would
-  // otherwise invalidate the loop iterator (and could deadlock).
-  std::vector<AsyncEventSourceClientPtr> live;
+  // Take the list, then close outside the lock. Close unconditionally: a client
+  // can be disconnected with its report still queued, and closing reports it
+  // while we hold the handle, rather than from its destructor.
+  std::list<AsyncEventSourceClientPtr> closing;
   {
     asyncsrv::lock_guard_type lock(_client_queue_lock);
-    for (const auto &c : _clients) {
-      live.push_back(c);
-    }
+    closing.splice(closing.end(), _clients);
   }
-  for (const auto &c : live) {
-    if (c->connected()) {
-      c->close();
-    }
+  for (const auto &c : closing) {
+    c->close();
   }
 }
 
