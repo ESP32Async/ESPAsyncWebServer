@@ -233,9 +233,7 @@ void AsyncEventSourceClient::_onDisconnect() {
 }
 
 void AsyncEventSourceClient::close() {
-  if (_client) {
-    _client->close();
-  }
+  _client->close();
 }
 
 void AsyncEventSourceClient::_detach() {

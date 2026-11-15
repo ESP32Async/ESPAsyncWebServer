@@ -159,7 +159,7 @@ public:
     return _client;
   }
   bool connected() const {
-    return _client && _client->connected();
+    return _client->connected();
   }
   uint32_t lastId() const {
     return _lastId;
