@@ -44,7 +44,9 @@ jobs:
           git clone --depth 1 https://github.com/MitchBradley/PosixAsyncTCP .ci/asynctcp
 
       - name: Build with Arduino-Emulator
+        # Upstream defaults USE_HTTPS to ON (TinyTLS), which fails to compile on the
+        # desktop core (A0/A1 undefined); the host build does not need TLS.
         run: |
-          cmake -S examples/arduino_emulator -B .ci/arduino-emulator-build/out -G Ninja
+          cmake -S examples/arduino_emulator -B .ci/arduino-emulator-build/out -G Ninja -DUSE_HTTPS=OFF
           cmake --build .ci/arduino-emulator-build/out --target espasyncwebserver_host --parallel
           chmod +x .ci/arduino-emulator-build/out/espasyncwebserver_host
