@@ -79,13 +79,13 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v10.4.0
         with:
           version: "latest"
           enable-cache: false
       - name: Install platformio
         run: |
-          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.2.0.post1.zip
 
       - name: Build Arduino Examples
         run: |
