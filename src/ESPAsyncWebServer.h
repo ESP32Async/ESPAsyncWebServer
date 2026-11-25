@@ -3,6 +3,13 @@
 
 #pragma once
 
+#if __has_include(<soc/soc_caps.h>)
+#include <soc/soc_caps.h>
+#endif
+#if __has_include(<sdkconfig.h>)
+#include <sdkconfig.h>
+#endif
+
 #include <Arduino.h>
 #include <FS.h>
 
@@ -82,7 +89,8 @@
 #define ASYNCWEBSERVER_USE_CHUNK_INFLIGHT 1
 #endif
 
-#if SOC_WIFI_SUPPORTED || CONFIG_ESP_WIFI_REMOTE_ENABLED || LT_ARD_HAS_WIFI || CONFIG_ESP32_WIFI_ENABLED || defined(ESP8266)
+// Determine if WiFi is supported on the current platform (does the same check as in WiFi.h)
+#if SOC_WIFI_SUPPORTED || CONFIG_ESP_HOSTED_ENABLED || defined(ESP8266)
 #define ASYNCWEBSERVER_WIFI_SUPPORTED 1
 #else
 #define ASYNCWEBSERVER_WIFI_SUPPORTED 0
