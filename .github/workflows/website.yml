@@ -10,6 +10,8 @@ permissions:
   contents: write
 jobs:
   deploy:
+    # Only run in the upstream repository (owned by ESP32Async), not in forks
+    if: github.repository_owner == 'ESP32Async'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
